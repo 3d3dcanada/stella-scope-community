@@ -1,0 +1,41 @@
+name: Printer support
+description: Ask for, or offer to test, support for another printer
+labels: ["printer-support"]
+body:
+  - type: markdown
+    attributes:
+      value: Read "Adding support for a printer" in CONTRIBUTING.md first. We can only add a printer whose protocol is documented or published by its maker, and only with someone who can test on the real machine.
+  - type: input
+    id: printer
+    attributes:
+      label: Printer and firmware
+    validations:
+      required: true
+  - type: input
+    id: docs
+    attributes:
+      label: Link to the API documentation
+    validations:
+      required: true
+  - type: textarea
+    id: want
+    attributes:
+      label: What should Stella Scope read, and what (if anything) should it control?
+    validations:
+      required: true
+  - type: dropdown
+    id: test
+    attributes:
+      label: Can you test on the real machine?
+      options:
+        - Yes, and I can test several firmware versions
+        - Yes, one firmware version
+        - No
+    validations:
+      required: true
+  - type: textarea
+    id: samples
+    attributes:
+      label: Sample responses
+      description: Responses from the printer for the calls a driver would make, with names, serial numbers, addresses and keys removed.
+      render: json

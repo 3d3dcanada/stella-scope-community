@@ -3493,7 +3493,6 @@ mod measured_tests {
                 })
         })
     }
-
 }
 
 #[cfg(test)]

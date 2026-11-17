@@ -26,7 +26,7 @@ for(const s of STEPS){
  ok(Array.isArray(s.at)&&s.at.length>0&&s.at.every(a=>typeof a==='string'&&a),`points at a control: ${s.title}`);}
 // what the owner listed is all there
 const all=STEPS.map(s=>s.title+' '+s.text).join(' ');
-for(const word of ['farm wall','Add a printer','five printers are free','demo farm','Get the 3D model','Temperatures are on the left','fans are on the right','press and hold','Calibrate','Print history','Maintenance','Pair phone','Spools'])
+for(const word of ['farm wall','Add a printer','no printer limit','demo farm','Get the 3D model','Temperatures are on the left','fans are on the right','press and hold','Calibrate','Print history','Maintenance','Pair phone','Spools'])
  ok(all.includes(word),`the walkthrough mentions: ${word}`);
 
 // the card: inside the window, and never over the control (PC first, then phone)

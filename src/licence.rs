@@ -443,5 +443,4 @@ mod tests {
         let text = issue(&SEED, "x", 6, "2026-10-12", None);
         assert!(verify(&text).unwrap_err().contains("does not check out"));
     }
-
 }

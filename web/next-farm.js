@@ -84,7 +84,6 @@ async function drawList(body){
   const why=p.state==='offline'||p.state==='error'?el('small','nx-fm-why',plainDetail(p)):null;
   row.append(dot,top,sub);if(why&&p.detail)row.append(why);row.append(act);list.append(row);}
  body.append(section(`${d.printers.length} ${d.printers.length===1?'printer':'printers'} in this farm`,list));
- const licBox=el('div','nx-q-stage');licenceState().then(st=>licenceSection(licBox,st));body.append(section('Farm licence',licBox));
  if(can&&hasDemo(d.printers)){const box=el('div','nx-fm-demo');const paint=()=>{box.replaceChildren(el('p','nx-note',`${d.printers.filter(p=>p.driver==='demo').length} simulated printers (marked DEMO). They run sample prints and never count toward the licence. Their 3D models are separate downloads: the button at the top of the farm wall gets the open ones, and the rest are under Printer models in More.`),
    button({icon:'i-view',label:'Printer models',size:'row',title:'Printer models',does:'Opens the list of 3D models, each with its licence, to add the ones the demo printers use.',onPress:()=>modelsSheet({token:d.token})}),
    button({icon:'i-close',label:'Remove the demo farm',kind:'danger',size:'row',title:'Remove the demo farm',does:'Removes every simulated printer. Real printers are not touched.',onPress:()=>demoFarmRemove(box,{token:d.token,onDone:()=>drawList(body)})}));};paint();body.append(section('Demo farm',box));}

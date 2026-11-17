@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/3d3dcanada/stella-scope-community/security/advisories/new
+    about: Do not open a public issue for a vulnerability.
+  - name: Read the user guide first
+    url: https://github.com/3d3dcanada/stella-scope-community/blob/main/docs/USER-GUIDE.md
+    about: Adding printers, calibration, cameras, the queue, the phone and troubleshooting.
