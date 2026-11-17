@@ -1,0 +1,17 @@
+name: Question
+description: Ask how something works
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: Please read the user guide (docs/USER-GUIDE.md) and search existing issues first.
+  - type: textarea
+    id: question
+    attributes:
+      label: What would you like to know?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Stella Scope version and printer type

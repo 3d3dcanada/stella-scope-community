@@ -1,0 +1,67 @@
+name: Bug report
+description: Something does not work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. A bug we can reproduce is a bug we can fix. **Remove API keys, passwords, access codes and pairing keys** before you paste anything. Local addresses like 192.168.1.20 are fine.
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead?
+      description: Include the exact text of any error message.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Stella Scope version
+      description: More, About in the app, or http://127.0.0.1:7420/api/meta. Say if it is the .deb, a source build (give the commit) or the demo.
+    validations:
+      required: true
+  - type: dropdown
+    id: demo
+    attributes:
+      label: Does it also happen in the demo (stella-scope --demo)?
+      options:
+        - I did not try
+        - Yes
+        - No, only with my printer
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Computer and browser
+      placeholder: Ubuntu 24.04, Brave 1.x
+    validations:
+      required: true
+  - type: input
+    id: printer
+    attributes:
+      label: Printer, kind and firmware
+      description: Klipper / Prusa / FlashForge, the model, and firmware (Klipper and Moonraker versions for a Klipper machine).
+      placeholder: Voron 2.4 R2 350, Klipper v0.12, Moonraker v0.9
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Terminal output, journalctl -u stella-scope, or screenshots. Do not attach a recording publicly without checking it.
+      render: shell
