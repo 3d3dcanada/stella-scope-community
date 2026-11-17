@@ -123,7 +123,7 @@ test('the sort menu starts with the default and lists every sort the code knows'
  for(const [k] of SORTS)assert.equal(sortPrinters(list,looks,k).length,1,k);
 });
 
-// U04 (2026-10-20): the S/M/L switch and its defaults (defaultSize, validSize, SIZES) are gone: there is one tile size. These two tests replace the one that
+// U04 (2026-10-20, the owner): the S/M/L switch and its defaults (defaultSize, validSize, SIZES) are gone: there is one tile size. These two tests replace the one that
 // asserted the old sizes: what is left of "how big" is the wall screen's layout, and the heat gauges read the printer's own numbers.
 test('the wall screen picks the columns that give each tile the shape of a tile and says when they fill the screen',()=>{
  assert.deepEqual(tvLayout(0,1920,1000),{cols:1,rows:1,fill:false});
@@ -198,6 +198,11 @@ test('headerKey: the header is rewritten when something it shows changes, and no
 });
 
 // The page's scripts are served as they are and there is no build step: a bracket swallowed by a trailing comment is only found by loading the page.
+test('plan3d gives the opened tile a machine first, even with the budget spent on the tiles behind it (fix-0.6.2 WO-07)',()=>{
+ const mk=(id,state,open=false)=>({id,want:true,visible:true,state,open});
+ assert.deepEqual(plan3d([mk('a','live'),mk('b','live'),mk('c','live'),mk('d','none',true)],3),{start:['d'],stop:['c']});
+ assert.deepEqual(plan3d([mk('a','live'),mk('b','live',true)],3),{start:[],stop:[]},'nothing moves when it already has one');
+});
 test('the wall\'s scripts parse as modules',()=>{
  for(const f of ['farm.js','farm-wall.js','model-view.js','next-fleet.js']){
   const r=spawnSync(process.execPath,['--input-type=module','--check'],{input:readFileSync(new URL('../web/'+f,import.meta.url))});

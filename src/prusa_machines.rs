@@ -240,15 +240,31 @@ mod tests {
     #[test]
     fn a_hostname_names_the_longest_machine_it_holds() {
         let name = |h: &str| for_hostname(h).map(|m| m.id);
-        assert_eq!(name("prusa-core-one-l"), Some("prusa_core_one_l"), "not the CORE One");
+        assert_eq!(
+            name("prusa-core-one-l"),
+            Some("prusa_core_one_l"),
+            "not the CORE One"
+        );
         assert_eq!(name("prusa-core-one"), Some("prusa_core_one"));
-        assert_eq!(name("PrusaMK39"), Some("prusa_mk4s"), "the MK3.9 is not an MK3");
+        assert_eq!(
+            name("PrusaMK39"),
+            Some("prusa_mk4s"),
+            "the MK3.9 is not an MK3"
+        );
         assert_eq!(name("prusa-mk4"), Some("prusa_mk4s"));
         assert_eq!(name("prusa-mk3s"), Some("prusa_mk3s"));
-        assert_eq!(name("prusa-mk35"), Some("prusa_mk35"), "the MK3.5 is not an MK3");
+        assert_eq!(
+            name("prusa-mk35"),
+            Some("prusa_mk35"),
+            "the MK3.5 is not an MK3"
+        );
         assert_eq!(name("prusa-xl"), Some("prusa_xl"));
         assert_eq!(name("prusa-mini"), Some("prusa_mini"));
-        assert_eq!(name("kitchen-printer"), None, "a name that matches nothing is not guessed");
+        assert_eq!(
+            name("kitchen-printer"),
+            None,
+            "a name that matches nothing is not guessed"
+        );
     }
 
     #[test]
@@ -256,12 +272,28 @@ mod tests {
         for m in MACHINES {
             assert_eq!(for_short(m.short).map(|x| x.id), Some(m.id), "{}", m.id);
             for name in m.slicer {
-                let norm = |s: &str| s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_lowercase();
-                let owners: Vec<&str> = MACHINES.iter().filter(|o| o.slicer.iter().any(|x| norm(x) == norm(name))).map(|o| o.id).collect();
-                assert_eq!(owners, vec![m.id], "{name} is one machine's name in a sliced file");
+                let norm = |s: &str| {
+                    s.chars()
+                        .filter(|c| c.is_ascii_alphanumeric())
+                        .collect::<String>()
+                        .to_ascii_lowercase()
+                };
+                let owners: Vec<&str> = MACHINES
+                    .iter()
+                    .filter(|o| o.slicer.iter().any(|x| norm(x) == norm(name)))
+                    .map(|o| o.id)
+                    .collect();
+                assert_eq!(
+                    owners,
+                    vec![m.id],
+                    "{name} is one machine's name in a sliced file"
+                );
             }
         }
-        assert_eq!(for_short("CORE One L").map(|m| m.slicer), Some(&["COREONEL"][..]));
+        assert_eq!(
+            for_short("CORE One L").map(|m| m.slicer),
+            Some(&["COREONEL"][..])
+        );
     }
 
     #[test]
@@ -269,19 +301,46 @@ mod tests {
         for m in MACHINES {
             match m.cad {
                 Some(id) => {
-                    assert!(m.no_model.is_empty(), "{}: a machine with a model gives no reason", m.id);
+                    assert!(
+                        m.no_model.is_empty(),
+                        "{}: a machine with a model gives no reason",
+                        m.id
+                    );
                     assert_eq!(id, m.id, "{}: the model is the machine's own", m.id);
-                    assert!(crate::printer_models::machine(id).is_some(), "{}: the catalogue has {id}", m.id);
+                    assert!(
+                        crate::printer_models::machine(id).is_some(),
+                        "{}: the catalogue has {id}",
+                        m.id
+                    );
                 }
                 None => {
-                    assert!(m.no_model.len() > 40, "{}: no model needs its reason in words", m.id);
-                    assert!(crate::printer_models::machine(m.id).is_none(), "{}: a machine with no model is not in the model catalogue", m.id);
+                    assert!(
+                        m.no_model.len() > 40,
+                        "{}: no model needs its reason in words",
+                        m.id
+                    );
+                    assert!(
+                        crate::printer_models::machine(m.id).is_none(),
+                        "{}: a machine with no model is not in the model catalogue",
+                        m.id
+                    );
                 }
             }
-            assert!(m.nozzle > 0.0 && m.bed.is_none_or(|b| b[0] > 50.0 && b[1] > 50.0), "{}", m.id);
+            assert!(
+                m.nozzle > 0.0 && m.bed.is_none_or(|b| b[0] > 50.0 && b[1] > 50.0),
+                "{}",
+                m.id
+            );
         }
         // The sizes the PrusaLink driver used to carry in its own list.
-        for (id, bed) in [("prusa_core_one_l", [300.0, 300.0]), ("prusa_core_one", [250.0, 220.0]), ("prusa_xl", [360.0, 360.0]), ("prusa_mk4s", [250.0, 210.0]), ("prusa_mk3s", [250.0, 210.0]), ("prusa_mini", [180.0, 180.0])] {
+        for (id, bed) in [
+            ("prusa_core_one_l", [300.0, 300.0]),
+            ("prusa_core_one", [250.0, 220.0]),
+            ("prusa_xl", [360.0, 360.0]),
+            ("prusa_mk4s", [250.0, 210.0]),
+            ("prusa_mk3s", [250.0, 210.0]),
+            ("prusa_mini", [180.0, 180.0]),
+        ] {
             assert_eq!(by_id(id).unwrap().bed, Some(bed), "{id}");
         }
     }
@@ -292,9 +351,19 @@ mod tests {
         let rows = v["machines"].as_array().unwrap();
         assert_eq!(rows.len(), MACHINES.len());
         let l = rows.iter().find(|r| r["id"] == "prusa_core_one_l").unwrap();
-        assert_eq!((l["slicer_model"].as_str(), l["nozzle_mm"].as_f64(), l["bed_mm"][0].as_f64()), (Some("COREONEL"), Some(0.4), Some(300.0)));
+        assert_eq!(
+            (
+                l["slicer_model"].as_str(),
+                l["nozzle_mm"].as_f64(),
+                l["bed_mm"][0].as_f64()
+            ),
+            (Some("COREONEL"), Some(0.4), Some(300.0))
+        );
         assert!(l["no_model"].is_null() && l["cad_model"] == "prusa_core_one_l");
         let xl = rows.iter().find(|r| r["id"] == "prusa_xl").unwrap();
-        assert!(xl["cad_model"].is_null() && xl["no_model"].as_str().unwrap().contains("no assembly"), "{xl}");
+        assert!(
+            xl["cad_model"].is_null() && xl["no_model"].as_str().unwrap().contains("no assembly"),
+            "{xl}"
+        );
     }
 }

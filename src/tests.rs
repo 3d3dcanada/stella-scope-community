@@ -486,7 +486,8 @@ fn all_static_assets_are_embedded() {
 }
 #[test]
 fn configuration_defaults_and_validation() {
-    let cfg: Config = serde_json::from_str(r#"{"moonraker_url":"http://192.168.1.131:7125"}"#).unwrap();
+    let cfg: Config =
+        serde_json::from_str(r#"{"moonraker_url":"http://192.168.1.131:7125"}"#).unwrap();
     assert_eq!(cfg.poll_interval_ms, 500);
     assert_eq!(cfg.keep_days, 14);
     assert_eq!(cfg.max_db_mb, 4096);

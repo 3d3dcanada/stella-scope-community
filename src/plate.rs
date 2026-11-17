@@ -297,10 +297,34 @@ mod tests {
     #[ignore]
     fn real_frames_compared() {
         let read = |k: &str| prepare(&std::fs::read(std::env::var(k).unwrap()).unwrap()).unwrap();
-        let r: Vec<[f64; 2]> = serde_json::from_str(&std::env::var("PLATE_REGION").unwrap()).unwrap();
-        let v = compare(&read("PLATE_EMPTY"), &read("PLATE_NOW"), &Quad([r[0], r[1], r[2], r[3]]), 1.0);
-        let loose = compare_with(&read("PLATE_EMPTY"), &read("PLATE_NOW"), &Quad([r[0], r[1], r[2], r[3]]), 1.0, &Tuning { min_cells: 1, share: 0.0, min_cluster: 1, cell_z: std::env::var("CELL_Z").ok().and_then(|s| s.parse().ok()).unwrap_or(0.6), ..Tuning::default() });
-        eprintln!("LOOSE cells_different={} box={:?}", loose.cells_different, loose.bbox);
+        let r: Vec<[f64; 2]> =
+            serde_json::from_str(&std::env::var("PLATE_REGION").unwrap()).unwrap();
+        let v = compare(
+            &read("PLATE_EMPTY"),
+            &read("PLATE_NOW"),
+            &Quad([r[0], r[1], r[2], r[3]]),
+            1.0,
+        );
+        let loose = compare_with(
+            &read("PLATE_EMPTY"),
+            &read("PLATE_NOW"),
+            &Quad([r[0], r[1], r[2], r[3]]),
+            1.0,
+            &Tuning {
+                min_cells: 1,
+                share: 0.0,
+                min_cluster: 1,
+                cell_z: std::env::var("CELL_Z")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0.6),
+                ..Tuning::default()
+            },
+        );
+        eprintln!(
+            "LOOSE cells_different={} box={:?}",
+            loose.cells_different, loose.bbox
+        );
         eprintln!(
             "VERDICT clear={} score={:.3} cells_different={} of {} box={:?}",
             v.clear, v.score, v.cells_different, v.cells_in_region, v.bbox

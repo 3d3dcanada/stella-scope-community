@@ -266,7 +266,7 @@ const seg = (layer, i) => Array.from(layer.segments.slice(i * 6, i * 6 + 6), (v)
 
 // --- a real file: three layers of a Voron Design Cube, OrcaSlicer 2.4.2, read off Stella ----------
 {
- const file = fileURLToPath(new URL('../docs/visual-review-rp-01/runtime/fixtures/cube-3-layers.gcode', import.meta.url));
+ const file = fileURLToPath(new URL('../tests/fixtures/cube-3-layers.gcode', import.meta.url));
  const bytes = readFileSync(file);
  const p = parseGcode(bytes.toString('utf8'));
  is(p.layers.length, 3, 'three layers in the trimmed cube');

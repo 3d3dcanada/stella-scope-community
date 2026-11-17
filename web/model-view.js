@@ -4,6 +4,7 @@
 import * as THREE from './vendor/three.module.js';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {parseGlb,readParts,groupIndex,simpleSet,boundsAfter,triangles,offsetOf,sizeOf} from './model-glb.js';
+import {flexRig,beltWeights,tubeWeights} from './model-follow.js';
 
 const VIEWS={iso:[0.9,0.7,1.15],front:[0,0.15,1.6],top:[0,1.8,0.001],right:[1.6,0.2,0]};
 
@@ -81,14 +82,39 @@ export async function createModelView(host,{buffer,basis,profile,simple=false,on
   // part a panel, and the words that make it something else, such as a hinge): they are drawn nearly clear, as the rig's own viewer offers.
   const seeThrough=profile?.see_through?.match?{m:new RegExp(profile.see_through.match,'i'),x:profile.see_through.except?new RegExp(profile.see_through.except,'i'):null}:null;
   const clear=p=>seeThrough&&seeThrough.m.test(p.name)&&!(seeThrough.x&&seeThrough.x.test(p.name))?{...p,material:{...p.material,alpha:Math.min(p.material.alpha,0.12)}}:p;
-  for(const p of parts){const m=addMesh(clear(p),holder(groups.get(p.key)||p.group||'fixed'));m.userData.key=p.key;m.userData.name=p.name;m.userData.group=p.group;meshes.push(m);}
-  // 2026-10-24/25: a click on a part of the machine says what it is (finish E17). A press that moves is turning the view, not a click.
+  // fix-0.6.2 WO-08 (the owner 2026-10-30, "with the belt not moved, not with the gantry"): the belts and tubes the profile names (`flex`) are moved vertex by vertex in setGroups (model-follow.js says how much). A part with no key (the Ender-3's X belt, the DoomCube's bodies) goes by its name.
+  const flexOf=p=>{const b=profile?.flex?.belts,t=profile?.flex?.tubes;if(b&&(b.includes(p.key)||b.includes(p.name)))return {kind:'belt'};const u=t?.find(x=>x.part===p.key||x.part===p.name);return u?{kind:'tube',follows:u.follows||'head'}:null;};
+  const flexWaiting=[];let flex=[],lastGroups=null;
+  const waitFlex=(m,p,at=[0,0,0],scene=false)=>{const f=flexOf(p);if(f)flexWaiting.push({...f,mesh:m,name:p.key||p.name,t:[0,1,2].map(k=>at[k]+(p.t?.[k]||0)),scene});};
+  for(const p of parts){const m=addMesh(clear(p),holder(groups.get(p.key)||groups.get(p.name)||p.group||'fixed'));m.userData.key=p.key;m.userData.name=p.name;m.userData.group=p.group;meshes.push(m);waitFlex(m,p);}
+  // the owner 2026-10-24/25: a click on a part of the machine says what it is (finish E17). A press that moves is turning the view, not a click.
   if(onPick&&!tile){const ray=new THREE.Raycaster(),at=new THREE.Vector2();let down=null;
    renderer.domElement.addEventListener('pointerdown',e=>{down=e.button===0?[e.clientX,e.clientY]:null;});
    renderer.domElement.addEventListener('pointerup',e=>{if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>5){down=null;return;}down=null;
     const r=renderer.domElement.getBoundingClientRect();at.set(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1);ray.setFromCamera(at,camera);
     const hit=ray.intersectObjects(meshes.filter(m=>m.visible),false)[0];if(hit)onPick({name:hit.object.userData.name||'',group:hit.object.userData.group||'',x:e.clientX,y:e.clientY});});}
   for(const g of motion.values()){g.updateMatrixWorld(true);}
+  // Where a group stands in the CAD pose, whatever the pose is now (a scene's files arrive after the first pose). Display frame, metres.
+  const restBox=n=>{const h=motion.get(n);if(!h)return null;const b=new THREE.Box3().setFromObject(h);if(b.isEmpty())return null;const q=h.position;return [[b.min.x-q.x,b.min.y-q.y,b.min.z-q.z],[b.max.x-q.x,b.max.y-q.y,b.max.z-q.z]];};
+  const armFlex=()=>{const rig=flexRig(profile?.motions),later=[];
+    for(const f of flexWaiting.splice(0)){const geo=f.mesh.geometry,attr=geo.attributes.position;geo.userData.rest??=attr.array.slice();const rest=geo.userData.rest;let w=null;
+      // a group that is not here yet (the Trident's head and beam arrive with its scene) keeps this one waiting; the scene arms it
+      if(f.kind==='belt'){const beamBox=rig&&restBox(rig.beam),headBox=rig&&restBox('head');if(!beamBox||!headBox){later.push(f);continue;}w={...beltWeights(rest,f.t,rig,{basis:B,axes:profile.axes,motions:profile.motions,beamBox,headBox}),beam:rig.beam,carrier:rig.carrier};}
+      else{const box=restBox(f.follows);if(!box){later.push(f);continue;}w={w:tubeWeights(rest,f.t,box),follows:f.follows};}
+      attr.setUsage(THREE.DynamicDrawUsage);f.mesh.frustumCulled=false;flex.push({kind:f.kind,name:f.name,scene:f.scene,attr,rest,...w});}
+    flexWaiting.push(...later);};
+  armFlex();
+  // ponytail: one write per vertex, uploaded whole (the toothed belts of the V0.2, the Trident and the S-BOOM are 113,000 to 239,000 vertices, 1 to 2 ms here); a tile, where nobody can see a belt lag, does it four times a second and a phone 30. If a phone ever drops frames over this, the weights go into a vertex shader.
+  let flexAt=-1e9,flexKey='',flexLate=0;
+  const moveFlex=g=>{if(!flex.length)return;const now=performance.now(),gap=tile?250:innerWidth<700?33:0;
+    // a pose skipped here is drawn a moment later, so a print that stops does not leave its belts a beat behind
+    if(now-flexAt<gap){if(!flexLate)flexLate=setTimeout(()=>{flexLate=0;if(lastGroups&&!disposed){moveFlex(lastGroups);want();}},gap);return;}
+    const none=[0,0,0],minus=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],key=JSON.stringify([g.head,g.x_beam,g.gantry,g.beam,g.z_gantry,g.bed]);if(key===flexKey)return;flexKey=key;flexAt=now;
+    for(const f of flex){const a=f.attr.array,r=f.rest,n=r.length/3;
+      if(f.w){const d=offsetOf(B,g[f.follows]||none),w=f.w;for(let i=0,k=0;i<n;i++,k+=3){const u=w[i];a[k]=r[k]+u*d[0];a[k+1]=r[k+1]+u*d[1];a[k+2]=r[k+2]+u*d[2];}}
+      else{const dc=g[f.carrier]||none,db=g[f.beam]||dc,dh=g.head||db,c=offsetOf(B,dc),y=offsetOf(B,minus(db,dc)),x=offsetOf(B,minus(dh,db)),wy=f.wy,wx=f.wx;
+        for(let i=0,k=0;i<n;i++,k+=3){const u=wy[i],v=wx[i];a[k]=r[k]+c[0]+u*y[0]+v*x[0];a[k+1]=r[k+1]+c[1]+u*y[1]+v*x[1];a[k+2]=r[k+2]+c[2]+u*y[2]+v*x[2];}}
+      f.attr.needsUpdate=true;}};
 
   // Frame it.
   const centre=new THREE.Vector3();let radius=0.2;
@@ -149,7 +175,7 @@ export async function createModelView(host,{buffer,basis,profile,simple=false,on
   // registers for it. Placements are in the CAD frame, millimetres; `follows` names a motion group (the tool on the
   // gantry moves with the head). A file is read once however many docks use it.
   let items=[];const extraCache=new Map();
-  const clearExtra=()=>{for(const g of items)g.parent?.remove(g);items=[];};
+  const clearExtra=()=>{for(const g of items)g.parent?.remove(g);items=[];flex=flex.filter(f=>!f.scene);flexWaiting.splice(0,Infinity,...flexWaiting.filter(f=>!f.scene));};
   const setScene=async(sc,{onProgress}={})=>{
     clearExtra();
     const hide=new Set((sc?.hide_machine_keys||[]).map(String));
@@ -167,13 +193,14 @@ export async function createModelView(host,{buffer,basis,profile,simple=false,on
       for(const {r,g:geo} of set){
         if(hid.has(String(r.key)))continue;
         const name=p.follows?null:groups.get(r.key);
-        if(!name){addMesh(r,g,geo,false);}
+        if(!name){waitFlex(addMesh(r,g,geo,false),r,g.position.toArray(),true);}
         else{let h=into.get(name);if(!h){h=new THREE.Group();h.position.copy(g.position);h.name=p.part+':'+name;h.userData={part:p.part,role:p.role,slot:p.slot};holder(name).add(h);into.set(name,h);items.push(h);}addMesh(r,h,geo,false);}
         drawn++;}
       (p.follows?holder(p.follows):root).add(g);items.push(g);
       if(onProgress)onProgress(++done/placements.length);
     }
     for(const m of motion.values())m.updateMatrixWorld(true);root.updateMatrixWorld(true);
+    armFlex();if(lastGroups){flexKey='';flexAt=-1e9;moveFlex(lastGroups);}
     if(!parts.length&&items.length){const b=new THREE.Box3().setFromObject(root);frame([b.min.x,b.min.y,b.min.z],[b.max.x,b.max.y,b.max.z]);outline=corners([b.min.x,b.min.y,b.min.z],[b.max.x,b.max.y,b.max.z]);put(lastView);}
     want();
     return {placed:placements.length,parts:drawn,replaced:meshes.filter(m=>m.userData.replaced).length};
@@ -185,7 +212,9 @@ export async function createModelView(host,{buffer,basis,profile,simple=false,on
   return {
     info,
     /** What the print layer and the followers need (polish WO-03): the root, a motion group by name, the basis, a redraw request. */
-    ext:{root,holder,B,want,
+    ext:{root,holder,B,want,flex:()=>flex,
+      /** Where a point of the display frame (metres) stands on the page, in page pixels (the layout checks: is the machine in its frame, is a gauge over the head). */
+      project(x,y,z){const v=new THREE.Vector3(x,y,z).project(camera),r=renderer.domElement.getBoundingClientRect();return [r.left+(v.x+1)/2*r.width,r.top+(1-v.y)/2*r.height];},
       /** Take over drawing: `want` only marks the view dirty and calls `cb`; the holder calls `drawNow`. `hold(null)` gives it back. */
       hold(cb){held=cb||null;if(!cb&&dirty)want();},
       /** Draw now if something changed; returns the milliseconds it took (0 when nothing was drawn). */
@@ -197,8 +226,8 @@ export async function createModelView(host,{buffer,basis,profile,simple=false,on
         const n=motion.get(name);if(!n)continue;
         const a=v[0]||0,b=v[1]||0,c=v[2]||0;
         n.position.set((B[0][0]*a+B[0][1]*b+B[0][2]*c)/1000,(B[1][0]*a+B[1][1]*b+B[1][2]*c)/1000,(B[2][0]*a+B[2][1]*b+B[2][2]*c)/1000);}
-      for(const m of motion.values())m.updateMatrixWorld(true);want();},
-    /** 2026-10-25 (live numbers on the machine): where a motion group stands on the screen, in page pixels. `where` is 'bottom' (the nozzle's tip of the
+      for(const m of motion.values())m.updateMatrixWorld(true);lastGroups=g;moveFlex(g);want();},
+    /** the owner 2026-10-25 (live numbers on the machine): where a motion group stands on the screen, in page pixels. `where` is 'bottom' (the nozzle's tip of the
      *  head), 'top' (the bed's surface) or the middle. Null when the group is not in this model or is behind the camera. */
     anchor(name,where='center'){const g=motion.get(name);if(!g||disposed)return null;const box=new THREE.Box3().setFromObject(g);if(box.isEmpty())return null;
       const p=box.getCenter(new THREE.Vector3());if(where==='bottom')p.y=box.min.y;else if(where==='top')p.y=box.max.y;p.project(camera);if(p.z>1||p.z<-1)return null;
@@ -208,7 +237,7 @@ export async function createModelView(host,{buffer,basis,profile,simple=false,on
     snapshot(into,maxW=640){if(disposed||!renderer.domElement.width)return false;renderer.render(scene,camera);const src=renderer.domElement,w=Math.min(maxW,src.width),h=Math.max(1,Math.round(src.height*w/src.width));if(into.width!==w)into.width=w;if(into.height!==h)into.height=h;const g=into.getContext('2d');g.clearRect(0,0,w,h);g.drawImage(src,0,0,w,h);return true;},
     /** Median frame time of the recent draws, in ms (null before any draw). */
     frameMedian(){if(!perf.ms.length)return null;const s=[...perf.ms].sort((a,b)=>a-b);return s[s.length>>1];},
-    dispose(){disposed=true;if(raf)cancelAnimationFrame(raf);ro.disconnect();document.removeEventListener('visibilitychange',vis);controls.dispose();
+    dispose(){disposed=true;if(raf)cancelAnimationFrame(raf);clearTimeout(flexLate);ro.disconnect();document.removeEventListener('visibilitychange',vis);controls.dispose();
       for(const m of meshes)m.geometry.dispose();clearExtra();for(const p of extraCache.values())p.then(s=>s.forEach(x=>x.g.dispose())).catch(()=>{});for(const m of materials.values())m.dispose();renderer.dispose();
       // Polish WO-04: let the GL context go now, not whenever the garbage collector gets to it (Chrome keeps about 16 and kills the oldest beyond that).
       try{renderer.forceContextLoss();}catch{}renderer.domElement.remove();},

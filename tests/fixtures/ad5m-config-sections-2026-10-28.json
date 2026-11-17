@@ -1,0 +1,6 @@
+{"_about":"Section names of a Z-Mod Adventurer 5M: printer.base.cfg and printer.cfg from the 2026-10-27 backup plus the object list the 10-28 capture recorded. No address, no secret.",
+ "sections":["printer","mcu","mcu eboard","stepper_x","stepper_y","stepper_z","extruder","heater_bed","probe","bed_mesh","input_shaper","resonance_tester","adxl345",
+  "tmc2209 stepper_x","tmc2209 stepper_y","tmc2209 stepper_z","tmc2209 extruder","controller_fan driver_fan","heater_fan heat_fan","fan_generic fanM106","fan_generic chamber_fan",
+  "display_status","exclude_object","virtual_sdcard","pause_resume","idle_timeout","gcode_arcs","filament_switch_sensor e0_sensor","temperature_sensor weightValue",
+  "gcode_macro auto_full_bed_level","gcode_macro bed_level_screws_tune","gcode_macro screws_tilt_calculate","gcode_macro remove_zmod","gcode_macro clear_emmc","gcode_macro zflash"],
+ "input_shaper":{"shaper_type":"mzv","shaper_type_x":"mzv","shaper_type_y":"zv","shaper_freq_x":56.2,"shaper_freq_y":46.0,"damping_ratio_x":0.1,"damping_ratio_y":0.1}}

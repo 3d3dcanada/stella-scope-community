@@ -1,10 +1,10 @@
 //! PrusaLink (Prusa CORE One, MK4, XL...), farm board WO-04. Written from Prusa's public OpenAPI
-//! (`Prusa-Link-Web/spec/openapi.yaml`, 1.0.0-draft) and from our own slicer-upload (which already
+//! (`Prusa-Link-Web/spec/openapi.yaml`, 1.0.0-draft) and from the owner's own slicer-upload (which already
 //! uploads to his CORE One L); no code from any other project. Everything it reports is what
 //! `/api/v1/status`, `/info`, `/job`, `/storage` and `/files` say; a value PrusaLink does not give is
 //! `null`, and the UI shows it as unknown.
 //!
-//! Spec facts relied on (verified against the spec text, NOT yet against our printer: it was off
+//! Spec facts relied on (verified against the spec text, NOT yet against the owner's printer: it was off
 //! when this was written, so a live capture is owed in WO-04's STOP-REPORT):
 //! - HTTP digest auth (MD5, qop=auth) or `X-Api-Key`.
 //! - `GET /api/v1/status`: printer.state IDLE|BUSY|PRINTING|PAUSED|FINISHED|STOPPED|ERROR|ATTENTION|READY,
@@ -31,7 +31,7 @@ const MIN_INTERVAL_S: f64 = 1.0;
 /// How long a file transfer or a print start may take (a 5 MB file over the printer's own web server takes seconds).
 const TRANSFER_TIMEOUT_S: u64 = 180;
 
-/// 2026-10-25 ("the Prusa is on, but I can't do anything ... I can't change the nozzle"). PrusaLink's v1 API has no temperature, fan or
+/// the owner 2026-10-25 ("the Prusa is on, but I can't do anything ... I can't change the nozzle"). PrusaLink's v1 API has no temperature, fan or
 /// homing endpoint, but it starts a file it is given (`Print-After-Upload: ?1`). A one-line file is how heat, the part fan, homing and motors
 /// off reach a CORE One: the route Prusa users run themselves (Prusa-Link issue #832, a working example on a Core One). The file starts with
 /// `M862.6 P"Input shaper"`, which an input-shaper printer wants before it runs a file by itself. It only runs while the printer is idle:
@@ -42,10 +42,18 @@ pub const COMMAND_FILE: &str = "stella-command.gcode";
 pub fn command_gcode(action: &Action) -> Option<String> {
     use crate::driver::Heater;
     let body = match action {
-        Action::SetTemperature { heater: Heater::Nozzle, celsius } => format!("M104 S{:.0}", celsius.max(0.0)),
-        Action::SetTemperature { heater: Heater::Bed, celsius } => format!("M140 S{:.0}", celsius.max(0.0)),
+        Action::SetTemperature {
+            heater: Heater::Nozzle,
+            celsius,
+        } => format!("M104 S{:.0}", celsius.max(0.0)),
+        Action::SetTemperature {
+            heater: Heater::Bed,
+            celsius,
+        } => format!("M140 S{:.0}", celsius.max(0.0)),
         Action::Fan { fraction } if *fraction <= 0.0 => "M107".to_owned(),
-        Action::Fan { fraction } => format!("M106 S{:.0}", (fraction.clamp(0.0, 1.0) * 255.0).round()),
+        Action::Fan { fraction } => {
+            format!("M106 S{:.0}", (fraction.clamp(0.0, 1.0) * 255.0).round())
+        }
         Action::Home => "G28".to_owned(),
         Action::MotorsOff => "M84".to_owned(),
         _ => return None,
@@ -248,7 +256,9 @@ impl PrusaLink {
                 .map(Some)
                 .map_err(|e| format!("PrusaLink's answer for {path} could not be understood: {e}")),
             401 => Err("PrusaLink refused the login; check the user and password".into()),
-            404 => Err(format!("this printer's PrusaLink has no {path}; its firmware may be too old")),
+            404 => Err(format!(
+                "this printer's PrusaLink has no {path}; its firmware may be too old"
+            )),
             code => Err(format!("PrusaLink answered {path} with an error ({code})")),
         }
     }
@@ -303,7 +313,10 @@ impl PrusaLink {
             } else {
                 // Polish WO-07 (live pass 2026-10-19): on a FAT stick `name` is the 8.3 short name ("TWISTB~1.GCO"), which
                 // neither ends in .gcode nor reads as anything; the real name is `display_name`, and PrusaLink answers to it.
-                let long = child["display_name"].as_str().filter(|s| !s.is_empty() && !s.contains('/')).unwrap_or(name);
+                let long = child["display_name"]
+                    .as_str()
+                    .filter(|s| !s.is_empty() && !s.contains('/'))
+                    .unwrap_or(name);
                 if printable(long) {
                     let rel = format!("{}{long}", dir.strip_prefix(root).unwrap_or(""));
                     out.push(json!({"path":rel,"size":child["size"],"modified":child["m_timestamp"],"display_name":long}));
@@ -400,7 +413,10 @@ impl PrusaLink {
         let status = self
             .get_json("/api/v1/status")?
             .ok_or("PrusaLink returned no status")?;
-        let word = status["printer"]["state"].as_str().unwrap_or("").to_ascii_uppercase();
+        let word = status["printer"]["state"]
+            .as_str()
+            .unwrap_or("")
+            .to_ascii_uppercase();
         if !matches!(word.as_str(), "IDLE" | "READY" | "FINISHED" | "STOPPED") {
             return Err(format!(
                 "PrusaLink takes heat, fan and homing only while the printer is idle (it is {}): it has no way to change them during a print, so nothing was sent",
@@ -609,7 +625,7 @@ impl Driver for PrusaLink {
     }
     fn cameras(&self) -> Result<Vec<CameraSource>> {
         // The CORE One's Buddy3D camera is its own device with its own address; PrusaLink does not
-        // list it (2026-08-31, CAMERA.md). The address is set per printer.
+        // list it (the owner, 2026-08-31, CAMERA.md). The address is set per printer.
         Ok(self
             .cfg
             .camera_url
@@ -667,7 +683,9 @@ impl Driver for PrusaLink {
                     "PrusaLink {} {what} in its current state",
                     crate::driver::PRINTER_REFUSED
                 )),
-                code => Err(format!("PrusaLink answered with an error ({code}) when asked to {what}")),
+                code => Err(format!(
+                    "PrusaLink answered with an error ({code}) when asked to {what}"
+                )),
             }
         };
         match action {
@@ -739,7 +757,9 @@ impl Driver for PrusaLink {
                 "PrusaLink refused the upload: the printer is busy or the file already exists"
                     .into(),
             ),
-            code => Err(format!("PrusaLink answered the upload with an error ({code})")),
+            code => Err(format!(
+                "PrusaLink answered the upload with an error ({code})"
+            )),
         }
     }
 }
@@ -748,7 +768,7 @@ impl Driver for PrusaLink {
 mod tests {
     use super::*;
 
-    /// Shapes from the OpenAPI spec (SPEC, not a capture from our printer).
+    /// Shapes from the OpenAPI spec (SPEC, not a capture from the owner's printer).
     fn status(state: &str, with_xy: bool) -> Value {
         let mut printer = json!({"state":state,"temp_bed":60.0,"target_bed":60.0,"temp_nozzle":214.7,"target_nozzle":215.0,
             "axis_z":12.4,"flow":100,"speed":100,"fan_hotend":5200,"fan_print":3100});
@@ -1048,8 +1068,17 @@ G1 X1
         let d = live(&fake, "secret");
         let body = b"; generated by PrusaSlicer\nG28\nG1 X10 Y10 Z0.2 E0.5 F1200\n";
         d.upload("long name plate.gcode", body, false).unwrap();
-        assert_eq!(d.file_bytes("long name plate.gcode", 1 << 20).unwrap(), body.to_vec());
-        assert!(d.files().unwrap().iter().any(|f| f["path"] == "long name plate.gcode"), "listed by its long name");
+        assert_eq!(
+            d.file_bytes("long name plate.gcode", 1 << 20).unwrap(),
+            body.to_vec()
+        );
+        assert!(
+            d.files()
+                .unwrap()
+                .iter()
+                .any(|f| f["path"] == "long name plate.gcode"),
+            "listed by its long name"
+        );
     }
 
     #[test]
@@ -1057,7 +1086,11 @@ G1 X1
         let fake = crate::fakes::FakePrusaLink::start(0, "maker", "secret");
         let d = live(&fake, "secret");
         let files = d.files().unwrap();
-        assert_eq!(files.len(), 3, "two with pictures and one without (finish-2 F02)");
+        assert_eq!(
+            files.len(),
+            3,
+            "two with pictures and one without (finish-2 F02)"
+        );
         assert_eq!(
             files[0]["path"], "cube_20mm_PETG.bgcode",
             "newest first, .bgcode counts as printable"
@@ -1103,7 +1136,10 @@ G1 X1
             let r = service.handle(
                 "GET",
                 p,
-                &BTreeMap::from([("host".into(), "127.0.0.1:7420".into())]),
+                &BTreeMap::from([
+                    ("host".into(), "127.0.0.1:7420".into()),
+                    ("sec-fetch-site".into(), "same-origin".into()),
+                ]),
                 &[],
                 IpAddr::from([127, 0, 0, 1]),
             );
@@ -1123,8 +1159,17 @@ G1 X1
         for id in ["jog", "console", "qgl", "filament_load"] {
             assert_eq!(cmd(id)["supported"], false, "{id}");
         }
-        // heat, fan, home and motors off go as a one-line file while idle (COMMAND_FILE, 2026-10-25)
-        for id in ["pause", "resume", "cancel", "print_start", "set_heater", "set_fan", "home", "motors_off"] {
+        // heat, fan, home and motors off go as a one-line file while idle (COMMAND_FILE, the owner 2026-10-25)
+        for id in [
+            "pause",
+            "resume",
+            "cancel",
+            "print_start",
+            "set_heater",
+            "set_fan",
+            "home",
+            "motors_off",
+        ] {
             assert_eq!(cmd(id)["supported"], true, "{id}");
         }
         assert_eq!(cmd("pause")["allowed"], true);
@@ -1164,7 +1209,7 @@ G1 X1
         let d = PrusaLink::new(&Config::default());
         let c = d.capabilities();
         assert!(c.pause_resume && c.cancel && c.start_print && c.upload && c.thumbnails);
-        // heat, fan, home and motors off go through a one-line file while idle (COMMAND_FILE, 2026-10-25); a hand jog and typed G-code still do not
+        // heat, fan, home and motors off go through a one-line file while idle (COMMAND_FILE, the owner 2026-10-25); a hand jog and typed G-code still do not
         for (id, want) in [
             ("set_heater", true),
             ("set_fan", true),
@@ -1190,14 +1235,35 @@ G1 X1
     #[test]
     fn a_command_is_a_one_line_file_that_an_input_shaper_printer_runs_by_itself() {
         use crate::driver::Heater;
-        let g = command_gcode(&Action::SetTemperature { heater: Heater::Nozzle, celsius: 215.4 }).unwrap();
+        let g = command_gcode(&Action::SetTemperature {
+            heater: Heater::Nozzle,
+            celsius: 215.4,
+        })
+        .unwrap();
         assert!(g.contains("M862.6 P\"Input shaper\"\nM104 S215\n"), "{g}");
-        assert!(command_gcode(&Action::SetTemperature { heater: Heater::Bed, celsius: 0.0 }).unwrap().contains("\nM140 S0\n"));
-        assert!(command_gcode(&Action::Fan { fraction: 0.5 }).unwrap().contains("\nM106 S128\n"));
-        assert!(command_gcode(&Action::Fan { fraction: 0.0 }).unwrap().contains("\nM107\n"));
+        assert!(command_gcode(&Action::SetTemperature {
+            heater: Heater::Bed,
+            celsius: 0.0
+        })
+        .unwrap()
+        .contains("\nM140 S0\n"));
+        assert!(command_gcode(&Action::Fan { fraction: 0.5 })
+            .unwrap()
+            .contains("\nM106 S128\n"));
+        assert!(command_gcode(&Action::Fan { fraction: 0.0 })
+            .unwrap()
+            .contains("\nM107\n"));
         assert!(command_gcode(&Action::Home).unwrap().contains("\nG28\n"));
-        assert!(command_gcode(&Action::MotorsOff).unwrap().contains("\nM84\n"));
-        assert!(command_gcode(&Action::Jog { axis: 'z', mm: 1.0 }).is_none(), "no hand jog: PrusaLink does not say whether it is homed");
-        assert!(command_gcode(&Action::Gcode("M104 S200".into())).is_none(), "typed G-code is not carried");
+        assert!(command_gcode(&Action::MotorsOff)
+            .unwrap()
+            .contains("\nM84\n"));
+        assert!(
+            command_gcode(&Action::Jog { axis: 'z', mm: 1.0 }).is_none(),
+            "no hand jog: PrusaLink does not say whether it is homed"
+        );
+        assert!(
+            command_gcode(&Action::Gcode("M104 S200".into())).is_none(),
+            "typed G-code is not carried"
+        );
     }
 }

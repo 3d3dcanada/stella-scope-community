@@ -72,7 +72,8 @@ fn shared(kind: &str, cfg: &Config) -> Shared {
                 } else {
                     Box::new(flashforge::FlashForge::new(cfg))
                 };
-                let face = std::sync::Arc::new(std::sync::Mutex::new((d.capabilities(), d.brand())));
+                let face =
+                    std::sync::Arc::new(std::sync::Mutex::new((d.capabilities(), d.brand())));
                 Entry {
                     handle: std::sync::Arc::new(std::sync::Mutex::new(d)),
                     face,
@@ -222,7 +223,11 @@ mod face_tests {
         let start = Instant::now();
         let again = shared("prusalink", &cfg);
         let (caps, brand) = (again.capabilities(), again.brand());
-        assert!(start.elapsed() < Duration::from_millis(300), "waited {:?}", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_millis(300),
+            "waited {:?}",
+            start.elapsed()
+        );
         assert!(caps.pause_resume && caps.thumbnails && !caps.klipper && brand == "PrusaLink");
         busy.join().unwrap();
         // once the poll is over the driver answers for itself again
@@ -248,9 +253,16 @@ mod face_tests {
         });
         hold.recv().unwrap();
         let start = Instant::now();
-        assert!(d.file_thumbnail("a.gcode", 1024).is_err(), "nothing answers on port 9");
+        assert!(
+            d.file_thumbnail("a.gcode", 1024).is_err(),
+            "nothing answers on port 9"
+        );
         assert!(d.files().is_err());
-        assert!(start.elapsed() < Duration::from_millis(2000), "waited {:?} for the lock", start.elapsed());
+        assert!(
+            start.elapsed() < Duration::from_millis(2000),
+            "waited {:?} for the lock",
+            start.elapsed()
+        );
         busy.join().unwrap();
         forget("transfer-test-busy");
     }

@@ -866,7 +866,8 @@ mod tests {
     }
     #[test]
     fn old_configs_receive_investigation_defaults() {
-        let c: Config = serde_json::from_str(r#"{"moonraker_url":"http://192.168.1.131:7125"}"#).unwrap();
+        let c: Config =
+            serde_json::from_str(r#"{"moonraker_url":"http://192.168.1.131:7125"}"#).unwrap();
         assert_eq!(c.investigation.max_samples, 12000);
         c.validate().unwrap();
     }

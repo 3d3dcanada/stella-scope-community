@@ -1,6 +1,6 @@
 //! FlashForge Adventurer 5M, stock firmware 5.1.x (farm board WO-05).
 //!
-//! Written from our own measurements of his printer (`~/3d3d-printers/ad5m/`: probe.sh, ffsend.py,
+//! Written from the owner's own measurements of his printer (`~/3d3d-printers/ad5m/`: probe.sh, ffsend.py,
 //! RESEARCH.md and a real `/detail` reply captured 2026-08-30 on firmware 5.1.7, serial redacted) and
 //! the published endpoint list of Parallel-7/flashforge-api-docs (read, not copied). OrcaSlicer's
 //! Flashforge.cpp (AGPL) and ff-5mp-api-ts (licence unstated) were not copied.
@@ -140,7 +140,7 @@ pub fn normalise(t: &Telemetry, last_file: &str) -> Value {
     })
 }
 
-/// `/detail`'s object (field names as captured from our printer).
+/// `/detail`'s object (field names as captured from the owner's printer).
 pub fn from_detail(d: &Value) -> Telemetry {
     let f = |k: &str| d[k].as_f64().filter(|n| n.is_finite());
     Telemetry {
@@ -174,7 +174,7 @@ fn first_number(s: &str) -> Option<f64> {
     t.parse().ok()
 }
 
-/// The 8899 replies (formats from our probe.sh regexes and RESEARCH.md): M119 status, M105 temps,
+/// The 8899 replies (formats from the owner's probe.sh regexes and RESEARCH.md): M119 status, M105 temps,
 /// M27 progress, M114 position.
 pub fn from_tcp(m119: &str, m105: &str, m27: &str, m114: &str) -> Telemetry {
     let word = |t: &str, k: &str| {
@@ -232,7 +232,7 @@ pub fn from_tcp(m119: &str, m105: &str, m27: &str, m114: &str) -> Telemetry {
     }
 }
 
-/// A file name the printer will take: our ffsend rule, anything outside [A-Za-z0-9._-] becomes `_`.
+/// A file name the printer will take: the owner's ffsend rule, anything outside [A-Za-z0-9._-] becomes `_`.
 pub fn sanitize(name: &str) -> String {
     name.chars()
         .map(|c| {
@@ -250,7 +250,7 @@ fn printable(name: &str) -> bool {
     l.ends_with(".gcode") || l.ends_with(".gx") || l.ends_with(".3mf") || l.ends_with(".gcode.3mf")
 }
 
-/// `~M661`'s reply: binary framed, names appear as `/data/<name>` (our RESEARCH.md).
+/// `~M661`'s reply: binary framed, names appear as `/data/<name>` (the owner's RESEARCH.md).
 pub fn parse_m661(bytes: &[u8]) -> Vec<String> {
     let mut out = Vec::new();
     let marker = b"/data/";
@@ -628,7 +628,9 @@ impl Driver for FlashForge {
                     }
                 }
                 Err(e) if e.contains("LAN mode") || e.contains("check code") => {
-                    warnings.push(format!("Live data is limited: {e}; the printer is still read"));
+                    warnings.push(format!(
+                        "Live data is limited: {e}; the printer is still read"
+                    ));
                     if let Ok(mut s) = self.st.lock() {
                         s.lan_off = Some((ts, e));
                     }
@@ -758,9 +760,19 @@ impl Driver for FlashForge {
         if url.is_none() && self.creds().is_some() {
             // Not seen yet: ask the printer. The non-Pro 5M answers an empty address (no camera).
             if let Ok(v) = self.http("/detail", None) {
+                // release-2026-11-14 (red team #9): the printer names its own camera; anything pointing elsewhere, or with control
+                // characters or spaces that would split the request, is not opened (a hostile printer could aim the service anywhere).
+                let own = self.host();
                 url = v["detail"]["cameraStreamUrl"]
                     .as_str()
-                    .filter(|u| u.starts_with("http://"))
+                    .filter(|u| u.starts_with("http://") && crate::config::camera_ok(u))
+                    .filter(|u| {
+                        let h = u["http://".len()..]
+                            .split(['/', '?', ':'])
+                            .next()
+                            .unwrap_or("");
+                        h == own || h == "0.0.0.0"
+                    })
                     .map(str::to_owned);
                 if let (Ok(mut s), Some(u)) = (self.st.lock(), url.clone()) {
                     s.camera_url = Some(u);
@@ -854,9 +866,17 @@ impl Driver for FlashForge {
                 }
                 // F05: the HTTP door starts a file (`/printGcode`); `~M23` over TCP answers "File selected" and on 5.1.9
                 // does not start it. TCP stays the way when LAN mode is off.
-                self.http("/printGcode", Some(json!({"fileName":sanitize(filename),"levelingBeforePrint":false})))
-                    .map(|_| json!({"result":"ok"}))
-                    .or_else(|_| ok(self.tcp(&[format!("~M23 0:/user/{}", sanitize(filename))])?, "that file"))
+                self.http(
+                    "/printGcode",
+                    Some(json!({"fileName":sanitize(filename),"levelingBeforePrint":false})),
+                )
+                .map(|_| json!({"result":"ok"}))
+                .or_else(|_| {
+                    ok(
+                        self.tcp(&[format!("~M23 0:/user/{}", sanitize(filename))])?,
+                        "that file",
+                    )
+                })
             }
             other => Err(format!(
                 "the stock FlashForge firmware has no verified way to do {other:?}"
@@ -869,7 +889,7 @@ impl Driver for FlashForge {
             return Err("the file name must be a plain .gcode name".into());
         }
         let clean = sanitize(name);
-        // Finish-2 F05 (2026-10-19's AD5M on firmware 5.1.9): `~M28`/`~M29` over TCP answers "Done saving file." but
+        // Finish-2 F05 (2026-10-19, the owner's AD5M on firmware 5.1.9): `~M28`/`~M29` over TCP answers "Done saving file." but
         // saves an empty file ("File opened: ... Size: 0"), so a dry run was reported started while the printer stayed
         // ready. The HTTP door's `/uploadGcode` (multipart, the check code in headers) saves the file whole and can start
         // it; it is the only upload used.
@@ -898,22 +918,30 @@ impl Driver for FlashForge {
             .send(&body[..])
             .map_err(|e| format!("the file could not be sent: {e}"))?;
         let mut reply = Vec::new();
-        let _ = r.body_mut().as_reader().take(64 * 1024).read_to_end(&mut reply);
+        let _ = r
+            .body_mut()
+            .as_reader()
+            .take(64 * 1024)
+            .read_to_end(&mut reply);
         let v: Value = serde_json::from_slice(&reply).unwrap_or(Value::Null);
         match v["code"].as_i64() {
             Some(0) => Ok(json!({"result":"ok","name":clean,"started":start})),
-            Some(-2) => Err("LAN mode is off on the printer's panel; turn it on to send files".into()),
-            _ => Err(format!("the printer did not save the file: {}", String::from_utf8_lossy(&reply).trim())),
+            Some(-2) => {
+                Err("LAN mode is off on the printer's panel; turn it on to send files".into())
+            }
+            _ => Err(format!(
+                "the printer did not save the file: {}",
+                String::from_utf8_lossy(&reply).trim()
+            )),
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// our printer, 2026-08-30, firmware 5.1.7: the `detail` object as captured (serial, MAC and name
+    /// the owner's printer, 2026-08-30, firmware 5.1.7: the `detail` object as captured (serial, MAC and name
     /// replaced by placeholders; every number and word as it was).
     fn captured_detail() -> Value {
         serde_json::from_str(r#"{"autoShutdown":"close","autoShutdownTime":5,"cameraStreamUrl":"","chamberFanSpeed":100,"chamberTargetTemp":0,
@@ -1248,7 +1276,7 @@ mod tests {
     }
 
     #[test]
-    /// Finish-2 F05: the upload goes through the HTTP door (TCP `~M28` saved an empty file on our 5.1.9), whole, and
+    /// Finish-2 F05: the upload goes through the HTTP door (TCP `~M28` saved an empty file on the owner's 5.1.9), whole, and
     /// starts the file only when asked; a start of a file already there uses `/printGcode`.
     fn upload_goes_over_http_whole_and_starts_only_when_asked() {
         let f = fake();
@@ -1259,17 +1287,34 @@ mod tests {
             let s = f.state.lock().unwrap();
             assert_eq!(s.uploads, vec![("plate_one.gcode".to_owned(), 10_000)]);
             assert!(s.files.contains(&"plate_one.gcode".to_owned()));
-            assert_ne!(s.file, "plate_one.gcode", "printNow false does not start it");
-            assert!(s.tcp_log.iter().all(|l| !l.starts_with("~M28")), "no TCP upload: {:?}", s.tcp_log);
+            assert_ne!(
+                s.file, "plate_one.gcode",
+                "printNow false does not start it"
+            );
+            assert!(
+                s.tcp_log.iter().all(|l| !l.starts_with("~M28")),
+                "no TCP upload: {:?}",
+                s.tcp_log
+            );
         }
-        d.act(&Action::StartPrint { filename: "plate one.gcode".into() }).unwrap();
+        d.act(&Action::StartPrint {
+            filename: "plate one.gcode".into(),
+        })
+        .unwrap();
         let s = f.state.lock().unwrap();
-        assert_eq!((s.status.as_str(), s.file.as_str()), ("printing", "plate_one.gcode"));
+        assert_eq!(
+            (s.status.as_str(), s.file.as_str()),
+            ("printing", "plate_one.gcode")
+        );
         drop(s);
         let f2 = fake();
         let d2 = driver(&f2, true);
         d2.upload("cube.gcode", b"G1 X1\n", true).unwrap();
-        assert_eq!(f2.state.lock().unwrap().file, "cube.gcode", "printNow true starts it");
+        assert_eq!(
+            f2.state.lock().unwrap().file,
+            "cube.gcode",
+            "printNow true starts it"
+        );
         assert!(d.upload("../x.gcode", b"", false).is_err());
         assert!(d.upload("notes.txt", b"", false).is_err());
     }

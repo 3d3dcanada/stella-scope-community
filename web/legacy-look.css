@@ -1,4 +1,4 @@
-/* rc9 WO-05 (2026-10-23, "we're worried about the look"): the classic pages (Investigate, Workspace, the classic HUD) in
+/* rc9 WO-05 (the owner 2026-10-23, "we're worried about the look"): the classic pages (Investigate, Workspace, the classic HUD) in
    look A's surface: the lit room behind, real glass panes with a rim, the same corners. Loaded last on each; layout untouched. */
 :root{--glass-rim:inset 0 1px 0 rgba(255,255,255,.30),inset 0 0 0 1px rgba(255,255,255,.06),inset 0 -1px 0 rgba(0,0,0,.35),inset 0 26px 34px -26px rgba(160,235,255,.18);
  --lk-glass:linear-gradient(140deg,rgba(255,255,255,.10),rgba(255,255,255,.02) 45%,rgba(255,255,255,.04)),rgba(16,22,30,.55);

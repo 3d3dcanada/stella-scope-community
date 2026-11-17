@@ -69,7 +69,7 @@ fn load(farm: &Farm) -> Value {
 
 fn save(farm: &Farm, v: &Value) -> Result<()> {
     let path = books_path(farm);
-    let temp = PathBuf::from(format!("{}.tmp-{}", path.display(), std::process::id()));
+    let temp = crate::farm::unique_temp(&path);
     fs::write(
         &temp,
         serde_json::to_vec_pretty(v).map_err(|e| e.to_string())?,
@@ -389,16 +389,24 @@ fn check_low(farm: &Farm) {
 }
 
 /// What a printer's change of state says to the farm, if anything: `Some("offline")` or `Some("online")`.
-/// U03 b (2026-10-20: "it said back online, the wall did not change"): a Klipper printer that is switched on answers Moonraker for the half
+/// U03 b (2026-10-20, the owner: "it said back online, the wall did not change"): a Klipper printer that is switched on answers Moonraker for the half
 /// minute Klipper takes to start, and in that time the wall (rightly) says "Needs attention", but the feed said "back online" the moment it was
 /// no longer offline. A printer is back online when it has left offline AND is in a state it can work from; while it answers but is in error it
 /// stays lost, and says so once, when it is ready. `lost` holds the printers that have gone offline and not yet come back.
-fn state_note(lost: &mut HashSet<String>, id: &str, before: Option<&str>, now: &str) -> Option<&'static str> {
+fn state_note(
+    lost: &mut HashSet<String>,
+    id: &str,
+    before: Option<&str>,
+    now: &str,
+) -> Option<&'static str> {
     if now == "offline" {
         let first = lost.insert(id.to_owned());
         // a print lost mid-way is told by the recorder already; the first look at a printer that is already off is not news either
-        return (first && before.is_some_and(|b| b != "offline" && !matches!(b, "printing" | "paused" | "heating")))
-            .then_some("offline");
+        return (first
+            && before.is_some_and(|b| {
+                b != "offline" && !matches!(b, "printing" | "paused" | "heating")
+            }))
+        .then_some("offline");
     }
     if now != "error" && lost.remove(id) {
         return Some("online");
@@ -504,8 +512,15 @@ pub fn analytics(farm: &Farm, days: f64) -> Value {
             // The hours are the print's own duration (the one the history shows), clipped to the window only when the print began before it.
             // Finish-2 F06: a print the recorder joined half-way (the service started during it) counted only the minutes the recorder saw, so the
             // analytics said 8 minutes for the print the history lists as 54.
-            let d = s.duration_s.unwrap_or((s.end_ts - s.start_ts).max(0.0)).max(0.0);
-            let inside = if s.start_ts >= from { d } else { (s.end_ts - from).max(0.0).min(d) };
+            let d = s
+                .duration_s
+                .unwrap_or((s.end_ts - s.start_ts).max(0.0))
+                .max(0.0);
+            let inside = if s.start_ts >= from {
+                d
+            } else {
+                (s.end_ts - from).max(0.0).min(d)
+            };
             secs += inside;
             let grams_here = s
                 .filament_used
@@ -719,7 +734,7 @@ pub fn plug_switch(farm: &Farm, id: &str, body: &[u8]) -> Result<Value> {
 // ---- slicer upload key -------------------------------------------------------------------------
 // A slicer's "OctoPrint" printer stores a key. By default that is its own upload key, which can only
 // drop a file in the queue (the plate check and a person still stand between it and a printer). The
-// owner can also let the farm control key work there, or turn slicer uploads off (2026-10-13: "both
+// owner can also let the farm control key work there, or turn slicer uploads off (the owner 2026-10-13: "both
 // ways, a person can switch that in settings").
 
 fn slicer_path(farm: &Farm) -> PathBuf {
@@ -739,7 +754,7 @@ fn slicer_cache() -> &'static Mutex<Option<Value>> {
 
 fn write_private(path: &PathBuf, v: &Value) -> Result<()> {
     use std::io::Write;
-    let temp = PathBuf::from(format!("{}.tmp-{}", path.display(), std::process::id()));
+    let temp = crate::farm::unique_temp(&path);
     let mut o = fs::OpenOptions::new();
     o.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -829,13 +844,27 @@ mod tests {
     #[test]
     fn a_printer_is_back_online_when_it_is_ready_not_when_it_merely_answers() {
         let mut lost = HashSet::new();
-        let step = |l: &mut HashSet<String>, before: Option<&str>, now: &str| state_note(l, "a", before, now);
-        assert_eq!(step(&mut lost, Some("idle"), "offline"), Some("offline"), "an idle printer going dark is news");
+        let step = |l: &mut HashSet<String>, before: Option<&str>, now: &str| {
+            state_note(l, "a", before, now)
+        };
+        assert_eq!(
+            step(&mut lost, Some("idle"), "offline"),
+            Some("offline"),
+            "an idle printer going dark is news"
+        );
         assert_eq!(step(&mut lost, Some("offline"), "offline"), None, "once");
         // Klipper starting: Moonraker answers, Klipper is not ready (the wall says Needs attention)
-        assert_eq!(step(&mut lost, Some("offline"), "error"), None, "answering in error is not back online");
+        assert_eq!(
+            step(&mut lost, Some("offline"), "error"),
+            None,
+            "answering in error is not back online"
+        );
         assert_eq!(step(&mut lost, Some("error"), "error"), None);
-        assert_eq!(step(&mut lost, Some("error"), "idle"), Some("online"), "ready now: say so, once");
+        assert_eq!(
+            step(&mut lost, Some("error"), "idle"),
+            Some("online"),
+            "ready now: say so, once"
+        );
         assert_eq!(step(&mut lost, Some("idle"), "idle"), None);
         // straight back, no error in between
         step(&mut lost, Some("idle"), "offline");

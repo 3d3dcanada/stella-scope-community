@@ -1,5 +1,5 @@
 // Farm board WO-03 tests: many printers in one service, over the real listener and against fake
-// Moonrakers (src/fakes.rs). Nothing here touches a real printer or our files.
+// Moonrakers (src/fakes.rs). Nothing here touches a real printer or the owner's files.
 use crate::{
     config::{self, Config, PrinterEntry},
     fakes::{FakeFlashForge, FakeMoonraker, FakePrusaLink},
@@ -55,7 +55,11 @@ impl Running {
         let url = format!("{}{path}", self.base);
         let origin = self.base.clone();
         let mut response = match (method, body) {
-            ("GET", _) => self.agent.get(&url).call(),
+            ("GET", _) => self
+                .agent
+                .get(&url)
+                .header("Sec-Fetch-Site", "same-origin")
+                .call(),
             ("DELETE", _) => {
                 let mut r = self.agent.delete(&url).header("Origin", &origin);
                 if token {
@@ -154,7 +158,7 @@ fn wait_for(what: &str, mut ok: impl FnMut() -> bool) {
     }
 }
 
-/// our live file, with nothing in it but what it holds today, loads as a farm of one: id stella,
+/// the owner's live file, with nothing in it but what it holds today, loads as a farm of one: id stella,
 /// the same address and the same recording path, and the file is not rewritten by loading it.
 #[test]
 fn an_old_single_printer_file_is_a_farm_of_one_with_the_same_recording() {
@@ -697,7 +701,7 @@ fn a_printer_is_tested_before_it_is_saved_and_a_wrong_login_saves_nothing() {
     assert!(!fs::read_to_string(&cfg_path).unwrap().contains("0fake000"));
 }
 
-/// U04 (2026-10-20): the farm wall has one tile size and a press grows a tile in place; the tile's nozzle, bed and progress are the control kit's LED gauges, its
+/// U04 (2026-10-20, the owner): the farm wall has one tile size and a press grows a tile in place; the tile's nozzle, bed and progress are the control kit's LED gauges, its
 /// actions and the header's are the kit's square keys. What the browser is served says so: no S/M/L switch or size rule is left, the kit is imported and its
 /// stylesheet linked, the grown tile takes the room of four (the whole width on a phone), a heat gauge sends set_heater once through the farm's command path
 /// (preview first), and the wall asks for its printers with a time limit so a printer going off or coming back is never held up behind a request nobody answers.
@@ -706,20 +710,67 @@ fn the_farm_wall_has_one_tile_size_that_grows_with_gauges_and_keys() {
     let dir = Dir::new("u04-wall");
     let a = FakeMoonraker::start(0);
     let r = run(&dir, base_for(&dir, &a));
-    let get = |p: &str| r.call("GET", p, None, false).1.as_str().unwrap_or("").to_owned();
-    let (html, js, css, wall) = (get("/farm"), get("/farm.js"), get("/farm.css"), get("/farm-wall.js"));
-    assert!(html.contains("/next-control.css") && !html.contains("fm-size"), "the page links the kit's stylesheet and has no size switch");
-    for needle in ["from './next-control.js'", "control(spec)", "sq('nav-hud','Open'", "sq('stop-square','Cancel print'", "sendHeat(", "'set_heater'", "command-preview", "SET_MAX", "toggleOpen", "AbortSignal.timeout(8000)", "fm-led"] {
+    let get = |p: &str| {
+        r.call("GET", p, None, false)
+            .1
+            .as_str()
+            .unwrap_or("")
+            .to_owned()
+    };
+    let (html, js, css, wall) = (
+        get("/farm"),
+        get("/farm.js"),
+        get("/farm.css"),
+        get("/farm-wall.js"),
+    );
+    assert!(
+        html.contains("/next-control.css") && !html.contains("fm-size"),
+        "the page links the kit's stylesheet and has no size switch"
+    );
+    for needle in [
+        "from './next-control.js'",
+        "control(spec)",
+        "sq('nav-hud','Open'",
+        "sq('stop-square','Cancel print'",
+        "sendHeat(",
+        "'set_heater'",
+        "command-preview",
+        "SET_MAX",
+        "toggleOpen",
+        "AbortSignal.timeout(8000)",
+        "fm-led",
+    ] {
         assert!(js.contains(needle), "farm.js lost {needle}");
     }
-    for gone in ["SIZES", "defaultSize", "validSize", "fm-size", "openMenu", "bindLongPress", "dial({"] {
+    for gone in [
+        "SIZES",
+        "defaultSize",
+        "validSize",
+        "fm-size",
+        "openMenu",
+        "bindLongPress",
+        "dial({",
+    ] {
         assert!(!js.contains(gone), "farm.js still has {gone}");
     }
-    assert!(!css.contains("data-size="), "an S, M or L rule is left in farm.css");
-    for needle in [".fm-tile[data-open]{grid-column:span 2;grid-row:span 2", ".fm-tile[data-open]{grid-column:1/-1", ".fm-heat", ".fm-g[data-g=progress]", "body.fm:has(.nxctl.live) .fm-root{z-index:auto}", "repeat(2,minmax(0,1fr))"] {
+    assert!(
+        !css.contains("data-size="),
+        "an S, M or L rule is left in farm.css"
+    );
+    for needle in [
+        ".fm-tile[data-open]{grid-column:span 2;grid-row:span 2",
+        ".fm-tile[data-open]{grid-column:1/-1",
+        ".fm-heat",
+        ".fm-g[data-g=progress]",
+        "body.fm:has(.nxctl.live) .fm-root{z-index:auto}",
+        "repeat(2,minmax(0,1fr))",
+    ] {
         assert!(css.contains(needle), "farm.css lost {needle}");
     }
-    assert!(wall.contains("tvLayout") && wall.contains("heatOf") && !wall.contains("SIZES"), "farm-wall.js has the wall screen's layout and not the sizes");
+    assert!(
+        wall.contains("tvLayout") && wall.contains("heatOf") && !wall.contains("SIZES"),
+        "farm-wall.js has the wall screen's layout and not the sizes"
+    );
 }
 
 /// WO-07: the wall is a page of the service itself (no inline script or style, so the CSP holds), and the
@@ -754,9 +805,15 @@ fn the_farm_page_is_served_and_the_summary_carries_what_a_tile_draws() {
         !html.contains("<style") && !html.contains("style=\"") && !html.contains("onclick"),
         "inline style or script would break the CSP"
     );
-    // Polish WO-04: the wall's tools (search, show, sort) and its pure logic module are part of the page. U04 (2026-10-20): there is one tile size, so the
+    // Polish WO-04: the wall's tools (search, show, sort) and its pure logic module are part of the page. U04 (2026-10-20, the owner): there is one tile size, so the
     // S/M/L switch (id="fm-size") is gone and must stay gone; the page loads the control kit's stylesheet for the gauges and the square keys.
-    for marker in ["id=\"fm-q\"", "id=\"fm-filter\"", "id=\"fm-sort\"", "fm-sticky", "/next-control.css"] {
+    for marker in [
+        "id=\"fm-q\"",
+        "id=\"fm-filter\"",
+        "id=\"fm-sort\"",
+        "fm-sticky",
+        "/next-control.css",
+    ] {
         assert!(html.contains(marker), "the farm page lost {marker}");
     }
     assert!(!html.contains("fm-size"), "the tile size switch came back");
@@ -1217,7 +1274,6 @@ fn nothing_starts_without_a_passing_plate_check_or_a_confirmed_override() {
     let _ = (r.port, &cam.addr);
 }
 
-
 /// Finish-2 F05 (2026-10-19): a dry run of a queued file sends its no-extrusion copy, named so, without looking at the plate,
 /// and leaves the job waiting (a FlashForge cannot hand back a file on it, so the queue's copy is the only way there).
 #[test]
@@ -1230,123 +1286,69 @@ fn a_queued_file_can_be_dry_run_and_stays_in_the_queue() {
         "slicer_model":"COREONEL","nozzle_mm":0.4});
     assert_eq!(r.call("POST", "/api/printers", Some(&add), true).0, 200);
     wait_for("prusa online", || {
-        r.get("/api/printers")["printers"].as_array().unwrap().iter().any(|x| x["id"] == "prusa" && x["online"] == true)
+        r.get("/api/printers")["printers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["id"] == "prusa" && x["online"] == true)
     });
     let (_, ub) = r.upload("lid.gcode", &sliced("COREONEL", 0.4, "lid"), true);
     let job = ub["job"]["id"].as_i64().unwrap();
-    let (code, s) = r.printer_call("POST", "/api/p/prusa/queue/start", "prusa", &json!({"job":job,"dry_run":true}));
+    let (code, s) = r.printer_call(
+        "POST",
+        "/api/p/prusa/queue/start",
+        "prusa",
+        &json!({"job":job,"dry_run":true}),
+    );
     assert_eq!(code, 200, "{s}");
-    assert_eq!((s["started"].clone(), s["file"].clone()), (json!(true), json!("lid (dry run).gcode")), "{s}");
-    let sent: Vec<String> = p.log().iter().filter(|e| e["method"] == "PUT").filter_map(|e| e["path"].as_str().map(str::to_owned)).collect();
-    assert!(sent.iter().any(|x| x.contains("dry")) && !sent.iter().any(|x| x.ends_with("/lid.gcode")), "{sent:?}");
-    assert!(r.get("/api/p/prusa/plate")["checks"].as_array().is_none_or(|c| c.is_empty()), "the plate was not looked at");
-    let waiting = r.get("/api/queue")["jobs"].as_array().unwrap().iter().any(|j| j["id"] == job && j["state"] == "queued");
+    assert_eq!(
+        (s["started"].clone(), s["file"].clone()),
+        (json!(true), json!("lid (dry run).gcode")),
+        "{s}"
+    );
+    let sent: Vec<String> = p
+        .log()
+        .iter()
+        .filter(|e| e["method"] == "PUT")
+        .filter_map(|e| e["path"].as_str().map(str::to_owned))
+        .collect();
+    assert!(
+        sent.iter().any(|x| x.contains("dry")) && !sent.iter().any(|x| x.ends_with("/lid.gcode")),
+        "{sent:?}"
+    );
+    assert!(
+        r.get("/api/p/prusa/plate")["checks"]
+            .as_array()
+            .is_none_or(|c| c.is_empty()),
+        "the plate was not looked at"
+    );
+    let waiting = r.get("/api/queue")["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|j| j["id"] == job && j["state"] == "queued");
     assert!(waiting, "{}", r.get("/api/queue"));
 }
 // ---- WO-09: the farm licence ----------------------------------------------------------------------------
 
-/// Five printers are free and unmentioned; the sixth is asked about and still added; a licence that checks
-/// out is kept and says who it is for; one that does not is refused and writes nothing.
+/// Red team #8 (Kilo, 2026-11-14): a hostile page could make the service fetch big print files over and over with blind GETs.
+/// A data request a browser marks as coming from another site is refused; the app's own page (same-origin) is not.
 #[test]
-fn the_sixth_printer_is_asked_about_and_never_refused() {
-    let dir = Dir::new("licence");
+fn a_data_request_from_another_web_site_is_refused() {
+    use std::io::{Read, Write};
+    let dir = Dir::new("sec-fetch");
     let a = FakeMoonraker::start(0);
-    let fakes: Vec<FakeMoonraker> = (0..5).map(|_| FakeMoonraker::start(0)).collect();
     let r = run(&dir, base_for(&dir, &a));
-    let path = dir.file("farm-licence.txt");
-    // One printer, then five: free, no licence, no note.
-    let status = r.get("/api/licence");
-    assert_eq!(
-        (
-            status["state"].clone(),
-            status["wanted"].clone(),
-            status["free_printers"].clone()
-        ),
-        (json!("free"), json!(false), json!(5))
-    );
-    for (i, f) in fakes.iter().take(4).enumerate() {
-        let add = json!({"name":format!("Bench {i}"),"address":f.url()});
-        assert_eq!(r.call("POST", "/api/printers", Some(&add), true).0, 200);
-    }
-    let s5 = r.get("/api/licence");
-    assert_eq!(
-        (
-            s5["printers"].clone(),
-            s5["state"].clone(),
-            s5["wanted"].clone()
-        ),
-        (json!(5), json!("free"), json!(false))
-    );
-    // The sixth is added, as it always was; it is only that a licence is now wanted.
-    let add = json!({"name":"Bench 5","address":fakes[4].url()});
-    assert_eq!(
-        r.call("POST", "/api/printers", Some(&add), true).0,
-        200,
-        "no feature is switched off"
-    );
-    let s6 = r.get("/api/licence");
-    assert_eq!(
-        (
-            s6["printers"].clone(),
-            s6["state"].clone(),
-            s6["wanted"].clone()
-        ),
-        // Finish-2 F06 (2026-10-19): this said `wanted` / true. That was the bug: the sixth printer wrote the start of the 30-day trial into the file, but the running
-        // service went on reading the file as it was at its start, so it showed "a licence is wanted" with no trial running until the next restart. The sixth real printer
-        // starts the trial and the running service says so: `the_sixth_real_printer_starts_one_trial_the_running_service_shows_and_later_printers_do_not_restart_it`.
-        (json!(6), json!("trial"), json!(false))
-    );
-
-    // A made-up licence is refused in words and nothing is saved.
-    let (code, body) = r.call(
-        "POST",
-        "/api/licence",
-        Some(&json!({"text":"SFL1.AAAA.BBBB"})),
-        true,
-    );
-    assert_eq!(code, 400, "{body}");
-    assert!(body["error"].as_str().unwrap().len() > 20, "{body}");
-    assert!(!std::path::Path::new(&path).exists());
-    assert_eq!(
-        r.call(
-            "POST",
-            "/api/licence",
-            Some(&json!({"text":"SFL1.AAAA.BBBB"})),
-            false
-        )
-        .0,
-        401,
-        "needs the farm token"
-    );
-
-    // A licence made by the test key: saved, says who, covers 8; the same text is refused by the built-in key.
-    let seed = [3_u8; 32];
-    let key = crate::licence::public_key_of(&seed);
-    let text = crate::licence::issue(&seed, "Maple Street Print Farm", 8, "2026-10-12", None);
-    assert!(
-        r.farm.save_licence(&text).is_err(),
-        "the built-in key does not know this one"
-    );
-    let saved = r.farm.save_licence_with(&text, &key).unwrap();
-    assert_eq!(
-        (
-            saved["state"].clone(),
-            saved["licence"]["name"].clone(),
-            saved["licence"]["printers"].clone()
-        ),
-        (
-            json!("licensed"),
-            json!("Maple Street Print Farm"),
-            json!(8)
-        ),
-        "{saved}"
-    );
-    assert!(fs::read_to_string(&path).unwrap().starts_with("SFL1."));
-    // It covers 8: a ninth would be asked about again.
-    let more = crate::licence::status(Some(&text), 9, &key);
-    assert_eq!(more["state"], "too_few");
-    r.farm.remove_licence().unwrap();
-    assert!(!std::path::Path::new(&path).exists());
+    let ask = |site: &str| {
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", r.port)).unwrap();
+        write!(s, "GET /api/printers HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nSec-Fetch-Site: {site}\r\nConnection: close\r\n\r\n", r.port).unwrap();
+        let mut out = String::new();
+        let _ = s.read_to_string(&mut out);
+        out.split_whitespace().nth(1).unwrap_or("").to_owned()
+    };
+    assert_eq!(ask("cross-site"), "403");
+    assert_eq!(ask("same-site"), "403");
+    assert_eq!(ask("same-origin"), "200");
 }
 
 /// A hung printer must not hold up the others. 2026-10-19 (finish-2 F01): the test used to compare tick
@@ -1414,21 +1416,41 @@ fn a_hung_printer_does_not_delay_the_others() {
     a.state.lock().unwrap().stall_ms = 8000;
     thread::sleep(Duration::from_millis(1000)); // Stella's poll in flight is now stuck
     let during = fresh(6.0);
-    eprintln!("TIMING stella hung: stella {} bench {} shop {}", during[0], during[1], during[2]);
-    assert!(during[1] >= 4, "Bench was held up while Stella hung: {during:?}");
-    assert!(during[2] >= 4, "Shop was held up while Stella hung: {during:?}");
-    assert!(during[0] <= 1, "the hung printer itself falls behind, as it should: {during:?}");
+    eprintln!(
+        "TIMING stella hung: stella {} bench {} shop {}",
+        during[0], during[1], during[2]
+    );
+    assert!(
+        during[1] >= 4,
+        "Bench was held up while Stella hung: {during:?}"
+    );
+    assert!(
+        during[2] >= 4,
+        "Shop was held up while Stella hung: {during:?}"
+    );
+    assert!(
+        during[0] <= 1,
+        "the hung printer itself falls behind, as it should: {during:?}"
+    );
     a.state.lock().unwrap().stall_ms = 0;
     // The same counter must see a real stall: stall Bench, and it falls to at most one fresh tick.
     b.state.lock().unwrap().stall_ms = 8000;
     thread::sleep(Duration::from_millis(1000));
     let stalled = fresh(6.0);
-    eprintln!("TIMING bench hung: stella {} bench {} shop {}", stalled[0], stalled[1], stalled[2]);
-    assert!(stalled[1] <= 1, "the counter cannot tell a stalled printer from a healthy one: {stalled:?}");
-    assert!(stalled[2] >= 4, "Shop was held up while Bench hung: {stalled:?}");
+    eprintln!(
+        "TIMING bench hung: stella {} bench {} shop {}",
+        stalled[0], stalled[1], stalled[2]
+    );
+    assert!(
+        stalled[1] <= 1,
+        "the counter cannot tell a stalled printer from a healthy one: {stalled:?}"
+    );
+    assert!(
+        stalled[2] >= 4,
+        "Shop was held up while Bench hung: {stalled:?}"
+    );
     b.state.lock().unwrap().stall_ms = 0;
 }
-
 
 /// Finish-2 F10 (2026-10-19): a printer switched off says so while the others go on, and when it is back on (the same
 /// address) it is online again and its recording takes up where it left off, without a restart of the service.
@@ -1440,28 +1462,54 @@ fn a_printer_switched_off_and_on_again_comes_back_by_itself() {
     let port_b: u16 = b.addr.rsplit(':').next().unwrap().parse().unwrap();
     let cfg = Config {
         printers: vec![
-            PrinterEntry { id: "stella".into(), name: "Stella".into(), address: a.url(), database: Some(dir.file("stella.sqlite3")), ..Default::default() },
-            PrinterEntry { id: "bench".into(), name: "Bench".into(), address: b.url(), ..Default::default() },
+            PrinterEntry {
+                id: "stella".into(),
+                name: "Stella".into(),
+                address: a.url(),
+                database: Some(dir.file("stella.sqlite3")),
+                ..Default::default()
+            },
+            PrinterEntry {
+                id: "bench".into(),
+                name: "Bench".into(),
+                address: b.url(),
+                ..Default::default()
+            },
         ],
         ..base_for(&dir, &a)
     };
     let r = run(&dir, cfg);
     let online = |id: &str| {
-        r.get("/api/printers")["printers"].as_array().unwrap().iter().any(|p| p["id"] == id && p["online"] == true)
+        r.get("/api/printers")["printers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["id"] == id && p["online"] == true)
     };
-    let tick = |id: &str| r.get(&format!("/api/p/{id}/tick"))["ts"].as_f64().unwrap_or(0.0);
+    let tick = |id: &str| {
+        r.get(&format!("/api/p/{id}/tick"))["ts"]
+            .as_f64()
+            .unwrap_or(0.0)
+    };
     wait_for("both online", || online("stella") && online("bench"));
     drop(b); // switched off: nothing answers on its address
     wait_for("bench offline", || !online("bench"));
     let (stella_before, bench_off) = (tick("stella"), tick("bench"));
     thread::sleep(Duration::from_secs(3));
-    assert!(online("stella") && tick("stella") > stella_before, "Stella stopped while Bench was off");
+    assert!(
+        online("stella") && tick("stella") > stella_before,
+        "Stella stopped while Bench was off"
+    );
     let b = FakeMoonraker::start(port_b); // on again, same address
     b.state.lock().unwrap().print_state = "printing".into();
     wait_for("bench online again", || online("bench"));
     wait_for("bench recording again", || tick("bench") > bench_off);
     wait_for("bench state is live", || {
-        r.get("/api/printers")["printers"].as_array().unwrap().iter().any(|p| p["id"] == "bench" && p["state"] == "printing")
+        r.get("/api/printers")["printers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["id"] == "bench" && p["state"] == "printing")
     });
 }
 /// The model library over HTTP (WO-10): the catalogue, the licence gate, a refused file, binding a model to
@@ -1674,10 +1722,14 @@ fn printer_models_are_listed_gated_refused_bound_and_calibrated() {
         r.get(&format!("/api/p/{id}/model"))["pose"]["known"] == true
     });
     let m = r.get(&format!("/api/p/{id}/model"));
-    let off = crate::printer_models::profile("sovol_sv08_350").unwrap()["calibration"]["offset_mm"][0]
-        .as_f64()
-        .unwrap();
-    assert!((m["pose"]["axes"]["x"].as_f64().unwrap() - (175.0 + off)).abs() < 1e-9, "{m}");
+    let off = crate::printer_models::profile("sovol_sv08_350").unwrap()["calibration"]["offset_mm"]
+        [0]
+    .as_f64()
+    .unwrap();
+    assert!(
+        (m["pose"]["axes"]["x"].as_f64().unwrap() - (175.0 + off)).abs() < 1e-9,
+        "{m}"
+    );
     assert!((off + 156.79).abs() < 0.01, "the measured offset: {off}");
     assert_eq!(m["calibrated"], false);
     let bad = json!({"cad_calibration":{"offset_mm":[0,0,0],"sign":[1,1,3],"source":[0,1,2]}});
@@ -1696,7 +1748,9 @@ fn printer_models_are_listed_gated_refused_bound_and_calibrated() {
     let m = r.get(&format!("/api/p/{id}/model"));
     // The position -175 - 80 is below the end of Y's travel, so Y is held at its low end: -80 in the registration before polish
     // WO-03 (2026-10-18), -86.3 now that the travel reaches the plate; read from the profile so the test says what it means.
-    let low_y = crate::printer_models::profile("sovol_sv08_350").unwrap()["axes"]["y"][0].as_f64().unwrap();
+    let low_y = crate::printer_models::profile("sovol_sv08_350").unwrap()["axes"]["y"][0]
+        .as_f64()
+        .unwrap();
     assert_eq!(
         (
             m["calibrated"].clone(),
@@ -2528,7 +2582,10 @@ fn the_demo_farm_comes_and_goes_and_only_demo_printers_are_touched() {
     assert_eq!(w["needs"].as_object().unwrap().len(), 9, "{w}");
     assert_eq!(w["fetch"]["state"], "idle", "{w}");
     let l = r.get("/api/printer-models/demo-farm");
-    assert!(l["line"].as_str().unwrap().starts_with("Open licences: ") && l["files"] == 14, "{l}");
+    assert!(
+        l["line"].as_str().unwrap().starts_with("Open licences: ") && l["files"] == 17,
+        "{l}"
+    );
     let rows = r.get("/api/printers");
     let rows = rows["printers"].as_array().unwrap();
     assert_eq!(rows.len(), 11);
@@ -2707,7 +2764,10 @@ fn the_model_page_says_where_the_bed_corner_is_and_what_a_fetch_brings() {
         "before any saved calibration the starting one is the corner: {m}"
     );
     assert!(
-        corner["basis"].as_str().unwrap().contains("machine profile"),
+        corner["basis"]
+            .as_str()
+            .unwrap()
+            .contains("machine profile"),
         "{corner}"
     );
     // Pressing it saves exactly that calibration (the page sends it back), and the pose reads it.
@@ -2756,13 +2816,17 @@ fn the_model_page_says_where_the_bed_corner_is_and_what_a_fetch_brings() {
     );
     // F03: and it says in words that the model is static (nothing moves, and no part is drawn: its plate is not measured).
     assert!(
-        m["note"].as_str().is_some_and(|n| n.starts_with("This model is static: no movement is registered") && n.contains("does not follow the printer")),
+        m["note"].as_str().is_some_and(|n| n
+            .starts_with("This model is static: no movement is registered")
+            && n.contains("does not follow the printer")),
         "{m}"
     );
     assert_eq!(patch(json!({"cad_model":"annex_k1_assembly"})).0, 200);
     let m = r.get(&format!("/api/p/{id}/model"));
     assert!(
-        m["bed_corner"]["basis"].as_str().is_some_and(|b| b.starts_with("Measured from the model")),
+        m["bed_corner"]["basis"]
+            .as_str()
+            .is_some_and(|b| b.starts_with("Measured from the model")),
         "the Annex K1's corner is measured from its model: {m}"
     );
     // No model: nothing to report.
@@ -2783,9 +2847,16 @@ fn the_model_flow_ships_with_the_page_and_add_a_printer_reads_the_licence_before
         assert_eq!(code, 200, "{p}");
         body.as_str().unwrap_or("").to_owned()
     };
-    let (pick, models, farm) = (get("/model-pick.js"), get("/next-models.js"), get("/next-farm.js"));
+    let (pick, models, farm) = (
+        get("/model-pick.js"),
+        get("/next-models.js"),
+        get("/next-farm.js"),
+    );
     assert!(pick.contains("export function needs") && pick.contains("export const plainLabel"));
-    assert!(models.contains("from './model-pick.js'"), "the picker lost its logic module");
+    assert!(
+        models.contains("from './model-pick.js'"),
+        "the picker lost its logic module"
+    );
     // The files step: two plain buttons, and nobody types the word "published".
     for button in ["From the author", "From a folder on this computer..."] {
         assert!(models.contains(button), "the files step lost {button}");
@@ -2806,11 +2877,31 @@ fn the_model_flow_ships_with_the_page_and_add_a_printer_reads_the_licence_before
     assert!(css.as_str().unwrap_or("").contains(".nx-choice-list"));
     // What a printer cannot do is not offered (item 3): no Klipper offset, thumbnails, driver rows or Klipper wording on another brand.
     let (pages, main) = (get("/next-pages.js"), get("/next.js"));
-    for marker in ["ctx.has('z_offset')", "ctx.has('thumbnails')", "const kp=ctx.has('klipper')", "if(ctx.has('klipper'))body.append(section('Objects on the plate'", "Use the ${v?'Voron':'standard'} schedule", "ctx.has('klipper')?'The graphs show the last ten minutes"] {
-        assert!(pages.contains(marker), "next-pages.js lost the capability gate {marker}");
+    for marker in [
+        "ctx.has('z_offset')",
+        "ctx.has('thumbnails')",
+        "const kp=ctx.has('klipper')",
+        "if(ctx.has('klipper'))body.append(section('Objects on the plate'",
+        "Use the ${v?'Voron':'standard'} schedule",
+        "ctx.has('klipper')?'The graphs show the last ten minutes",
+    ] {
+        assert!(
+            pages.contains(marker),
+            "next-pages.js lost the capability gate {marker}"
+        );
     }
-    for marker in ["has('thumbnails')", "const doesOf=", "has('klipper')?'on a BLTouch alarm", "img.parentElement===c", "const MORE_NEEDS=", "has('restart')&&act('Firmware restart'"] {
-        assert!(main.contains(marker), "next.js lost the capability gate {marker}");
+    for marker in [
+        "has('thumbnails')",
+        "const doesOf=",
+        "has('klipper')?'on a BLTouch alarm",
+        "img.parentElement===c",
+        "const MORE_NEEDS=",
+        "has('restart')&&act('Firmware restart'",
+    ] {
+        assert!(
+            main.contains(marker),
+            "next.js lost the capability gate {marker}"
+        );
     }
 }
 
@@ -2866,7 +2957,11 @@ fn a_fresh_install_shows_no_placeholder_printer_empty_with_the_demo_farm_or_with
     let (code, v) = r.call("POST", "/api/printers/demo-farm", Some(&json!({})), true);
     assert_eq!(code, 200, "{v}");
     let ids = shown(&r);
-    assert_eq!(ids.len(), 9, "nine demos since finish-2 F09 (the Prusa MK3S+ joined the eight): {ids:?}");
+    assert_eq!(
+        ids.len(),
+        9,
+        "nine demos since finish-2 F09 (the Prusa MK3S+ joined the eight): {ids:?}"
+    );
     assert!(ids.iter().all(|i| i.starts_with("demo-")), "{ids:?}");
     let all = r.get("/api/printers");
     assert_eq!(all["count"], json!(9));
@@ -2928,7 +3023,11 @@ fn a_fresh_install_shows_no_placeholder_printer_empty_with_the_demo_farm_or_with
         "retired"
     );
     let ids = shown(&r);
-    assert_eq!(ids.len(), 10, "the real printer and nine demos (finish-2 F09: it was eight): {ids:?}");
+    assert_eq!(
+        ids.len(),
+        10,
+        "the real printer and nine demos (finish-2 F09: it was eight): {ids:?}"
+    );
     assert_eq!(r.get("/api/printers")["default"], json!("stella"));
     assert_eq!(
         saved(&dir)[0],
@@ -2963,9 +3062,17 @@ fn the_hidden_placeholder_is_not_listed_in_the_queue_or_the_analytics() {
     let r = run(&dir, cfg);
     let (code, v) = r.call("POST", "/api/printers/demo-farm", Some(&json!({})), true);
     assert_eq!(code, 200, "{v}");
-    assert_eq!(r.farm.list().len(), 10, "the placeholder is there, out of sight, beside the nine demos");
+    assert_eq!(
+        r.farm.list().len(),
+        10,
+        "the placeholder is there, out of sight, beside the nine demos"
+    );
     let ids = |v: &Value| -> Vec<String> {
-        v.as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap().to_owned()).collect()
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["id"].as_str().unwrap().to_owned())
+            .collect()
     };
     let queue = r.get("/api/queue");
     let listed = ids(&queue["printers"]);
@@ -2977,12 +3084,12 @@ fn the_hidden_placeholder_is_not_listed_in_the_queue_or_the_analytics() {
     assert!(rows.iter().all(|i| i.starts_with("demo-")), "{rows:?}");
 }
 
-/// Polish WO-06 item 7: a configured printer is a real printer, however long it has been off. our file names
+/// Polish WO-06 item 7: a configured printer is a real printer, however long it has been off. the owner's file names
 /// `moonraker_url` and a name and has no `printers` list; it must show, offline, exactly as before, and so must a printer
 /// in a `printers` list that has never answered. A file that names this machine's own Moonraker address is a printer too.
 #[test]
 fn a_configured_printer_that_is_off_is_still_a_printer_and_an_answering_default_is_too() {
-    // our shape: legacy keys, one printer, off.
+    // the owner's shape: legacy keys, one printer, off.
     let dir = Dir::new("placeholder-ken");
     let cfg = Config {
         moonraker_url: "http://127.0.0.1:9".into(),
@@ -3072,7 +3179,7 @@ fn a_configuration_names_a_printer_by_an_address_or_a_real_printers_list() {
     ] {
         assert_eq!(Config::names_no_printer(text), unconfigured, "{text}");
     }
-    // and through the loader, with our own old file
+    // and through the loader, with the owner's own old file
     let dir = Dir::new("names-a-printer");
     let ken = r#"{"moonraker_url":"http://192.168.1.131:7125","bind":"127.0.0.1","port":7420,"controls_enabled":true,"database":"/tmp/ken.sqlite3","printer_name":"Stella"}"#;
     fs::write(dir.file("ken.json"), ken).unwrap();
@@ -3276,10 +3383,9 @@ fn no_klipper_word_on_a_demo_a_prusalink_or_a_flashforge_printer_in_any_state() 
 
 /// Polish WO-06 item 1: Prusa's notice is served to be read before the CORE One L model is fetched; nothing is fetched without
 /// the person's confirmation, and nothing in this test reaches the network. (Finish-2 F09, 2026-10-19: the notice is still served, now with the OCL
-/// text and the pins, but nothing is fetched behind it: the model ships inside the build, so the wanted list has no `notice` row for it and the
-/// library of a service that has not started yet says it is on its way. The test keeps its name; the confirmation rule is unchanged.)
+/// text and the pins. release-2026-11-14: no build carries it; it is fetched from 3D3D's server on a press. The test keeps its name; the confirmation
+/// rule is unchanged.)
 #[test]
-#[ignore = "needs the Prusa models, which this public copy does not carry"]
 fn the_core_one_l_notice_is_read_first_and_a_fetch_needs_the_confirmation() {
     let dir = Dir::new("core-notice");
     let a = FakeMoonraker::start(0);
@@ -3301,7 +3407,7 @@ fn the_core_one_l_notice_is_read_first_and_a_fetch_needs_the_confirmation() {
         false,
     );
     assert_eq!(code, 404, "{v}");
-    // a farm with a CORE One L: it is not fetched on one press (it is inside the build; a service that has not seeded its library says so)
+    // a farm with a CORE One L: release-2026-11-14, it is an open model fetched from 3D3D's server on a press, after the confirmation
     let (code, v) = r.call("POST", "/api/printers/demo-farm", Some(&json!({})), true);
     assert_eq!(code, 200, "{v}");
     let w = r.get("/api/printer-models/wanted");
@@ -3312,9 +3418,12 @@ fn the_core_one_l_notice_is_read_first_and_a_fetch_needs_the_confirmation() {
         .find(|m| m["id"] == "prusa_core_one_l")
         .unwrap()
         .clone();
-    assert!(core["notice"].is_null(), "there is no notice-first fetch any more: {core}");
-    assert_eq!(core["open"], json!(false), "{core}");
-    assert!(core["why"].as_str().unwrap().contains("ships inside Stella Scope"), "{core}");
+    assert!(
+        core["notice"].is_null(),
+        "there is no notice-first fetch any more: {core}"
+    );
+    assert_eq!(core["open"], json!(true), "{core}");
+    assert!(core["why"].is_null(), "{core}");
     // no confirmation, no fetch (the request is refused before anything is asked of the network)
     let (code, v) = r.call(
         "POST",
@@ -3439,9 +3548,18 @@ fn serve_every_brand_for_a_browser() {
     };
     let r = run(&dir, cfg);
     for (name, v) in [
-        ("Voron 2.4 (Klipper)", json!({"name":"Voron 2.4 (Klipper)","address":klipper.url(),"accent":"#04D9C4","camera":cam.stream_url()})),
-        ("Core One L (PrusaLink)", json!({"name":"Core One L (PrusaLink)","driver":"prusalink","address":prusa.url(),"accent":"#FF6A00","cad_model":"prusa_core_one_l","camera":cam.stream_url(),"credentials":{"user":"maker","password":"secret"}})),
-        ("Adventurer 5M (FlashForge)", json!({"name":"Adventurer 5M (FlashForge)","driver":"flashforge","address":ff.http_url(),"accent":"#FF2D92","credentials":{"serial":"SNFAKE5M00001","check_code":"0fake000","tcp_port":ff.tcp_port().to_string()}})),
+        (
+            "Voron 2.4 (Klipper)",
+            json!({"name":"Voron 2.4 (Klipper)","address":klipper.url(),"accent":"#04D9C4","camera":cam.stream_url()}),
+        ),
+        (
+            "Core One L (PrusaLink)",
+            json!({"name":"Core One L (PrusaLink)","driver":"prusalink","address":prusa.url(),"accent":"#FF6A00","cad_model":"prusa_core_one_l","camera":cam.stream_url(),"credentials":{"user":"maker","password":"secret"}}),
+        ),
+        (
+            "Adventurer 5M (FlashForge)",
+            json!({"name":"Adventurer 5M (FlashForge)","driver":"flashforge","address":ff.http_url(),"accent":"#FF2D92","credentials":{"serial":"SNFAKE5M00001","check_code":"0fake000","tcp_port":ff.tcp_port().to_string()}}),
+        ),
     ] {
         let (code, body) = r.call("POST", "/api/printers", Some(&v), true);
         assert_eq!(code, 200, "{name}: {body}");
@@ -3484,7 +3602,10 @@ fn serve_every_brand_for_a_browser() {
     }
     // STELLA_STALL_MS=8000: the Klipper and the PrusaLink printer answer each request that late (a printer that is on but slow, or half off the network), for the first-paint
     // numbers of F04: the wall must still show the other printers at once.
-    if let Some(ms) = std::env::var("STELLA_STALL_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
+    if let Some(ms) = std::env::var("STELLA_STALL_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
         klipper.state.lock().unwrap().stall_ms = ms;
         prusa.state.lock().unwrap().stall_ms = ms;
     }
@@ -3500,7 +3621,10 @@ fn serve_every_brand_for_a_browser() {
 #[test]
 #[ignore]
 fn serve_a_fake_klipper_for_a_browser() {
-    let port = std::env::var("STELLA_FAKE_PORT").ok().and_then(|v| v.parse::<u16>().ok()).unwrap_or(7457);
+    let port = std::env::var("STELLA_FAKE_PORT")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(7457);
     let klipper = FakeMoonraker::start(port);
     {
         let mut s = klipper.state.lock().unwrap();
@@ -3511,7 +3635,10 @@ fn serve_a_fake_klipper_for_a_browser() {
         s.say("response", "// Homing...");
         s.say("command", "QUAD_GANTRY_LEVEL");
         s.say("response", "// Gantry-relative probe points:\n// stepper_z = -0.012\n// stepper_z1 = 0.034\n// stepper_z2 = -0.021\n// stepper_z3 = 0.008");
-        s.say("response", "// Retries: 0/5 Probed points range: 0.004000 tolerance: 0.007500");
+        s.say(
+            "response",
+            "// Retries: 0/5 Probed points range: 0.004000 tolerance: 0.007500",
+        );
     }
     eprintln!("A FAKE KLIPPER ON {}", klipper.url());
     loop {
@@ -3547,20 +3674,45 @@ fn a_prusalink_in_attention_says_why_and_a_refused_resume_is_a_known_not_done() 
         s.file = "bracket_PETG.gcode".into();
     };
     set("ATTENTION");
-    wait_for("the attention state to be seen", || row()["state"] == "paused");
-    wait_for("its message to reach the wall", || row()["detail"].as_str().is_some_and(|d| d.contains("asking a question on its screen")));
-    assert_eq!(row()["detail"], "The printer is asking a question on its screen. Answer it there to go on.");
+    wait_for("the attention state to be seen", || {
+        row()["state"] == "paused"
+    });
+    wait_for("its message to reach the wall", || {
+        row()["detail"]
+            .as_str()
+            .is_some_and(|d| d.contains("asking a question on its screen"))
+    });
+    assert_eq!(
+        row()["detail"],
+        "The printer is asking a question on its screen. Answer it there to go on."
+    );
     let tick = r.get("/api/p/core-one-l/tick");
-    assert_eq!(tick["job"]["message"], "The printer is asking a question on its screen. Answer it there to go on.", "{tick}");
+    assert_eq!(
+        tick["job"]["message"],
+        "The printer is asking a question on its screen. Answer it there to go on.",
+        "{tick}"
+    );
     // an ordinary pause says nothing more than it is paused
     set("PAUSED");
-    wait_for("the plain pause", || row()["state"] == "paused" && row()["detail"].is_null());
+    wait_for("the plain pause", || {
+        row()["state"] == "paused" && row()["detail"].is_null()
+    });
     // a resume the printer refuses: it is printing, so it cannot be resumed (409)
     set("PRINTING");
     wait_for("printing", || row()["state"] == "printing");
-    let (code, v) = r.printer_call("POST", "/api/p/core-one-l/commands", "core-one-l", &json!({"id":"resume","confirm":true}));
+    let (code, v) = r.printer_call(
+        "POST",
+        "/api/p/core-one-l/commands",
+        "core-one-l",
+        &json!({"id":"resume","confirm":true}),
+    );
     assert_eq!((code, v["status"].clone()), (409, json!("refused")), "{v}");
-    assert!(v["error"].as_str().is_some_and(|e| e.contains("cannot resume")), "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("cannot resume")),
+        "{v}"
+    );
     // the file it is printing is not on the storage the farm asks (the fake lists none): that is "not found", never a 502 in the console
     let url = format!(
         "{}/api/p/core-one-l/print/thumbnail?filename=bracket_PETG.gcode",
@@ -3576,13 +3728,17 @@ fn a_prusalink_in_attention_says_why_and_a_refused_resume_is_a_known_not_done() 
 }
 
 /// Finish-2 F01 (2026-10-19): a service that names no printer reaches nothing. The built-in address was
-/// `http://127.0.0.1:7125`, which on our PC is the Kobra X bridge; a fresh scratch instance read it twice.
+/// `http://127.0.0.1:7125`, which on the owner's PC is the Kobra X bridge; a fresh scratch instance read it twice.
 /// Now there is no built-in address, the placeholder has no collector, and every un-prefixed page request
 /// (status, files, camera) has nothing to open. A printer removed from the farm stops being asked at its
 /// next pass: a bare listener stands in for it and its connection count stops growing.
 #[test]
 fn a_service_with_no_printer_opens_nothing_and_a_removed_printer_stops_being_asked() {
-    assert_eq!(Config::default().moonraker_url, "", "no built-in printer address");
+    assert_eq!(
+        Config::default().moonraker_url,
+        "",
+        "no built-in printer address"
+    );
     // Thread names are process-wide, so only a name no other test uses is counted ("collector-f01-g").
     let collectors = || -> Vec<String> {
         fs::read_dir("/proc/self/task")
@@ -3600,7 +3756,13 @@ fn a_service_with_no_printer_opens_nothing_and_a_removed_printer_stops_being_ask
         ..Config::default()
     };
     let r = run(&dir, cfg);
-    for path in ["/api/status", "/api/printers", "/api/files", "/api/camera", "/api/tick"] {
+    for path in [
+        "/api/status",
+        "/api/printers",
+        "/api/files",
+        "/api/camera",
+        "/api/tick",
+    ] {
         let _ = r.get(path);
     }
     // A collector would have tried, failed and said so within its first pass; the placeholder has none, so
@@ -3620,9 +3782,15 @@ fn a_service_with_no_printer_opens_nothing_and_a_removed_printer_stops_being_ask
     // The home page of a fresh install is the farm (demo card, Add a printer), not the placeholder's page.
     let (code, home) = r.call("GET", "/", None, false);
     assert_eq!(code, 200);
-    assert!(home.as_str().unwrap_or("").contains("fm-grid"), "/ is not the farm on a fresh install");
+    assert!(
+        home.as_str().unwrap_or("").contains("fm-grid"),
+        "/ is not the farm on a fresh install"
+    );
     let (camera, said) = r.call("GET", "/api/camera", None, false);
-    assert_eq!((camera, said["error"].as_str()), (404, Some(crate::config::NO_PRINTER)));
+    assert_eq!(
+        (camera, said["error"].as_str()),
+        (404, Some(crate::config::NO_PRINTER))
+    );
 
     // A printer that is added is asked; once removed, it is not asked again.
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -3644,7 +3812,9 @@ fn a_service_with_no_printer_opens_nothing_and_a_removed_printer_stops_being_ask
         let (code, v) = r.call("POST", "/api/printers", Some(&add), true);
         assert_eq!(code, 200, "{v}");
     }
-    wait_for("the printer to be asked", || accepts.load(Ordering::SeqCst) >= 2);
+    wait_for("the printer to be asked", || {
+        accepts.load(Ordering::SeqCst) >= 2
+    });
     let (code, v) = r.call("DELETE", "/api/printers/f01-gone", None, true);
     assert_eq!(code, 200, "{v}");
     wait_for("its collector to end", || {
@@ -3652,7 +3822,11 @@ fn a_service_with_no_printer_opens_nothing_and_a_removed_printer_stops_being_ask
     });
     let after = accepts.load(Ordering::SeqCst);
     thread::sleep(Duration::from_millis(4500));
-    assert_eq!(accepts.load(Ordering::SeqCst), after, "a removed printer is still being asked");
+    assert_eq!(
+        accepts.load(Ordering::SeqCst),
+        after,
+        "a removed printer is still being asked"
+    );
 }
 
 /// Finish-2 F02 (CORE One L, 2026-10-19): the review before a print starts said Klipper's own call ("POST /printer/print/start?
@@ -3665,10 +3839,21 @@ fn the_review_before_a_print_says_what_will_happen_not_a_klipper_call() {
     let r = run(&dir, base_for(&dir, &a));
     let add = json!({"name":"Core One L","driver":"prusalink","address":prusa.url(),"credentials":{"user":"maker","password":"secret"}});
     assert_eq!(r.call("POST", "/api/printers", Some(&add), true).0, 200);
-    for (path, id) in [("/api/p/core-one-l/command-preview", "core-one-l"), ("/api/p/stella/command-preview", "stella")] {
-        let (code, v) = r.printer_call("POST", path, id, &json!({"id":"print_start","filename":"twistbowl (dry run).gcode"}));
+    for (path, id) in [
+        ("/api/p/core-one-l/command-preview", "core-one-l"),
+        ("/api/p/stella/command-preview", "stella"),
+    ] {
+        let (code, v) = r.printer_call(
+            "POST",
+            path,
+            id,
+            &json!({"id":"print_start","filename":"twistbowl (dry run).gcode"}),
+        );
         assert_eq!(code, 200, "{v}");
-        assert_eq!(v["action"], "Start \"twistbowl (dry run).gcode\" on the printer, once.", "{id}: {v}");
+        assert_eq!(
+            v["action"], "Start \"twistbowl (dry run).gcode\" on the printer, once.",
+            "{id}: {v}"
+        );
         assert_eq!(v["tier"], "T3", "a print start is still reviewed");
     }
 }
@@ -3683,12 +3868,33 @@ fn pause_resume_and_cancel_are_reviewed_in_words_on_a_printer_that_is_not_klippe
     let r = run(&dir, base_for(&dir, &a));
     let add = json!({"name":"Core One L","driver":"prusalink","address":prusa.url(),"credentials":{"user":"maker","password":"secret"}});
     assert_eq!(r.call("POST", "/api/printers", Some(&add), true).0, 200);
-    for (id, words) in [("pause", "Pause the print."), ("resume", "Resume the print."), ("cancel", "Cancel the print. It cannot be resumed.")] {
-        let (code, v) = r.printer_call("POST", "/api/p/core-one-l/command-preview", "core-one-l", &json!({"id":id}));
+    for (id, words) in [
+        ("pause", "Pause the print."),
+        ("resume", "Resume the print."),
+        ("cancel", "Cancel the print. It cannot be resumed."),
+    ] {
+        let (code, v) = r.printer_call(
+            "POST",
+            "/api/p/core-one-l/command-preview",
+            "core-one-l",
+            &json!({"id":id}),
+        );
         assert_eq!(code, 200, "{v}");
-        assert_eq!((v["action"].as_str(), v["script"].is_null()), (Some(words), true), "{id}: {v}");
-        let (_, k) = r.printer_call("POST", "/api/p/stella/command-preview", "stella", &json!({"id":id}));
-        assert!(k["script"].as_str().is_some_and(|s| !s.is_empty()), "Klipper keeps its G-code: {k}");
+        assert_eq!(
+            (v["action"].as_str(), v["script"].is_null()),
+            (Some(words), true),
+            "{id}: {v}"
+        );
+        let (_, k) = r.printer_call(
+            "POST",
+            "/api/p/stella/command-preview",
+            "stella",
+            &json!({"id":id}),
+        );
+        assert!(
+            k["script"].as_str().is_some_and(|s| !s.is_empty()),
+            "Klipper keeps its G-code: {k}"
+        );
     }
 }
 
@@ -3702,9 +3908,19 @@ fn a_prusalink_file_without_a_picture_is_not_found_not_a_failure() {
     let r = run(&dir, base_for(&dir, &a));
     let add = json!({"name":"Core One L","driver":"prusalink","address":prusa.url(),"credentials":{"user":"maker","password":"secret"}});
     assert_eq!(r.call("POST", "/api/printers", Some(&add), true).0, 200);
-    let (code, v) = r.call("GET", "/api/p/core-one-l/print/thumbnail?filename=nopic.gcode", None, false);
+    let (code, v) = r.call(
+        "GET",
+        "/api/p/core-one-l/print/thumbnail?filename=nopic.gcode",
+        None,
+        false,
+    );
     assert_eq!(code, 404, "{v}");
-    let (code, _) = r.call("GET", "/api/p/core-one-l/print/thumbnail?filename=camera_cap.gcode", None, false);
+    let (code, _) = r.call(
+        "GET",
+        "/api/p/core-one-l/print/thumbnail?filename=camera_cap.gcode",
+        None,
+        false,
+    );
     assert_eq!(code, 200);
 }
 
@@ -3739,7 +3955,10 @@ fn a_prusalink_gives_its_own_time_left_and_its_history_never_asks_moonraker() {
     assert!(own(&r.get("/api/p/core-one-l/tick")["job"]["time_left"]));
     let h = r.get("/api/p/core-one-l/print/history");
     assert_eq!(h["source"], "prints this recorder saw", "{h}");
-    assert!(h.get("printer_error").is_none() && !h.to_string().contains("Moonraker"), "{h}");
+    assert!(
+        h.get("printer_error").is_none() && !h.to_string().contains("Moonraker"),
+        "{h}"
+    );
 }
 
 /// Finish-2 F02: the model page at a recorded moment takes the recorder's position, not the live one.
@@ -3748,17 +3967,25 @@ fn the_model_at_a_recorded_moment_has_the_position_recorded_then() {
     let dir = Dir::new("model-at");
     let a = FakeMoonraker::start(0);
     let r = run(&dir, base_for(&dir, &a));
-    wait_for("a recording", || r.get("/api/tick")["point"]["position"][2].as_f64().is_some());
+    wait_for("a recording", || {
+        r.get("/api/tick")["point"]["position"][2]
+            .as_f64()
+            .is_some()
+    });
     // not the session's first sample: it carries the whole printer state and the readers skip it (as the workspace does)
     thread::sleep(Duration::from_millis(1500));
     let then = r.get("/api/tick")["point"]["ts"].as_f64().unwrap();
     let z_then = r.get("/api/tick")["point"]["position"][2].as_f64().unwrap();
     thread::sleep(Duration::from_millis(1200));
     a.state.lock().unwrap().pos[2] = z_then + 40.0;
-    wait_for("the new Z", || r.get("/api/tick")["point"]["position"][2].as_f64() == Some(z_then + 40.0));
+    wait_for("the new Z", || {
+        r.get("/api/tick")["point"]["position"][2].as_f64() == Some(z_then + 40.0)
+    });
     let live = r.get("/api/model");
     // the tick is published as its sample is written: give the recording a moment to hold it
-    wait_for("the moment in the recording", || r.get(&format!("/api/model?ts={then}"))["recorded"] == true);
+    wait_for("the moment in the recording", || {
+        r.get(&format!("/api/model?ts={then}"))["recorded"] == true
+    });
     let past = r.get(&format!("/api/model?ts={then}"));
     assert_eq!(live["recorded"], false);
     // with no model bound the route still answers; the position is what matters here when a model is bound
@@ -3778,8 +4005,18 @@ fn an_alert_reaches_ntfy_in_a_farm_of_added_printers() {
     let (a, b) = (FakeMoonraker::start(0), FakeMoonraker::start(0));
     let cfg = Config {
         printers: vec![
-            PrinterEntry { id: "lead".into(), name: "Lead".into(), address: a.url(), ..Default::default() },
-            PrinterEntry { id: "bench".into(), name: "Bench".into(), address: b.url(), ..Default::default() },
+            PrinterEntry {
+                id: "lead".into(),
+                name: "Lead".into(),
+                address: a.url(),
+                ..Default::default()
+            },
+            PrinterEntry {
+                id: "bench".into(),
+                name: "Bench".into(),
+                address: b.url(),
+                ..Default::default()
+            },
         ],
         moonraker_url: String::new(),
         ..base_for(&dir, &a)
@@ -3795,7 +4032,10 @@ fn an_alert_reaches_ntfy_in_a_farm_of_added_printers() {
             let _ = s.set_read_timeout(Some(Duration::from_millis(500)));
             let mut buf = Vec::new();
             let _ = s.read_to_end(&mut buf);
-            let _ = std::io::Write::write_all(&mut s, b"HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\n{}");
+            let _ = std::io::Write::write_all(
+                &mut s,
+                b"HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\n{}",
+            );
             let _ = tx.send(String::from_utf8_lossy(&buf).into_owned());
         }
     });
@@ -3803,7 +4043,12 @@ fn an_alert_reaches_ntfy_in_a_farm_of_added_printers() {
     // test message can read another test's settings (no ntfy) and say queued:false. One running service has one settings file, so retry.
     let mut v = Value::Null;
     for _ in 0..10 {
-        let (code, s) = r.call("POST", "/api/notify/ntfy", Some(&json!({"url":format!("http://127.0.0.1:{port}/farm-test"),"enabled":true})), true);
+        let (code, s) = r.call(
+            "POST",
+            "/api/notify/ntfy",
+            Some(&json!({"url":format!("http://127.0.0.1:{port}/farm-test"),"enabled":true})),
+            true,
+        );
         assert_eq!(code, 200, "{s}");
         let (code, t) = r.call("POST", "/api/notify/test", Some(&json!({})), true);
         assert_eq!(code, 200, "{t}");
@@ -3814,8 +4059,13 @@ fn an_alert_reaches_ntfy_in_a_farm_of_added_printers() {
         thread::sleep(Duration::from_millis(300));
     }
     assert_eq!(v["queued"], json!(true), "{v}");
-    let got = rx.recv_timeout(Duration::from_secs(10)).expect("ntfy got nothing");
-    assert!(got.starts_with("POST /farm-test") && got.contains("test message from Stella Scope"), "{got}");
+    let got = rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("ntfy got nothing");
+    assert!(
+        got.starts_with("POST /farm-test") && got.contains("test message from Stella Scope"),
+        "{got}"
+    );
 }
 
 /// Finish-2 F05: the failure watch learns that a print runs from this service, for every brand. It asked a Moonraker for
@@ -3836,7 +4086,9 @@ fn the_failure_watch_sees_a_prusalink_print_through_this_service() {
         s.progress = 30.0;
     }
     let q = "/api/p/core-one-l/printer/objects/query?print_stats=state,filename,total_duration";
-    wait_for("the print to be seen", || r.get(q)["result"]["status"]["print_stats"]["state"] == "printing");
+    wait_for("the print to be seen", || {
+        r.get(q)["result"]["status"]["print_stats"]["state"] == "printing"
+    });
     let ps = &r.get(q)["result"]["status"]["print_stats"];
     assert_eq!(ps["filename"], "stellavase.gcode", "{ps}");
 }
@@ -3861,12 +4113,16 @@ fn an_unhomed_klipper_axis_is_unknown_not_zero() {
         ..base_for(&dir, &a)
     };
     let r = run(&dir, cfg);
-    wait_for("a tick", || r.get("/api/tick")["point"]["position"].is_array());
+    wait_for("a tick", || {
+        r.get("/api/tick")["point"]["position"].is_array()
+    });
     let m = r.get("/api/p/stella/model?scene=0");
     assert_eq!(m["position"], json!({"x":null,"y":null,"z":null}), "{m}");
     a.state.lock().unwrap().homed = "xyz".into();
     a.state.lock().unwrap().pos = [175.0, 175.0, 10.0];
-    wait_for("the homed position", || r.get("/api/p/stella/model?scene=0")["position"]["x"] == json!(175.0));
+    wait_for("the homed position", || {
+        r.get("/api/p/stella/model?scene=0")["position"]["x"] == json!(175.0)
+    });
 }
 
 /// Finish-2 F09 (2026-10-19): a PrusaLink printer that names its machine (the fake's hostname is prusa-core-one-l) is added with that machine's own defaults
@@ -3874,11 +4130,13 @@ fn an_unhomed_klipper_axis_is_unknown_not_zero() {
 /// model is the person's choice and is never set for them; a person who typed their own values keeps them; the table (and the machines that have no
 /// model, with why) is served to the page, and Printer models lists the four models the build carries.
 #[test]
-#[ignore = "needs the Prusa models, which this public copy does not carry"]
 fn a_prusalink_printer_that_names_its_machine_starts_with_that_machines_defaults() {
     let dir = Dir::new("prusa-defaults");
     let a = FakeMoonraker::start(0);
-    let (p1, p2) = (FakePrusaLink::start(0, "maker", "secret"), FakePrusaLink::start(0, "maker", "secret"));
+    let (p1, p2) = (
+        FakePrusaLink::start(0, "maker", "secret"),
+        FakePrusaLink::start(0, "maker", "secret"),
+    );
     let r = run(&dir, base_for(&dir, &a));
     let login = json!({"user":"maker","password":"secret"});
     // nothing given but a name and the login
@@ -3889,41 +4147,141 @@ fn a_prusalink_printer_that_names_its_machine_starts_with_that_machines_defaults
     let add2 = json!({"name":"Mine","driver":"prusalink","address":p2.url(),"credentials":login,"slicer_model":"MYCORE","nozzle_mm":0.6,"bed_size_mm":[250.0,220.0]});
     let (code, body) = r.call("POST", "/api/printers", Some(&add2), true);
     assert_eq!(code, 200, "{body}");
-    let get = |id: &str| r.get("/api/printers")["printers"].as_array().unwrap().iter().find(|x| x["id"] == id).cloned().unwrap();
+    let get = |id: &str| {
+        r.get("/api/printers")["printers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["id"] == id)
+            .cloned()
+            .unwrap()
+    };
     let bench = get("bench");
-    assert_eq!((bench["model"].clone(), bench["slicer_model"].clone(), bench["nozzle_mm"].clone(), bench["bed_mm"].clone()), (json!("CORE One L"), json!("COREONEL"), json!(0.4), json!([300.0, 300.0])), "{bench}");
-    assert!(bench["cad_model"].is_null(), "the 3D model is the person's choice, not set for them: {bench}");
+    assert_eq!(
+        (
+            bench["model"].clone(),
+            bench["slicer_model"].clone(),
+            bench["nozzle_mm"].clone(),
+            bench["bed_mm"].clone()
+        ),
+        (
+            json!("CORE One L"),
+            json!("COREONEL"),
+            json!(0.4),
+            json!([300.0, 300.0])
+        ),
+        "{bench}"
+    );
+    assert!(
+        bench["cad_model"].is_null(),
+        "the 3D model is the person's choice, not set for them: {bench}"
+    );
     let mine = get("mine");
-    assert_eq!((mine["slicer_model"].clone(), mine["nozzle_mm"].clone(), mine["bed_mm"].clone()), (json!("MYCORE"), json!(0.6), json!([250.0, 220.0])), "{mine}");
+    assert_eq!(
+        (
+            mine["slicer_model"].clone(),
+            mine["nozzle_mm"].clone(),
+            mine["bed_mm"].clone()
+        ),
+        (json!("MYCORE"), json!(0.6), json!([250.0, 220.0])),
+        "{mine}"
+    );
     // the table the page reads
     let t = r.get("/api/printer-models/prusa");
     let rows = t["machines"].as_array().unwrap();
     let find = |id: &str| rows.iter().find(|m| m["id"] == id).unwrap().clone();
-    assert_eq!((find("prusa_mini")["bed_mm"].clone(), find("prusa_mini")["cad_model"].clone()), (json!([180.0, 180.0]), json!("prusa_mini")));
-    assert!(find("prusa_xl")["cad_model"].is_null() && find("prusa_xl")["no_model"].as_str().unwrap().contains("no assembly"));
-    assert!(find("prusa_mk4s")["no_model"].as_str().unwrap().contains("heatbed"), "the MK4's reason is the exact one");
-    // Printer models: the four the build carries, and the Prusa machines with no model, each with its reason
+    assert_eq!(
+        (
+            find("prusa_mini")["bed_mm"].clone(),
+            find("prusa_mini")["cad_model"].clone()
+        ),
+        (json!([180.0, 180.0]), json!("prusa_mini"))
+    );
+    assert!(
+        find("prusa_xl")["cad_model"].is_null()
+            && find("prusa_xl")["no_model"]
+                .as_str()
+                .unwrap()
+                .contains("no assembly")
+    );
+    assert!(
+        find("prusa_mk4s")["no_model"]
+            .as_str()
+            .unwrap()
+            .contains("heatbed"),
+        "the MK4's reason is the exact one"
+    );
+    // Printer models: the four Prusa models 3D3D hosts (no build carries any), and the Prusa machines with no model, each with its reason
     let list = r.get("/api/printer-models");
-    let carried: Vec<&str> = list["models"].as_array().unwrap().iter().filter(|m| m["in_build"] == true).map(|m| m["id"].as_str().unwrap()).collect();
+    let carried: Vec<&str> = list["models"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| m["hosted"] == true && m["in_build"] == false)
+        .map(|m| m["id"].as_str().unwrap())
+        .collect();
     assert_eq!(carried.len(), 4, "{carried:?}");
-    for id in ["prusa_core_one_l", "prusa_core_one", "prusa_mk3s", "prusa_mini"] {
+    for id in [
+        "prusa_core_one_l",
+        "prusa_core_one",
+        "prusa_mk3s",
+        "prusa_mini",
+    ] {
         assert!(carried.contains(&id), "{id}");
     }
-    let none: Vec<&str> = list["no_model"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
-    assert!(none.contains(&"prusa_xl") && none.contains(&"prusa_mk4s") && !none.contains(&"prusa_mini"), "{none:?}");
-    assert!(list["no_model"].as_array().unwrap().iter().all(|m| m["why"].as_str().unwrap().len() > 40));
+    let none: Vec<&str> = list["no_model"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap())
+        .collect();
+    assert!(
+        none.contains(&"prusa_xl") && none.contains(&"prusa_mk4s") && !none.contains(&"prusa_mini"),
+        "{none:?}"
+    );
+    assert!(list["no_model"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|m| m["why"].as_str().unwrap().len() > 40));
     // About: who is credited, and each model's notice ends with its licence text
     let c = r.get("/api/printer-models/credits");
-    assert_eq!(c["models"].as_array().unwrap().len(), 4);
-    assert_eq!((c["licence"].clone(), c["maker"].clone()), (json!("AGPL-3.0"), json!("3D3D Canada")));
+    // release-2026-11-14: the four Prusa machines and the hosted Stealthburner part each carry a notice.
+    assert_eq!(c["models"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        (c["licence"].clone(), c["maker"].clone()),
+        (json!("GNU AGPL-3.0"), json!("3D3D Canada"))
+    );
     // finish-2 F07: who to write to, and the 3D Print Rig credit with its MIT notice
     assert_eq!(c["contact"], json!("info@3d3d.ca"));
-    assert_eq!((c["rig"]["name"].clone(), c["rig"]["licence"].clone()), (json!("3D Print Rig"), json!("MIT")));
-    assert!(c["rig"]["notice"].as_str().unwrap().contains("Permission is hereby granted, free of charge"), "{c}");
+    assert_eq!(
+        (c["rig"]["name"].clone(), c["rig"]["licence"].clone()),
+        (json!("3D Print Rig"), json!("MIT"))
+    );
+    assert!(
+        c["rig"]["notice"]
+            .as_str()
+            .unwrap()
+            .contains("Permission is hereby granted, free of charge"),
+        "{c}"
+    );
     let n = r.get("/api/printer-models/prusa_core_one/notice");
-    assert!(n["text"].as_str().unwrap().contains("Printables model 1520471") && n["text"].as_str().unwrap().contains("Open Community License (OCL v1)"), "{n}");
+    assert!(
+        n["text"]
+            .as_str()
+            .unwrap()
+            .contains("Printables model 1520471")
+            && n["text"]
+                .as_str()
+                .unwrap()
+                .contains("Open Community License (OCL v1)"),
+        "{n}"
+    );
     let none = r.get("/api/printer-models/tictac_21_120/notice");
-    assert!(none["error"].is_string(), "a model with no notice says so: {none}");
+    assert!(
+        none["error"].is_string(),
+        "a model with no notice says so: {none}"
+    );
 }
 
 /// Finish-2 F05 (Stella, 2026-10-19): Klipper's RESUME macro aborts with a cold nozzle (always after a heaters-off dry run)
@@ -3934,15 +4292,37 @@ fn a_klipper_resume_the_macro_aborts_is_reported_as_refused() {
     let a = FakeMoonraker::start(0);
     a.state.lock().unwrap().print_state = "paused".into();
     a.state.lock().unwrap().filename = "cube.gcode".into();
-    let cfg = Config { controls_enabled: true, ..base_for(&dir, &a) };
+    let cfg = Config {
+        controls_enabled: true,
+        ..base_for(&dir, &a)
+    };
     let r = run(&dir, cfg);
     wait_for("paused", || r.get("/api/tick")["job"]["state"] == "paused");
-    let (code, v) = r.printer_call("POST", "/api/p/stella/commands", "stella", &json!({"id":"resume","confirm":true}));
+    let (code, v) = r.printer_call(
+        "POST",
+        "/api/p/stella/commands",
+        "stella",
+        &json!({"id":"resume","confirm":true}),
+    );
     assert_eq!((code, v["status"].as_str()), (409, Some("refused")), "{v}");
-    assert!(v["error"].as_str().is_some_and(|e| e.contains("not hot enough")), "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("not hot enough")),
+        "{v}"
+    );
     a.state.lock().unwrap().nozzle = 215.0;
-    let (code, v) = r.printer_call("POST", "/api/p/stella/commands", "stella", &json!({"id":"resume","confirm":true}));
-    assert_eq!((code, v["status"].as_str()), (200, Some("completed")), "{v}");
+    let (code, v) = r.printer_call(
+        "POST",
+        "/api/p/stella/commands",
+        "stella",
+        &json!({"id":"resume","confirm":true}),
+    );
+    assert_eq!(
+        (code, v["status"].as_str()),
+        (200, Some("completed")),
+        "{v}"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -3956,25 +4336,58 @@ fn a_klipper_resume_the_macro_aborts_is_reported_as_refused() {
 fn the_first_printer_can_be_removed_and_a_farm_left_with_none_is_a_fresh_install_again() {
     let dir = Dir::new("remove-first");
     let (a, b) = (FakeMoonraker::start(0), FakeMoonraker::start(0));
-    let cfg = Config { unconfigured: true, moonraker_url: String::new(), database: dir.file("stella.sqlite3"), ..Config::default() };
+    let cfg = Config {
+        unconfigured: true,
+        moonraker_url: String::new(),
+        database: dir.file("stella.sqlite3"),
+        ..Config::default()
+    };
     let r = run(&dir, cfg);
     for (name, url) in [("Bench", a.url()), ("Shop", b.url())] {
-        let (code, v) = r.call("POST", "/api/printers", Some(&json!({"name":name,"address":url})), true);
+        let (code, v) = r.call(
+            "POST",
+            "/api/printers",
+            Some(&json!({"name":name,"address":url})),
+            true,
+        );
         assert_eq!(code, 200, "{v}");
     }
     let listing = |r: &Running| -> (Vec<String>, String) {
         let d = r.get("/api/printers");
-        (d["printers"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap().to_owned()).collect(), d["default"].as_str().unwrap_or("").to_owned())
+        (
+            d["printers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["id"].as_str().unwrap().to_owned())
+                .collect(),
+            d["default"].as_str().unwrap_or("").to_owned(),
+        )
     };
-    let saved = |dir: &Dir| -> Value { serde_json::from_str(&fs::read_to_string(dir.file("stella-scope.json")).unwrap()).unwrap() };
-    assert_eq!(listing(&r), (vec!["bench".to_owned(), "shop".to_owned()], "bench".to_owned()));
-    assert_eq!(r.farm.watch_target().map(|p| p.id.clone()), Some("bench".to_owned()), "the failure watch looks at the first real printer");
+    let saved = |dir: &Dir| -> Value {
+        serde_json::from_str(&fs::read_to_string(dir.file("stella-scope.json")).unwrap()).unwrap()
+    };
+    assert_eq!(
+        listing(&r),
+        (
+            vec!["bench".to_owned(), "shop".to_owned()],
+            "bench".to_owned()
+        )
+    );
+    assert_eq!(
+        r.farm.watch_target().map(|p| p.id.clone()),
+        Some("bench".to_owned()),
+        "the failure watch looks at the first real printer"
+    );
 
     // The first printer goes: the second leads, in the page, in the watch and in the file.
     let (code, v) = r.call("DELETE", "/api/printers/bench", None, true);
     assert_eq!(code, 200, "{v}");
     assert_eq!(listing(&r), (vec!["shop".to_owned()], "shop".to_owned()));
-    assert_eq!(r.farm.watch_target().map(|p| p.id.clone()), Some("shop".to_owned()));
+    assert_eq!(
+        r.farm.watch_target().map(|p| p.id.clone()),
+        Some("shop".to_owned())
+    );
     assert_eq!(saved(&dir)["printers"].as_array().unwrap().len(), 1);
 
     // The last one goes: a fresh install again.
@@ -3982,16 +4395,31 @@ fn the_first_printer_can_be_removed_and_a_farm_left_with_none_is_a_fresh_install
     assert_eq!(code, 200, "{v}");
     assert_eq!(listing(&r).0, Vec::<String>::new());
     assert_eq!(r.get("/api/printers")["count"], json!(0));
-    assert_eq!(r.farm.list().len(), 1, "the placeholder is back, out of sight, so the first-printer machinery has what it needs");
+    assert_eq!(
+        r.farm.list().len(),
+        1,
+        "the placeholder is back, out of sight, so the first-printer machinery has what it needs"
+    );
     assert_eq!(r.farm.first().id, "placeholder");
     assert!(r.farm.watch_target().is_none(), "nothing to watch");
     let (code, home) = r.call("GET", "/", None, false);
     assert_eq!(code, 200);
-    assert!(home.as_str().unwrap_or("").contains("fm-grid"), "/ is the farm, not a page stuck at 'Connecting'");
+    assert!(
+        home.as_str().unwrap_or("").contains("fm-grid"),
+        "/ is the farm, not a page stuck at 'Connecting'"
+    );
     let reload = Config::load(&dir.file("stella-scope.json")).unwrap();
-    assert!(reload.unconfigured && reload.entries()[0].id == "placeholder", "the next start is a fresh install too");
+    assert!(
+        reload.unconfigured && reload.entries()[0].id == "placeholder",
+        "the next start is a fresh install too"
+    );
     // and a printer can be added again at once
-    let (code, v) = r.call("POST", "/api/printers", Some(&json!({"name":"Again","address":a.url()})), true);
+    let (code, v) = r.call(
+        "POST",
+        "/api/printers",
+        Some(&json!({"name":"Again","address":a.url()})),
+        true,
+    );
     assert_eq!(code, 200, "{v}");
     assert_eq!(listing(&r), (vec!["again".to_owned()], "again".to_owned()));
 }
@@ -4008,7 +4436,12 @@ fn a_single_printer_file_that_loses_its_printer_does_not_get_it_back() {
     assert_eq!(r.get("/api/printers")["count"], json!(0));
     let reload = Config::load(&dir.file("stella-scope.json")).unwrap();
     assert!(reload.unconfigured, "the file no longer names a printer");
-    assert_eq!(reload.entries()[0].id, "placeholder", "{:?}", reload.entries());
+    assert_eq!(
+        reload.entries()[0].id,
+        "placeholder",
+        "{:?}",
+        reload.entries()
+    );
 }
 
 /// The hidden placeholder of a farm with no printer of its own was listed as "Stella" in the analytics and the queue, and written into every backup (which
@@ -4016,12 +4449,30 @@ fn a_single_printer_file_that_loses_its_printer_does_not_get_it_back() {
 #[test]
 fn the_placeholder_is_never_a_printer_in_the_analytics_the_queue_or_a_backup() {
     let dir = Dir::new("ghost");
-    let cfg = Config { unconfigured: true, moonraker_url: String::new(), database: dir.file("stella.sqlite3"), ..Config::default() };
+    let cfg = Config {
+        unconfigured: true,
+        moonraker_url: String::new(),
+        database: dir.file("stella.sqlite3"),
+        ..Config::default()
+    };
     let r = run(&dir, cfg);
     let (code, v) = r.call("POST", "/api/printers/demo-farm", Some(&json!({})), true);
     assert_eq!(code, 200, "{v}");
     assert_eq!(r.farm.list().len(), 10, "nine demos and the placeholder");
-    let names = |v: &Value, key: &str| -> Vec<String> { v[key].as_array().unwrap().iter().map(|p| p["id"].as_str().or(p["printer"].as_str()).unwrap_or("?").to_owned()).collect() };
+    let names = |v: &Value, key: &str| -> Vec<String> {
+        v[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| {
+                p["id"]
+                    .as_str()
+                    .or(p["printer"].as_str())
+                    .unwrap_or("?")
+                    .to_owned()
+            })
+            .collect()
+    };
     let analytics = r.get("/api/analytics?days=7");
     assert_eq!(names(&analytics, "printers").len(), 9, "{analytics}");
     assert!(!names(&analytics, "printers").contains(&"placeholder".to_owned()));
@@ -4031,7 +4482,10 @@ fn the_placeholder_is_never_a_printer_in_the_analytics_the_queue_or_a_backup() {
     assert!(!queue_printers.contains(&"placeholder".to_owned()));
     let backup = r.get("/api/farm/backup");
     assert_eq!(names(&backup, "printers").len(), 9, "{backup}");
-    assert!(!names(&backup, "printers").contains(&"placeholder".to_owned()), "a backup restores real printers only");
+    assert!(
+        !names(&backup, "printers").contains(&"placeholder".to_owned()),
+        "a backup restores real printers only"
+    );
 }
 
 /// A slicer's "Test" button sends its key to GET /api/version and believes a 200. A wrong key (or uploads switched off) used to read "works" and fail at the
@@ -4052,7 +4506,11 @@ fn a_slicers_test_with_a_wrong_key_is_refused_and_a_right_key_or_none_answers() 
     };
     assert_eq!(ask(Some(&key)), 200, "the right key");
     assert_eq!(ask(None), 200, "no key: who are you");
-    assert_eq!(ask(Some("not-the-key")), 403, "a wrong key is said, not believed");
+    assert_eq!(
+        ask(Some("not-the-key")),
+        403,
+        "a wrong key is said, not believed"
+    );
     assert_eq!(ask(Some("")), 403, "an empty key is a wrong key");
 }
 
@@ -4066,18 +4524,49 @@ fn phone_access_is_switched_on_from_the_page_and_says_it_starts_with_the_next_st
     let (code, said) = r.call("POST", "/api/pair/new", Some(&json!({})), false);
     assert_eq!(code, 400);
     let words = said["error"].as_str().unwrap_or("");
-    assert!(words.contains("switched off") && !words.contains("lan_port") && !words.contains("json"), "plain words: {words}");
-    assert_eq!(r.call("POST", "/api/farm/phone-access", Some(&json!({})), false).0, 401, "no token, no change");
+    assert!(
+        words.contains("switched off") && !words.contains("lan_port") && !words.contains("json"),
+        "plain words: {words}"
+    );
+    assert_eq!(
+        r.call("POST", "/api/farm/phone-access", Some(&json!({})), false)
+            .0,
+        401,
+        "no token, no change"
+    );
     let (code, v) = r.call("POST", "/api/farm/phone-access", Some(&json!({})), true);
     assert_eq!(code, 200, "{v}");
-    assert_eq!((v["enabled"].clone(), v["restart_needed"].clone()), (json!(true), json!(true)), "{v}");
+    assert_eq!(
+        (v["enabled"].clone(), v["restart_needed"].clone()),
+        (json!(true), json!(true)),
+        "{v}"
+    );
     let port = v["lan_port"].as_u64().unwrap();
-    assert!(port > r.port as u64 && port != r.port as u64, "a port of its own: {port}");
-    let saved: Value = serde_json::from_str(&fs::read_to_string(dir.file("stella-scope.json")).unwrap()).unwrap();
-    assert_eq!((saved["remote_link"].clone(), saved["lan_port"].as_u64()), (json!(true), Some(port)), "{saved}");
-    assert_eq!(saved["moonraker_url"], json!(fake.url()), "nothing else in the file changed");
-    assert!(Config::load(&dir.file("stella-scope.json")).is_ok(), "the file still loads");
-    assert_eq!(r.get("/api/pair/remote")["pending_restart"], json!(true), "the phone page says it starts with the next start instead of offering the button again");
+    assert!(
+        port > r.port as u64 && port != r.port as u64,
+        "a port of its own: {port}"
+    );
+    let saved: Value =
+        serde_json::from_str(&fs::read_to_string(dir.file("stella-scope.json")).unwrap()).unwrap();
+    assert_eq!(
+        (saved["remote_link"].clone(), saved["lan_port"].as_u64()),
+        (json!(true), Some(port)),
+        "{saved}"
+    );
+    assert_eq!(
+        saved["moonraker_url"],
+        json!(fake.url()),
+        "nothing else in the file changed"
+    );
+    assert!(
+        Config::load(&dir.file("stella-scope.json")).is_ok(),
+        "the file still loads"
+    );
+    assert_eq!(
+        r.get("/api/pair/remote")["pending_restart"],
+        json!(true),
+        "the phone page says it starts with the next start instead of offering the button again"
+    );
     // a second press keeps the port the file already names
     let (code, v) = r.call("POST", "/api/farm/phone-access", Some(&json!({})), true);
     assert_eq!((code, v["lan_port"].as_u64()), (200, Some(port)), "{v}");
@@ -4088,7 +4577,10 @@ fn phone_access_is_switched_on_from_the_page_and_says_it_starts_with_the_next_st
 #[test]
 fn a_demo_machine_has_a_nozzle_so_a_sample_file_fits_it_without_a_note() {
     let farm = crate::demo::demo_farm();
-    assert!(farm.iter().all(|e| e.nozzle_mm == Some(0.4)), "every demo machine has the usual nozzle");
+    assert!(
+        farm.iter().all(|e| e.nozzle_mm == Some(0.4)),
+        "every demo machine has the usual nozzle"
+    );
     let core = farm.iter().find(|e| e.id == "demo-core-one-l").unwrap();
     let profile = crate::queue::Profile {
         id: core.id.clone(),
@@ -4099,42 +4591,20 @@ fn a_demo_machine_has_a_nozzle_so_a_sample_file_fits_it_without_a_note() {
         nozzle_mm: core.nozzle_mm,
         material: core.material.clone(),
     };
-    let needs = crate::queue::Needs { printer_model: Some("COREONEL".into()), nozzle_mm: Some(0.4), filament: vec!["PETG".into()], bed_mm: Some([300.0, 300.0]), extents_mm: Some([125.0, 125.0, 55.0]) };
+    let needs = crate::queue::Needs {
+        printer_model: Some("COREONEL".into()),
+        nozzle_mm: Some(0.4),
+        filament: vec!["PETG".into()],
+        bed_mm: Some([300.0, 300.0]),
+        extents_mm: Some([125.0, 125.0, 55.0]),
+    };
     let fit = crate::queue::fit(&needs, false, &profile);
     assert!(fit.ok && fit.reasons.is_empty(), "{fit:?}");
-    assert!(!fit.notes.iter().any(|n| n.contains("nozzle")), "no note asking which nozzle the demo has: {:?}", fit.notes);
-}
-
-/// The sixth real printer starts the farm's one thirty-day trial. The walk found that the running service went on saying "a licence is asked for" with no
-/// trial running until it was restarted, and that every printer added after the sixth wrote a newer start into the file: the trial lasted as long as the
-/// service kept running. Demo printers never count.
-#[test]
-fn the_sixth_real_printer_starts_one_trial_the_running_service_shows_and_later_printers_do_not_restart_it() {
-    let dir = Dir::new("trial");
-    let fakes: Vec<FakeMoonraker> = (0..7).map(|_| FakeMoonraker::start(0)).collect();
-    let r = run(&dir, base_for(&dir, &fakes[0]));
-    let add = |i: usize| {
-        let (code, v) = r.call("POST", "/api/printers", Some(&json!({"name":format!("Fake {i}"),"address":fakes[i].url()})), true);
-        assert_eq!(code, 200, "{v}");
-    };
-    let started = || -> Option<f64> { serde_json::from_str::<Value>(&fs::read_to_string(dir.file("stella-scope.json")).unwrap()).unwrap()["licence_trial_started"].as_f64() };
-    for i in 1..5 {
-        add(i);
-    }
-    let (code, v) = r.call("POST", "/api/printers/demo-farm", Some(&json!({})), true);
-    assert_eq!(code, 200, "{v}");
-    let st = r.get("/api/licence");
-    assert_eq!((st["state"].clone(), st["printers"].clone()), (json!("free"), json!(5)), "five real printers and a demo farm are free: {st}");
-    assert!(started().is_none(), "no trial yet");
-    add(5);
-    let st = r.get("/api/licence");
-    assert_eq!(st["state"], json!("trial"), "the running service shows the trial at once: {st}");
-    assert!(st["trial_days_left"].as_f64().unwrap() > 29.0, "{st}");
-    let first = started().expect("the start is kept in the file");
-    thread::sleep(Duration::from_millis(1100));
-    add(6);
-    assert_eq!(started(), Some(first), "a seventh printer does not start the trial again");
-    assert_eq!(r.get("/api/licence")["state"], json!("trial"));
+    assert!(
+        !fit.notes.iter().any(|n| n.contains("nozzle")),
+        "no note asking which nozzle the demo has: {:?}",
+        fit.notes
+    );
 }
 
 /// The analytics said 0.13 hours for a print the history lists as 54 minutes: the print had been joined half-way, and only the minutes the recorder saw
@@ -4149,7 +4619,15 @@ fn the_analytics_hours_are_the_prints_own_duration_as_the_history_shows_it() {
     let db = rusqlite::Connection::open(dir.file("stella.sqlite3")).unwrap();
     // joined half-way: seen for 8 minutes, 54 minutes long by the printer's own count
     // and a long one that began two days ago and ended an hour ago: only the last 23 hours are inside a one-day window
-    for (start, end, secs, name) in [(now - 600.0, now - 120.0, 3227.0, "joined.gcode"), (now - 2.0 * 86400.0, now - 3600.0, 2.0 * 86400.0 - 3600.0, "long.gcode")] {
+    for (start, end, secs, name) in [
+        (now - 600.0, now - 120.0, 3227.0, "joined.gcode"),
+        (
+            now - 2.0 * 86400.0,
+            now - 3600.0,
+            2.0 * 86400.0 - 3600.0,
+            "long.gcode",
+        ),
+    ] {
         db.execute(
             "INSERT INTO print_sessions(start_ts,end_ts,filename,duration_s,filament_used,result,evidence) VALUES(?1,?2,?3,?4,NULL,'complete','test')",
             rusqlite::params![start, end, name, secs],
@@ -4157,7 +4635,13 @@ fn the_analytics_hours_are_the_prints_own_duration_as_the_history_shows_it() {
         .unwrap();
     }
     let hist = r.get("/api/history/prints");
-    let shown: f64 = hist["prints"].as_array().unwrap().iter().filter(|p| p["filename"] == "joined.gcode").map(|p| p["duration_s"].as_f64().unwrap()).sum();
+    let shown: f64 = hist["prints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| p["filename"] == "joined.gcode")
+        .map(|p| p["duration_s"].as_f64().unwrap())
+        .sum();
     assert_eq!(shown, 3227.0, "{hist}");
     let an = r.get("/api/analytics?days=1");
     let hours = an["printers"][0]["print_h"].as_f64().unwrap();
@@ -4169,21 +4653,48 @@ fn the_analytics_hours_are_the_prints_own_duration_as_the_history_shows_it() {
 #[test]
 fn a_backup_of_a_big_farm_restores_and_only_the_restore_route_takes_a_big_body() {
     let dir = Dir::new("big-backup");
-    let cfg = Config { unconfigured: true, moonraker_url: String::new(), database: dir.file("stella.sqlite3"), ..Config::default() };
+    let cfg = Config {
+        unconfigured: true,
+        moonraker_url: String::new(),
+        database: dir.file("stella.sqlite3"),
+        ..Config::default()
+    };
     let r = run(&dir, cfg);
-    assert_eq!(r.call("POST", "/api/printers/demo-farm", Some(&json!({})), true).0, 200);
+    assert_eq!(
+        r.call("POST", "/api/printers/demo-farm", Some(&json!({})), true)
+            .0,
+        200
+    );
     for i in 0..12 {
         let (code, v) = r.call("POST", "/api/spools", Some(&json!({"material":"PETG","brand":format!("Brand {i}"),"name":"Colour name that is a little long","colour":"#FF6A00","grams_total":1000})), true);
         assert_eq!(code, 200, "{v}");
     }
     let backup = r.get("/api/farm/backup");
     let size = backup.to_string().len();
-    assert!(size > 6000, "a ten-printer backup is bigger than the command limit: {size}");
+    assert!(
+        size > 6000,
+        "a ten-printer backup is bigger than the command limit: {size}"
+    );
     let dir2 = Dir::new("big-restore");
-    let r2 = run(&dir2, Config { unconfigured: true, moonraker_url: String::new(), database: dir2.file("stella.sqlite3"), ..Config::default() });
+    let r2 = run(
+        &dir2,
+        Config {
+            unconfigured: true,
+            moonraker_url: String::new(),
+            database: dir2.file("stella.sqlite3"),
+            ..Config::default()
+        },
+    );
     let (code, v) = r2.call("POST", "/api/farm/restore", Some(&backup), true);
     assert_eq!(code, 200, "{v}");
-    assert_eq!((v["added"].as_array().map(Vec::len), v["spools_added"].clone()), (Some(9), json!(12)), "{v}");
+    assert_eq!(
+        (
+            v["added"].as_array().map(Vec::len),
+            v["spools_added"].clone()
+        ),
+        (Some(9), json!(12)),
+        "{v}"
+    );
     // a command route still has the small limit
     let big = json!({"name":"x".repeat(5000),"address":"http://127.0.0.1:9"});
     assert_eq!(r2.call("POST", "/api/printers", Some(&big), true).0, 413);
@@ -4197,7 +4708,12 @@ fn a_restored_printer_gets_its_login_in_settings_and_comes_up_with_it() {
     use std::os::unix::fs::PermissionsExt;
     let dir = Dir::new("set-login");
     let prusa = FakePrusaLink::start(0, "maker", "secret");
-    let cfg = Config { unconfigured: true, moonraker_url: String::new(), database: dir.file("stella.sqlite3"), ..Config::default() };
+    let cfg = Config {
+        unconfigured: true,
+        moonraker_url: String::new(),
+        database: dir.file("stella.sqlite3"),
+        ..Config::default()
+    };
     let r = run(&dir, cfg);
     // a backup as another computer made it: the printer, no login
     let backup = json!({"format":"stella-scope-farm-backup","version":1,"printers":[{"id":"shop","name":"Shop","driver":"prusalink","address":prusa.url(),"needs_login":true}],"books":{"spools":[]}});
@@ -4210,14 +4726,40 @@ fn a_restored_printer_gets_its_login_in_settings_and_comes_up_with_it() {
         p["state"] == "offline" || p["state"] == "error"
     });
     assert_eq!(row(&r)["login_saved"], json!(false));
-    assert_eq!(row(&r)["needs_login"], json!(true), "the tile says it needs its login and where to type it, not 'check that it is on'");
+    assert_eq!(
+        row(&r)["needs_login"],
+        json!(true),
+        "the tile says it needs its login and where to type it, not 'check that it is on'"
+    );
     // typing nothing, or a login for a demo, is refused in words
-    assert_eq!(r.call("PATCH", "/api/printers/shop", Some(&json!({"credentials":{"user":" ","password":""}})), true).0, 400);
-    let (code, v) = r.call("PATCH", "/api/printers/shop", Some(&json!({"credentials":{"user":"maker","password":"wrong"}})), true);
-    assert_eq!(code, 200, "a wrong login is saved and the printer says so by its state, as when it was added: {v}");
+    assert_eq!(
+        r.call(
+            "PATCH",
+            "/api/printers/shop",
+            Some(&json!({"credentials":{"user":" ","password":""}})),
+            true
+        )
+        .0,
+        400
+    );
+    let (code, v) = r.call(
+        "PATCH",
+        "/api/printers/shop",
+        Some(&json!({"credentials":{"user":"maker","password":"wrong"}})),
+        true,
+    );
+    assert_eq!(
+        code, 200,
+        "a wrong login is saved and the printer says so by its state, as when it was added: {v}"
+    );
     assert_eq!(row(&r)["login_saved"], json!(true));
     // the right one
-    let (code, v) = r.call("PATCH", "/api/printers/shop", Some(&json!({"credentials":{"user":"maker","password":"secret"}})), true);
+    let (code, v) = r.call(
+        "PATCH",
+        "/api/printers/shop",
+        Some(&json!({"credentials":{"user":"maker","password":"secret"}})),
+        true,
+    );
     assert_eq!(code, 200, "{v}");
     wait_for("the printer to come up on its login", || {
         let p = row(&r);
@@ -4227,19 +4769,50 @@ fn a_restored_printer_gets_its_login_in_settings_and_comes_up_with_it() {
     assert_eq!(r.farm.visible().len(), 1, "still one printer, in its place");
     // where the login lives: the secret file, mode 600, and not in the settings file, the list or the backup
     let secret = dir.0.join("printers/shop.secret");
-    assert_eq!(fs::metadata(&secret).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(
+        fs::metadata(&secret).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
     assert!(fs::read_to_string(&secret).unwrap().contains("secret"));
     let saved = fs::read_to_string(dir.file("stella-scope.json")).unwrap();
-    assert!(!saved.contains("secret") && saved.contains("credentials_ref"), "{saved}");
-    assert!(!r.get("/api/printers").to_string().contains("secret"), "the list says a login is saved, never what it is");
+    assert!(
+        !saved.contains("secret") && saved.contains("credentials_ref"),
+        "{saved}"
+    );
+    assert!(
+        !r.get("/api/printers").to_string().contains("secret"),
+        "the list says a login is saved, never what it is"
+    );
     assert!(!r.get("/api/farm/backup").to_string().contains("secret"));
     // the settings alongside the login still work, and the demo has none
-    assert_eq!(r.call("PATCH", "/api/printers/shop", Some(&json!({"name":"Shop Prusa"})), true).0, 200);
-    assert_eq!(r.call("POST", "/api/printers/demo-farm", Some(&json!({})), true).0, 200);
-    assert_eq!(r.call("PATCH", "/api/printers/demo-mk3s", Some(&json!({"credentials":{"user":"x"}})), true).0, 400);
+    assert_eq!(
+        r.call(
+            "PATCH",
+            "/api/printers/shop",
+            Some(&json!({"name":"Shop Prusa"})),
+            true
+        )
+        .0,
+        200
+    );
+    assert_eq!(
+        r.call("POST", "/api/printers/demo-farm", Some(&json!({})), true)
+            .0,
+        200
+    );
+    assert_eq!(
+        r.call(
+            "PATCH",
+            "/api/printers/demo-mk3s",
+            Some(&json!({"credentials":{"user":"x"}})),
+            true
+        )
+        .0,
+        400
+    );
 }
 
-/// U03 b (2026-10-20: "it said back online, the wall did not change"). A Klipper printer that is switched off must stay offline on the wall, not read Ready
+/// U03 b (2026-10-20, the owner: "it said back online, the wall did not change"). A Klipper printer that is switched off must stay offline on the wall, not read Ready
 /// again for half a second every few seconds. The push source (which a Moonraker that does not answer websockets leaves retrying) sends a silence probe every 5 s;
 /// a collector cycle that carried no poll and no error read "connected" for the 10 s after the last good poll, so the printer flickered to Ready, and the farm's
 /// watcher said "back online" for a printer that was not. Looks every 25 ms for 13 s after it goes dark, which covers a probe.
@@ -4248,8 +4821,15 @@ fn a_printer_that_has_gone_dark_stays_offline_and_never_flickers_to_ready() {
     let dir = Dir::new("flicker");
     let fake = FakeMoonraker::start(0);
     let r = run(&dir, base_for(&dir, &fake));
-    let state = |r: &Running| r.get("/api/printers")["printers"][0]["state"].as_str().unwrap_or("").to_owned();
-    wait_for("online", || r.get("/api/printers")["printers"][0]["online"] == true);
+    let state = |r: &Running| {
+        r.get("/api/printers")["printers"][0]["state"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned()
+    };
+    wait_for("online", || {
+        r.get("/api/printers")["printers"][0]["online"] == true
+    });
     drop(fake);
     wait_for("offline", || state(&r) == "offline");
     let start = Instant::now();
@@ -4261,7 +4841,10 @@ fn a_printer_that_has_gone_dark_stays_offline_and_never_flickers_to_ready() {
         }
         thread::sleep(Duration::from_millis(25));
     }
-    assert!(seen.is_empty(), "a printer that is off read something else after it was seen offline: {seen:?}");
+    assert!(
+        seen.is_empty(),
+        "a printer that is off read something else after it was seen offline: {seen:?}"
+    );
 }
 
 /// UI board U07 (2026-10-20): the failure watch's alert carries where it saw the failure, so the alarm screen can draw the box on the camera picture. The feed has the
@@ -4273,18 +4856,37 @@ fn a_failure_watch_alert_carries_where_it_saw_the_failure_into_the_feed() {
     let r = run(&dir, base_for(&dir, &fake));
     let detail = json!({"verdict":"failing","score":0.87,"boxes":[{"conf":0.87,"box":[0.52,0.30,0.84,0.62]}]});
     crate::notify::event_with("failure_watch", "u07-printer", "U07 printer", "U07 printer: this print looks like it is FAILING (spaghetti detector at 87%). Check the camera now; the print is still running.", detail.clone());
-    crate::notify::event("done", "u07-printer", "U07 printer", "U07 printer: PETG cube finished.");
-    let rows = |r: &Running| -> Vec<Value> { r.get("/api/alerts/feed?printer=u07-printer")["events"].as_array().cloned().unwrap_or_default() };
+    crate::notify::event(
+        "done",
+        "u07-printer",
+        "U07 printer",
+        "U07 printer: PETG cube finished.",
+    );
+    let rows = |r: &Running| -> Vec<Value> {
+        r.get("/api/alerts/feed?printer=u07-printer")["events"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+    };
     wait_for("both alerts in the feed", || rows(&r).len() >= 2);
     let feed = rows(&r);
-    let fail = feed.iter().find(|e| e["kind"] == "failure_watch").expect("the failure alert");
+    let fail = feed
+        .iter()
+        .find(|e| e["kind"] == "failure_watch")
+        .expect("the failure alert");
     assert_eq!(fail["detail"], detail, "{fail}");
     assert_eq!(fail["severity"], "alarm");
-    let done = feed.iter().find(|e| e["kind"] == "done").expect("the other alert");
-    assert!(done.get("detail").is_none(), "an alert with no detail has no detail key: {done}");
+    let done = feed
+        .iter()
+        .find(|e| e["kind"] == "done")
+        .expect("the other alert");
+    assert!(
+        done.get("detail").is_none(),
+        "an alert with no detail has no detail key: {done}"
+    );
 }
 
-/// 2026-10-25: "The Prusa is on, but I can't do anything ... I can't change the nozzle." PrusaLink has no temperature endpoint, so a heat
+/// the owner 2026-10-25: "The Prusa is on, but I can't do anything ... I can't change the nozzle." PrusaLink has no temperature endpoint, so a heat
 /// target goes to the printer as a one-line file it starts by itself (Print-After-Upload), only while it is idle; during a print it is
 /// refused with the reason and nothing is sent. The command file never shows as a print.
 #[test]
@@ -4307,15 +4909,29 @@ fn a_prusalink_takes_heat_as_a_one_line_file_while_idle_and_refuses_it_while_pri
         prusa
             .log()
             .into_iter()
-            .filter(|e| e["method"] == "PUT" && e["path"].as_str().unwrap_or("").ends_with("/stella-command.gcode"))
+            .filter(|e| {
+                e["method"] == "PUT"
+                    && e["path"]
+                        .as_str()
+                        .unwrap_or("")
+                        .ends_with("/stella-command.gcode")
+            })
             .collect()
     };
-    let (code, v) = r.printer_call("POST", "/api/p/core-one-l/commands", "core-one-l", &json!({"id":"set_heater","target":"extruder","value":215,"confirm":true}));
+    let (code, v) = r.printer_call(
+        "POST",
+        "/api/p/core-one-l/commands",
+        "core-one-l",
+        &json!({"id":"set_heater","target":"extruder","value":215,"confirm":true}),
+    );
     assert_eq!(code, 200, "{v}");
     let puts = sent();
     assert_eq!(puts.len(), 1, "{puts:?}");
     assert_eq!(puts[0]["path"], "/api/v1/files/usb/stella-command.gcode");
-    assert_eq!(puts[0]["headers"]["print-after-upload"], "?1", "it runs by itself");
+    assert_eq!(
+        puts[0]["headers"]["print-after-upload"], "?1",
+        "it runs by itself"
+    );
     // printing: refused, nothing more sent
     {
         let mut s = prusa.state.lock().unwrap();
@@ -4323,9 +4939,112 @@ fn a_prusalink_takes_heat_as_a_one_line_file_while_idle_and_refuses_it_while_pri
         s.job_id = Some(9);
         s.file = "bracket_PETG.gcode".into();
     }
-    wait_for("printing", || r.get("/api/p/core-one-l/tick")["job"]["state"] == "printing");
-    let (code, v) = r.printer_call("POST", "/api/p/core-one-l/commands", "core-one-l", &json!({"id":"set_heater","target":"extruder","value":220,"confirm":true}));
+    wait_for("printing", || {
+        r.get("/api/p/core-one-l/tick")["job"]["state"] == "printing"
+    });
+    let (code, v) = r.printer_call(
+        "POST",
+        "/api/p/core-one-l/commands",
+        "core-one-l",
+        &json!({"id":"set_heater","target":"extruder","value":220,"confirm":true}),
+    );
     assert_ne!(code, 200, "{v}");
-    assert!(v.to_string().contains("only while the printer is idle"), "{v}");
+    assert!(
+        v.to_string().contains("only while the printer is idle"),
+        "{v}"
+    );
     assert_eq!(sent().len(), 1, "nothing more was sent");
+}
+
+/// fix-0.6.2 WO-08 (2026-10-30): the model's answer says when its position was read, in the printer's time, so the page measures the head's pace by that and not by when the answers reach it.
+#[test]
+fn a_models_answer_says_when_its_position_was_read() {
+    let dir = Dir::new("position-ts");
+    let a = FakeMoonraker::start(0);
+    let r = run(&dir, base_for(&dir, &a));
+    let id = r.get("/api/printers")["printers"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        r.call(
+            "PATCH",
+            &format!("/api/printers/{id}"),
+            Some(&json!({"cad_model":"voron_trident_300"})),
+            true
+        )
+        .0,
+        200
+    );
+    wait_for("a position", || {
+        r.get(&format!("/api/p/{id}/model"))["pose"]["known"] == true
+    });
+    let m = r.get(&format!("/api/p/{id}/model"));
+    let (ts, age) = (
+        m["position_ts"]
+            .as_f64()
+            .expect("the moment of the position"),
+        m["tick_age_s"].as_f64().unwrap(),
+    );
+    let now = crate::model::now();
+    assert!(
+        ts <= now + 0.01 && now - ts < age + 30.0,
+        "{ts} against {now}, age {age}"
+    );
+}
+
+/// app-final WO-01 (2026-11-01): a demo printer is a Klipper machine through the service's own routes. Its Calibrate page reads
+/// printer.cfg (that route read Moonraker's `result` twice and gave every printer an empty page until now), its levelling sections
+/// follow the machine (a quad gantry on the Voron, none on the Ender-3), and its camera answers with a picture.
+#[test]
+fn a_demo_printer_answers_the_klipper_pages_through_the_service() {
+    let dir = Dir::new("demo-klipper-pages");
+    let a = FakeMoonraker::start(0);
+    let demo = |id: &str, cad: &str| PrinterEntry {
+        id: id.into(),
+        name: id.into(),
+        driver: "demo".into(),
+        cad_model: Some(cad.into()),
+        demo_start_at: Some(1.0),
+        ..PrinterEntry::default()
+    };
+    let cfg = Config {
+        printers: vec![
+            demo("d-voron", "voron_v24_350_printed"),
+            demo("d-ender", "ender3_stock_220"),
+        ],
+        ..base_for(&dir, &a)
+    };
+    let r = run(&dir, cfg);
+    let cal = r.get("/api/p/d-voron/config/calibration");
+    assert_eq!(cal["quad_gantry_level"], json!(true), "{cal}");
+    assert_eq!(cal["probe"]["kind"], json!("probe"), "{cal}");
+    assert!(cal["extruder"]["pid_kp"].as_f64().is_some(), "{cal}");
+    let cal = r.get("/api/p/d-ender/config/calibration");
+    assert_eq!(cal["quad_gantry_level"], json!(false), "{cal}");
+    assert_eq!(cal["probe"]["kind"], json!("bltouch"), "{cal}");
+    let controls = r.get("/api/p/d-ender/controls");
+    for cap in [
+        "level", "mesh", "z_offset", "console", "macros", "camera", "filament", "klipper",
+        "restart",
+    ] {
+        assert_eq!(
+            controls["capabilities"][cap],
+            json!(true),
+            "{cap}: {controls}"
+        );
+    }
+    let macros = r.get("/api/p/d-ender/macros");
+    assert!(
+        macros["macros"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["name"] == "SCREWS_TILT_CALCULATE"),
+        "{macros}"
+    );
+    assert_eq!(
+        r.get("/api/p/d-ender/camera")["cameras"][0]["name"],
+        json!("Demo camera")
+    );
 }

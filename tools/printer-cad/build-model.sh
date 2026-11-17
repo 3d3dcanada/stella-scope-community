@@ -5,7 +5,7 @@
 #     STEP_FILE  the maker's STEP file, downloaded from its own page (README.md in this folder lists each address and the SHA-256 it must have)
 #     OUT_DIR    where model.glb and model.glb.gz go (default /tmp/stella-model-DIR)
 #     --install  copy the gzipped model to models/DIR.glb.gz in this repository (what the build embeds)
-# Runs the converter (step_to_glb.py) with FORMA's installed Python (OCP + cadgen, our FORMA, /usr/lib/FORMA), one core, low priority. The same STEP and
+# Runs the converter (step_to_glb.py) with FORMA's installed Python (OCP + cadgen, the owner's FORMA, /usr/lib/FORMA), one core, low priority. The same STEP and
 # groups.json give the same bytes every time: the CORE One L comes out as the model the owner installed (decoded SHA-256 f068e1b7...).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd); repo=$(cd "$here/../.." && pwd)

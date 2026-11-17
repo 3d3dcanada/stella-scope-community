@@ -1,4 +1,4 @@
-// Stella Scope UI board U02 (2026-10-20): the machine, or the camera when Camera is chosen, is the whole background. One click grows it to fill the screen and
+// Stella Scope UI board U02 (2026-10-20, the owner): the machine, or the camera when Camera is chosen, is the whole background. One click grows it to fill the screen and
 // one click shrinks it back the way it grew; drag turns it (the camera picture is dragged), wheel or pinch zooms, double click resets. While it is grown the rest of
 // the page falls away, except the state chip and STOP (the CSS does that from body[data-grown]). No dialog, no menu: the picture itself is the control.
 const GROW=.8,TARGETS='#nx-scene,.nx-stagecard canvas,#nx-bgcam';   // the camera moves to .8 of its distance: the machine is 1.25 times bigger
@@ -27,7 +27,7 @@ export function initStage(c){ctx={...ctx,...c};
  document.addEventListener('pointercancel',e=>{pts.delete(e.pointerId);down=null;},true);
  document.addEventListener('pointerup',e=>{if(!pts.delete(e.pointerId))return;const d=down;down=null;if(!d||pts.size)return;
   if(Math.hypot(e.clientX-d.x,e.clientY-d.y)>5||performance.now()-d.t>450)return;
-  // 2026-10-24: "no matter where I click on the screen ... it zooms in on the printer." A click no longer grows the machine: a click on a part opens
+  // the owner 2026-10-24: "no matter where I click on the screen ... it zooms in on the printer." A click no longer grows the machine: a click on a part opens
   // that part (hud-scene's own pick), a click on empty space does nothing. Two clicks still put the view back where it starts.
   const now=performance.now();clearTimeout(timer);if(now-lastUp<320){lastUp=-1e9;reset();return;}lastUp=now;},true);
  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&grown&&!document.querySelector('.nx-modal,#nx-sheet[data-open]'))shrink();});}

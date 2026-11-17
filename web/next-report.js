@@ -1,4 +1,4 @@
-// The print report (2026-10-26, "build those five": timelapse and print reports). One print: how it ended, how long, the filament in metres,
+// The print report (the owner 2026-10-26, "build those five": timelapse and print reports). One print: how it ended, how long, the filament in metres,
 // grams and money (from the material's own density and price in Materials), the plate and the material it was printed on, what the printer said
 // while it ran, and its timelapse played back from the pictures the service kept (timelapse.rs). Nothing here is guessed: a figure with no
 // source is a dash, with the reason.

@@ -289,7 +289,7 @@ setInterval(()=>{if(document.hidden||state.busy)return;if(svc.down){paintLink();
 // Live tick: server-sent events push each stored sample the moment it lands (/api/tick/stream);
 // the 250 ms /api/tick poll below is the fallback while the stream is down. Same payload either way.
 let tickBusy=false,lastTick=null,lastSceneDraw=0;const tickBuffer=[];
-// 2026-09-21, second look: "it went to the top again." A pose the machine cannot be in never
+// the owner 2026-09-21, second look: "it went to the top again." A pose the machine cannot be in never
 // reaches the buffer, because interpolating between it and the last real one manufactures a whole
 // ramp of poses that ARE inside the machine — that ramp is what drew the gantry up the frame during
 // the G28 in his cube print (recorded Z 464.0195 against axis_maximum 310). The readouts still take
@@ -321,8 +321,8 @@ const TICK_DELAY_S=0.45;
 // timestamp: an interpolated position moves every frame while the tick's ts only moves four times a
 // second, so the guard saw dt = 0 between frames, collapsed its reach to the 2 mm floor and refused
 // every frame that advanced faster than 60 mm/s — then let the whole accumulated tick land in one
-// frame. 80 refusals and 14 steps over 3 mm (worst 15.06 mm) in 22 s of our cube print, measured
-// on the installed build. That release-after-hold is the jank. (2026-09-21)
+// frame. 80 refusals and 14 steps over 3 mm (worst 15.06 mm) in 22 s of the owner's cube print, measured
+// on the installed build. That release-after-hold is the jank. (the owner 2026-09-21)
 let interpAt=0;
 function interpolatedNow(){if(!lastTick?.point?.position)return null;const t=interpAt=Date.now()/1000-TICK_DELAY_S;let lo=null,hi=null;
  for(const s of tickBuffer){const ts=n(s?.point?.ts);if(ts===null||!s.point.position)continue;if(ts<=t){if(!lo||ts>lo.ts)lo={ts,position:s.point.position};}else if(!hi||ts<hi.ts)hi={ts,position:s.point.position};}
@@ -337,7 +337,7 @@ function liveSnapshot(position,ts){if(tickSnapSrc!==state.snapshot||!tickSnap){t
  // Everything the motion guard tests has to come from the tick, not from the snapshot: the full
  // snapshot refreshes on a 5 s timer (and not at all while the tab is hidden), and a G28 changes
  // homed_axes three times inside one of those windows. WO-10's guard was reading a homed_axes and a
- // travel envelope up to 5 s old, which is why it held nothing during our homing. (2026-09-21)
+ // travel envelope up to 5 s old, which is why it held nothing during the owner's homing. (the owner 2026-09-21)
  for(const k of ['homed','limits','max_velocity','max_z_velocity','velocity','commanded'])
   if(lastTick?.point&&k in lastTick.point)tickSnap.point[k]=lastTick.point[k];
  if(lastTick?.point?.probe_points)tickSnap.point.probe_points=lastTick.point.probe_points;else delete tickSnap.point.probe_points;

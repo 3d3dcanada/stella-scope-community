@@ -275,12 +275,23 @@ fn ender(dir: &Path, cat: &Value) -> (String, Value) {
 /// the carriage that moves with X as well, `fixed` stays. Their part keys are added to the Trident's groups `gantry` and `head`, so a
 /// printer that chooses the module option moves them (the keys name nothing in a Trident without it). Each file is refused unless it
 /// is the one the catalogue pins.
-fn with_trident_modules((id, mut v): (String, Value), models: &Path, extra: &Value) -> (String, Value) {
-    let (mut gantry, mut head): (BTreeSet<String>, BTreeSet<String>) = (BTreeSet::new(), BTreeSet::new());
+fn with_trident_modules(
+    (id, mut v): (String, Value),
+    models: &Path,
+    extra: &Value,
+) -> (String, Value) {
+    let (mut gantry, mut head): (BTreeSet<String>, BTreeSet<String>) =
+        (BTreeSet::new(), BTreeSet::new());
     for module in ["trident_r2_gantry_300", "trident_r2_sb_carriage"] {
         let glb = gunzip(&models.join(format!("modules/{module}.glb.gz")));
-        let want = extra["parts"][module]["pin"]["model_sha256"].as_str().unwrap_or_else(|| panic!("{module} is not in the extra catalogue"));
-        assert_eq!(sha256::hex(&glb), want, "{module}: the module is not the one the catalogue pins");
+        let want = extra["parts"][module]["pin"]["model_sha256"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{module} is not in the extra catalogue"));
+        assert_eq!(
+            sha256::hex(&glb),
+            want,
+            "{module}: the module is not the one the catalogue pins"
+        );
         for part in parts(&glb) {
             match part.motion.as_str() {
                 "y" => gantry.insert(part.key),
@@ -290,7 +301,10 @@ fn with_trident_modules((id, mut v): (String, Value), models: &Path, extra: &Val
             };
         }
     }
-    assert!(!gantry.is_empty() && !head.is_empty(), "the Trident modules moved nothing");
+    assert!(
+        !gantry.is_empty() && !head.is_empty(),
+        "the Trident modules moved nothing"
+    );
     v["groups"]["gantry"] = json!(gantry);
     v["groups"]["head"] = json!(head);
     v["motions"]["gantry"] = json!([0, "y", 0]);
@@ -310,12 +324,26 @@ fn with_trident_modules((id, mut v): (String, Value), models: &Path, extra: &Val
 /// the catalogue pins.
 fn annex(id: &str, dir: &Path, cat: &Value, rig: &Value) -> (String, Value) {
     let glb = gunzip(&dir.join("model.glb.gz"));
-    let row = cat["machines"].as_array().unwrap().iter().find(|m| m["id"] == id).unwrap_or_else(|| panic!("{id} is not in the catalogue"));
-    assert_eq!(sha256::hex(&glb), row["pin"]["model_sha256"].as_str().unwrap(), "{id}: the model is not the one the catalogue pins");
+    let row = cat["machines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"] == id)
+        .unwrap_or_else(|| panic!("{id} is not in the catalogue"));
+    assert_eq!(
+        sha256::hex(&glb),
+        row["pin"]["model_sha256"].as_str().unwrap(),
+        "{id}: the model is not the one the catalogue pins"
+    );
     let prof = read_json(&dir.join("machine_profile.json"));
-    let turn = prof["viewer_orientation"]["viewer_root_rotation_x_radians"].as_f64().unwrap_or(0.0);
+    let turn = prof["viewer_orientation"]["viewer_root_rotation_x_radians"]
+        .as_f64()
+        .unwrap_or(0.0);
     let q = (turn / std::f64::consts::FRAC_PI_2).round();
-    assert!((turn - q * std::f64::consts::FRAC_PI_2).abs() < 1e-9, "{id}: a turn of {turn} rad is not a quarter turn");
+    assert!(
+        (turn - q * std::f64::consts::FRAC_PI_2).abs() < 1e-9,
+        "{id}: a turn of {turn} rad is not a quarter turn"
+    );
     let (c, sn): (i64, i64) = match q.rem_euclid(4.0) as i32 {
         0 => (1, 0),
         1 => (0, 1),
@@ -323,16 +351,26 @@ fn annex(id: &str, dir: &Path, cat: &Value, rig: &Value) -> (String, Value) {
         _ => (0, -1),
     };
     let mut p = rig["profiles"][id].clone();
-    assert_eq!(p["model_sha256"], row["pin"]["model_sha256"], "{id}: the rig's registration is for another file");
+    assert_eq!(
+        p["model_sha256"], row["pin"]["model_sha256"],
+        "{id}: the rig's registration is for another file"
+    );
     // The frame the motion is written in: where Z is on the head's or the bed's motion.
-    let z_at = ["head", "bed"].iter().find_map(|g| (0..3).find(|&k| match &p["motions"][g][k] { Value::String(x) => x == "z", Value::Object(o) => o.contains_key("z"), _ => false }));
+    let z_at = ["head", "bed"].iter().find_map(|g| {
+        (0..3).find(|&k| match &p["motions"][g][k] {
+            Value::String(x) => x == "z",
+            Value::Object(o) => o.contains_key("z"),
+            _ => false,
+        })
+    });
     p["basis"] = match z_at {
         Some(2) => json!([[1, 0, 0], [0, 0, 1], [0, -1, 0]]),
         Some(1) => json!([[1, 0, 0], [0, 1, 0], [0, 0, 1]]),
         other => panic!("{id}: Z is on component {other:?} of the motion, which is not understood"),
     };
     p["orient"] = json!([[1, 0, 0], [0, c, -sn], [0, sn, c]]);
-    p["see_through"] = json!({"match":"panel|door","except":"clip|hinge|latch|handle|mount|bracket|spacer"});
+    p["see_through"] =
+        json!({"match":"panel|door","except":"clip|hinge|latch|handle|mount|bracket|spacer"});
     p["notices"] = json!([
         "Axis values are displacements from the model's pose, in the frame the rig registered the motion in; the file is turned upright by the rig's own rotation.",
         "Side panels and doors are drawn nearly clear. Firmware, belts and chains keep their shape in the model; nothing here is certified."
@@ -347,17 +385,35 @@ fn annex(id: &str, dir: &Path, cat: &Value, rig: &Value) -> (String, Value) {
 /// one the catalogue pins.
 fn idex(id: &str, dir: &Path, cat: &Value) -> (String, Value) {
     let glb = gunzip(&dir.join("model.glb.gz"));
-    let want = cat["machines"].as_array().unwrap().iter().find(|m| m["id"] == id).unwrap_or_else(|| panic!("{id} is not in the catalogue"))["pin"]["model_sha256"].as_str().unwrap().to_owned();
-    assert_eq!(sha256::hex(&glb), want, "{id}: the model is not the one the catalogue pins");
+    let want = cat["machines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"] == id)
+        .unwrap_or_else(|| panic!("{id} is not in the catalogue"))["pin"]["model_sha256"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        sha256::hex(&glb),
+        want,
+        "{id}: the model is not the one the catalogue pins"
+    );
     let prof = read_json(&dir.join("machine_profile.json"));
     let mut groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for part in parts(&glb) {
         if ["bed", "beam", "head", "head2"].contains(&part.group.as_str()) {
-            groups.entry(part.group.clone()).or_default().insert(part.key);
+            groups
+                .entry(part.group.clone())
+                .or_default()
+                .insert(part.key);
         }
     }
     for g in ["bed", "beam", "head", "head2"] {
-        assert!(groups.get(g).is_some_and(|k| !k.is_empty()), "{id}: no part moves as {g}");
+        assert!(
+            groups.get(g).is_some_and(|k| !k.is_empty()),
+            "{id}: no part moves as {g}"
+        );
     }
     let mut head2 = prof["motions"]["head2"].clone();
     for c in head2.as_array_mut().unwrap() {
@@ -367,7 +423,10 @@ fn idex(id: &str, dir: &Path, cat: &Value) -> (String, Value) {
     }
     let mut p = Map::new();
     p.insert("model_sha256".into(), json!(want));
-    p.insert("axes".into(), json!({"x":prof["axes"]["x"],"y":prof["axes"]["y"],"z":prof["axes"]["z"]}));
+    p.insert(
+        "axes".into(),
+        json!({"x":prof["axes"]["x"],"y":prof["axes"]["y"],"z":prof["axes"]["z"]}),
+    );
     p.insert("basis".into(), prof["basis"].clone());
     p.insert("groups".into(), json!(groups));
     p.insert("motions".into(), json!({"fixed":[0,0,0],"head":prof["motions"]["head"],"head2":head2,"beam":prof["motions"]["beam"],"bed":prof["motions"]["bed"]}));
@@ -405,7 +464,8 @@ fn main() {
             &["Axis values are displacements from the model's pose: the gantry climbs with Z, the X beam also moves with Y, the toolhead with X, Y and Z.", "Belts and cables keep their shape in the model."],
         ));
     }
-    let extra = read_json(&Path::new(env!("CARGO_MANIFEST_DIR")).join("web/printer-models-extra.json"));
+    let extra =
+        read_json(&Path::new(env!("CARGO_MANIFEST_DIR")).join("web/printer-models-extra.json"));
     add(with_trident_modules(
         from_records(
             "voron_trident_300",
@@ -435,10 +495,23 @@ fn main() {
         &["Axis values are displacements from the model's pose: the gantry climbs with Z, the X beam also moves with Y, the toolhead with X, Y and Z.", "The maker lists the machine's calibration as pending; travel is the nominal review limits."],
     ));
     add(ender(&models.join("site/ender3"), &cat));
-    add(idex("snakeoil_xy_idex", &models.join("site/snakeidex"), &cat));
+    add(idex(
+        "snakeoil_xy_idex",
+        &models.join("site/snakeidex"),
+        &cat,
+    ));
     let rig = read_json(&Path::new(env!("CARGO_MANIFEST_DIR")).join("web/printer-motion.json"));
-    for id in ["annex_k1_assembly", "annex_k2_assembly", "annex_k3_assembly"] {
-        add(annex(id, &models.join(format!("machines/{id}")), &cat, &rig));
+    for id in [
+        "annex_k1_assembly",
+        "annex_k2_assembly",
+        "annex_k3_assembly",
+    ] {
+        add(annex(
+            id,
+            &models.join(format!("machines/{id}")),
+            &cat,
+            &rig,
+        ));
     }
     let doc = json!({"schema":"stella-scope.printer-motion-parts.v1","source":"Read from the part records inside each model file and the maker's machine profile by tools/printer-motion-parts.rs","profiles":profiles});
     fs::write(out, serde_json::to_vec(&doc).unwrap()).unwrap();

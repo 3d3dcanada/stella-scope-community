@@ -10,7 +10,7 @@ import {hitTitle,sampleStateWords} from './next-core.js';
 
 const BRANDS=[['moonraker','Klipper','Voron, or any printer running Klipper with Moonraker'],['prusalink','Prusa','CORE One, MK4, MINI and XL on Prusa firmware (PrusaLink)'],['flashforge','FlashForge','Adventurer 5M and 5M Pro']];
 const BRAND=Object.fromEntries(BRANDS.map(b=>[b[0],b[1]]));
-// 2026-10-25 audit: the list printed the collector's own words ("cannot reach Moonraker at ... os error 111 ... set STELLA_MOONRAKER_API_KEY").
+// the owner 2026-10-25 audit: the list printed the collector's own words ("cannot reach Moonraker at ... os error 111 ... set STELLA_MOONRAKER_API_KEY").
 export function plainDetail(p){const t=String(p.detail||'');if(!t)return '';
  if(/cannot reach|refused|os error|timed? ?out|unreachable|no route|not answering/i.test(t))return `Not answering at ${p.address||'its address'}. Check that it is on and on the network; it reconnects by itself.`;
  if(/401|403|unauthori|forbidden|api.?key|login/i.test(t))return 'It refused Stella Scope: it needs its login. Press Settings to enter it.';
@@ -52,11 +52,10 @@ const prusaFacts=m=>[m.bed_mm?`plate ${m.bed_mm[0]} × ${m.bed_mm[1]} mm`:'plate
 // place in a sample print: one heating, one finished, one paused, the rest printing. None is real, none counts toward the licence, each
 // says DEMO. A second press takes them away, and only them.
 export const hasDemo=printers=>(printers||[]).some(p=>p.driver==='demo');
-// F03 (2026-10-19): the press is the person's yes to the open licences shown beside the button (`accept_licence`), and the service fetches the
-// demo's 3D models at once, each tile showing its own progress. Nothing else is asked.
+// release-2026-11-14: the press adds the printers and fetches nothing; each tile offers "Get the 3D model" with its size, fetched on that press.
 export async function demoFarmAdd(token){
  const r=await call('POST','/api/printers/demo-farm',{accept_licence:true},token);
- toast(`Demo farm added: ${r.added.length} printers running sample prints.${r.fetch?.state==='running'?' Their 3D models are arriving now; each machine draws as its file lands.':r.missing_models?.length?' Some 3D models are not here yet.':''}`,'ok');
+ toast(`Demo farm added: ${r.added.length} printers running sample prints.${r.missing_models?.length?' Each one offers its 3D model to download when you want it.':''}`,'ok');
  return r;}
 export function demoFarmRemove(host,{token,onDone}){
  host.replaceChildren(el('p','nx-note','Remove every demo printer? Real printers are not touched.'),
@@ -94,20 +93,19 @@ async function drawList(body){
 
 
 // ---- the farm licence (WO-09) -----------------------------------------------------------------
-// Free to five printers. Beyond that a licence is asked for, once, on trust: "Not now" still adds the
-// printer and nothing is switched off. The check is offline (the service verifies the text).
-const NUM=['zero','first','second','third','fourth','fifth','sixth','seventh','eighth','ninth','tenth','eleventh','twelfth'];
-const ordinal=n=>NUM[n]||`${n}th`;
+// Free to five printers (release-2026-11-14, the owner: nobody passes five without a licence). The service refuses a sixth real printer
+// without a licence that covers it (src/farm.rs); this page says so before the person starts. The check is offline.
 export const licenceState=()=>fetch('/api/licence',{cache:'no-store'}).then(r=>r.json()).catch(()=>null);
 export const licenceDismissed=()=>{try{return Date.now()-Number(localStorage.getItem('stella-licence-note')||0)<7*86400e3;}catch{return false;}};
 export const dismissLicence=()=>{try{localStorage.setItem('stella-licence-note',String(Date.now()));}catch{}};
 
-/** How to buy a farm licence (finish-2 F07, 2026-10-19: no e-Transfer address is ever shown publicly). The only address on screen is where to write;
+/** How to buy a farm licence (finish-2 F07, 2026-10-19, the owner: no e-Transfer address is ever shown publicly). The only address on screen is where to write;
  *  the payment details come with the invoice. */
 export function licenceBuy({onEnter}={}){
  return openModal({title:'Buy a farm licence',icon:'i-key',build:(body,close)=>{
   body.append(el('p','nx-note','Stella Scope is free for up to five printers. A farm licence for more is perpetual: you buy it once for the number of printers you run, and it covers them for good.'),
-   el('p','nx-note','To buy, write to info@3d3d.ca with your farm name and how many printers. 3D3D replies with an invoice. You pay it by Interac e-Transfer; the payment details come with the invoice.'),
+   el('p','nx-note','To buy, or for a free 30-day trial key, write to info@3d3d.ca with your farm name, how many printers, and this computer\'s code (below): a licence works on the one computer it is made for. 3D3D replies with an invoice. You pay it by Interac e-Transfer; the payment details come with the invoice.'),
+   machineLine(),
    el('p','nx-note','You are then sent one line of text that starts SFL1. Paste it into Enter licence. Nothing is sent anywhere: it is checked on this computer.'));
   const mail=button({icon:'i-link',label:'Write to 3D3D',kind:'primary',size:'row',title:'Write to 3D3D',does:'Opens a new email to info@3d3d.ca in your mail program.',onPress:()=>{window.location.href='mailto:info@3d3d.ca?subject='+encodeURIComponent('Stella Scope farm licence');}});
   const enter=button({icon:'i-check',label:'Enter licence',size:'row',title:'Enter licence',does:'Paste a farm licence. It is checked on this computer.',onPress:()=>{close();onEnter?.();}});
@@ -123,24 +121,33 @@ export function licenceEntry({onDone}={}){
    busy(save,true);
    try{const t=await farmWriteToken();const r=await call('POST','/api/licence',{text:box.value},t);close();toast(`Licensed to ${r.licence.name}, covering ${r.licence.printers} printers.`,'ok');onDone?.(r);}
    catch(e){msg.textContent=sentence(e.message);}finally{busy(save,false);}}});
-  body.append(el('p','nx-note','Paste the licence you were sent. It is one line that starts SFL1.'),box,save,msg);box.focus();}});}
+  body.append(el('p','nx-note','Paste the licence you were sent. It is one line that starts SFL1. It works on the computer whose code it was made for.'),machineLine(),box,save,msg);box.focus();}});}
+
+/** This computer's code for a farm licence (the owner 2026-11-14: one licence, one computer), from the service, with a Copy button. */
+function machineLine(){
+ const p=el('p','nx-note nx-lic-machine','This computer\'s code: …');
+ licenceState().then(st=>{if(!st?.machine)return;p.replaceChildren(document.createTextNode('This computer\'s code: '),el('b','',st.machine),document.createTextNode(' '),
+  button({icon:'i-check',label:'Copy',size:'row',kind:'ghost',title:'Copy the code',does:'Copies this computer\'s code, to paste into your email.',onPress:()=>{(navigator.clipboard?.writeText(st.machine)||Promise.reject()).then(()=>toast('Code copied.','ok'),()=>toast('Could not copy. The code is '+st.machine,'alarm'));}}));});
+ return p;}
 
 const farmWriteToken=()=>fetch('/api/printers',{cache:'no-store'}).then(r=>r.json()).then(d=>{if(!(d.token&&d.writable))throw Error('The licence is entered in the Stella Scope window on the computer.');return d.token;});
 
-/** The calm screen shown when a printer beyond the free five is about to be added. `proceed` adds it. */
+/** The calm screen shown when the farm is full (five, or what its licence covers) and a printer is about to be added. Entering a licence that
+ *  covers more goes on with `proceed`; nothing else adds the printer. */
 function licenceScreen(body,st,proceed,back){
  body.replaceChildren();
  const card=el('div','nx-lic');
  const mark=el('img','nx-lic-mark');mark.src='/logo.svg';mark.alt='';
+ const lead=st.licence?`Your farm licence covers ${st.allowed} printers, and this farm has ${st.printers}.`:`Stella Scope is free for up to ${st.free_printers} printers, and this farm has ${st.printers}.`;
  card.append(mark,el('h3','nx-lic-title','A farm licence'),
-  el('p','nx-lic-text-p',`Stella Scope is free for up to five printers. This would be your ${ordinal(st.printers+1)}.`),
-  el('p','nx-lic-text-p','A farm licence for more printers is perpetual: you buy it once and it covers them for good. To buy, write to info@3d3d.ca. You get an invoice, and the payment details for the Interac e-Transfer come with it. A licence is one line of text that you paste in; it is checked on this computer, with no internet, and it is not an account.'));
+  el('p','nx-lic-text-p',`${lead} To add another, you need a farm licence that covers more.`),
+  el('p','nx-lic-text-p','A farm licence is perpetual: you buy it once for the number of printers you run. To buy, or for a free 30-day trial key, write to info@3d3d.ca with this computer\'s code. You get an invoice, and the payment details for the Interac e-Transfer come with it. A licence is one line of text that you paste in; it is checked on this computer, with no internet, and it is not an account.'),machineLine());
  const row=el('div','nx-q-actions');
- row.append(button({icon:'i-check',label:'Enter licence',kind:'primary',size:'row',title:'Enter licence',does:'Paste a farm licence. It is checked on this computer.',onPress:()=>licenceEntry({onDone:()=>proceed()})}),
-  button({icon:'i-arrow-right',label:'Not now',size:'row',title:'Not now',does:'Adds the printer anyway. Nothing is switched off.',onPress:()=>proceed()}));
- card.append(row,el('p','nx-note','Not now still adds the printer, and nothing is switched off. A small note on the Farm page says a licence is wanted; close it and it stays quiet for a week.'));
+ row.append(button({icon:'i-check',label:'Enter licence',kind:'primary',size:'row',title:'Enter licence',does:'Paste a farm licence. It is checked on this computer.',onPress:()=>licenceEntry({onDone:r=>{if(r&&!r.full)proceed();else licenceState().then(s=>licenceScreen(body,s,proceed,back));}})}),
+  button({icon:'i-key',label:'Buy a licence',size:'row',title:'Buy a licence',does:'How to buy a farm licence: write to 3D3D, get an invoice.',onPress:()=>licenceBuy({onEnter:()=>licenceEntry({onDone:r=>{if(r&&!r.full)proceed();}})})}));
+ card.append(row,el('p','nx-note','Your printers, recordings and settings are not touched. Demo printers never count.'));
  body.append(card);
- if(back)body.append(button({icon:'i-back',label:'Back',size:'row',kind:'ghost',title:'Back',does:'Goes back to naming the printer.',onPress:back}));}
+ if(back)body.append(button({icon:'i-back',label:'Back',size:'row',kind:'ghost',title:'Back',does:'Goes back. Nothing was added.',onPress:back}));}
 
 function licenceSection(host,st){
  host.replaceChildren();
@@ -150,19 +157,12 @@ function licenceSection(host,st){
   line.textContent=`Free up to ${st.free_printers} printers. This farm has ${st.printers}.`+(st.licence?` Licensed to ${st.licence.name}, covering ${st.licence.printers}.`:'');
  }else if(st.state==='licensed'){
   line.textContent=`Licensed to ${st.licence.name}. Covers ${st.licence.printers} printers (this farm has ${st.printers}).`+(st.licence.issued?` Issued ${st.licence.issued}.`:'');
- }else if(st.state==='too_few'){
-  line.textContent=`The licence covers ${st.licence.printers} printers; this farm has ${st.printers}. A licence for more printers is asked for.`;
- }else if(st.state==='trial'){
-  const days=st.trial_days_left??0;
-  line.textContent=`Trial running: ${Math.ceil(days)} day(s) left before a farm licence is required beyond ${st.free_printers} printers.`;
- }else if(st.state==='locked'){
-  line.textContent=`The trial has ended. A farm licence turns printers beyond the free five back on.`;
  }else{
-  line.textContent=`${st.printers} printers: a farm licence is asked for beyond ${st.free_printers}. Nothing is switched off while the trial runs.`;
+  line.textContent=st.note;
  }
  const actions=el('div','nx-q-actions');
  actions.append(button({icon:'i-check',label:st.licence?'Enter a different licence':'Enter licence',size:'row',title:'Enter licence',does:'Paste a farm licence. It is checked on this computer.',onPress:()=>licenceEntry({onDone:()=>licenceState().then(s=>licenceSection(host,s))})}));
- if(st.state==='trial'||st.state==='locked'||st.state==='wanted'||st.state==='too_few'){
+ if(st.state!=='licensed'||st.full){
   actions.append(button({icon:'i-key',label:'Buy a licence',size:'row',title:'Buy a licence',does:'How to buy a farm licence: write to 3D3D, get an invoice.',onPress:()=>licenceBuy({onEnter:()=>licenceEntry({onDone:()=>licenceState().then(s=>licenceSection(host,s))})})}));
  }
  host.append(line,actions);}
@@ -274,8 +274,7 @@ async function find(){
   const pm=draft.hit?.driver==='prusalink'?draft.prusa:null;
   modelFlow(body,{token,printer:null,step:'Step 4 of 4',hint:pm?.short||draft.test?.model||draft.hit?.model||'',start:pm?.cad_model?{cad_model:pm.cad_model}:{},intro:pm&&!pm.cad_model?`No 3D model yet for the ${pm.short}. ${pm.no_model}`:'',onBack:()=>nameIt(),onDone:sel=>{draft.cad=sel;return create();}});}
 
- // The printer is added here. Beyond the free five the sixth printer starts a thirty-day trial; only a locked farm (trial
- // ended, no licence) asks for a licence before adding. "Not now" still adds it.
+ // The printer is added here. A full farm was already shown the licence screen at the start; the service refuses it anyway (src/farm.rs).
  async function create(){
   const h=draft.hit;
   try{const entry={name:draft.name,driver:h.driver,address:h.address,accent:draft.accent,credentials:draft.credentials};if(draft.camera)entry.camera=draft.camera;if(draft.cad?.cad_model)entry.cad_model=draft.cad.cad_model;
@@ -285,19 +284,20 @@ async function find(){
      done(r.printer);}catch(e){toast(e.message,'alarm');}};
    // 2026-10-18: the licence state is read here (the 2026-10-17 change left `lic` undeclared, so every Add printer ended in "lic is not defined").
    const lic=await licenceState();
-   if(lic&&lic.state==='locked'&&!licenceDismissed()){licenceScreen(body,lic,go,()=>modelStep());return;}
+   if(lic&&lic.full){licenceScreen(body,lic,go,()=>modelStep());return;}
    await go();}
   catch(e){toast(e.message,'alarm');}}
 
  function done(p){
   body.replaceChildren(head('Printer added'));
   const c=el('div','nx-fm-result');c.dataset.tone='ok';c.append(icon('i-check'));const t=el('div','nx-fm-resulttext');t.append(el('b','',p?.name||draft.name),el('small','',draft.cad?.cad_model?'Recording has started. Its 3D model is set.':'Recording has started.'));c.append(t);
-  // F06 (2026-10-19): the sixth printer starts the 30-day trial and nothing said so; the farm page shows no note while it runs.
-  const trial=el('p','nx-note');trial.hidden=true;licenceState().then(st=>{if(st&&st.state==='trial'){trial.textContent=`This is printer number ${st.printers}. Stella Scope is free for ${st.free_printers}, so a trial has started: ${Math.ceil(st.trial_days_left??0)} days before a farm licence is needed. Nothing is switched off, and the Printers list shows the licence.`;trial.hidden=false;}});
+  // release-2026-11-14: the fifth free printer (or the last a licence covers) says the farm is now full.
+  const trial=el('p','nx-note');trial.hidden=true;licenceState().then(st=>{if(st&&st.full){trial.textContent=`That is ${st.printers} of ${st.allowed}: the farm is full. A farm licence lets you add more; write to info@3d3d.ca.`;trial.hidden=false;}});
   body.append(c,trial,button({icon:'i-nav-hud',label:'Open '+(p?.name||draft.name),kind:'primary',size:'row',title:'Open it',does:'Opens the new printer.',onPress:()=>{location.href='/p/'+p.id;}}),
    button({icon:'i-printers',label:'Back to printers',size:'row',title:'Printers',does:'Shows every printer in the farm.',onPress:()=>drawList(body)}));}
 
- find();}
+ // release-2026-11-14: a full farm is told before the first step, not after four
+ licenceState().then(st=>{if(st&&st.full)licenceScreen(body,st,find,back);else find();}).catch(()=>find());}
 
 // ---- one printer's settings -------------------------------------------------------------------
 function settings(p,token,changed){

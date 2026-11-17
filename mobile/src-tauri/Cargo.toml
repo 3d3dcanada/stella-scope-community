@@ -1,6 +1,6 @@
 [package]
 name = "stella-app"
-version = "0.6.0"
+version = "0.6.3"
 edition = "2021"
 publish = false
 description = "Stella: the phone app for Stella Scope. Dials a paired Stella Scope over iroh and shows it."

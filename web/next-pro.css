@@ -1,4 +1,4 @@
-/* Stella Scope look (2026-10-25, after studying Bambu, Prusa Connect, Mainsail, Porsche, Rivian and the game wheels): "A, but a little like B. Clean, pro, a Euro sports car.
+/* Stella Scope look (the owner 2026-10-25, after studying Bambu, Prusa Connect, Mainsail, Porsche, Rivian and the game wheels): "A, but a little like B. Clean, pro, a Euro sports car.
    The teal is overused. Let me change the colour palette and how everything looks on the fly."
    Loaded last on the printer page and the farm. The rules:
    - Graphite, not blue-black: solid surfaces in steps, each lighter one standing on the darker with a hairline and a soft shadow. Nothing see-through (WebKit draws no blur).
@@ -288,7 +288,7 @@ body:is([data-layout=phone],[data-layout=phone-land]) .nx-state-label{letter-spa
 body:is([data-layout=phone],[data-layout=phone-land]) .nx-state{padding:0 10px 0 9px!important;gap:6px!important}
 body:is([data-layout=phone],[data-layout=phone-land]) .nx-top-right{gap:6px!important}
 
-/* ---------- 17. 2026-10-25, second look at rc14: "the buttons on the bottom and on the left are still bad, the left ones sit at the top, the gauges
+/* ---------- 17. the owner 2026-10-25, second look at rc14: "the buttons on the bottom and on the left are still bad, the left ones sit at the top, the gauges
    look basic, Iso Front Top Side should be a cube". One family of keys (rail and deck alike): a cap with depth, an LED strip that says what it is
    doing (lit in the accent when it is the open page or the main action, red for stop), the picture over the word. ---------- */
 .nxkey,#nx-rail .nx-btn[data-size=icon]{position:relative}
@@ -352,13 +352,13 @@ body:is([data-layout=phone],[data-layout=tablet-port]) .nx-stagecard .nx-md-tool
 .nxctl[data-locked]{opacity:1!important}
 .nxctl[data-locked] .nxc-read .nxc-l::after{content:' ·';opacity:.0}
 
-/* ---------- 18. alive (2026-10-25): a heater on its way up breathes; the cluster sweeps once when the page opens (next-control.js) ---------- */
+/* ---------- 18. alive (the owner 2026-10-25): a heater on its way up breathes; the cluster sweeps once when the page opens (next-control.js) ---------- */
 @keyframes sp-breathe{0%,100%{opacity:.45}50%{opacity:1}}
 .nx-cluster .nxctl[data-heating]:not(.nxctl--lift)::before{animation:sp-breathe 1.8s ease-in-out infinite}
 .nx-cluster .nxctl[data-heating] .nxc-seg.hot{animation:sp-breathe .9s ease-in-out infinite}
 @media (prefers-reduced-motion:reduce){.nx-cluster .nxctl[data-heating]:not(.nxctl--lift)::before,.nx-cluster .nxctl[data-heating] .nxc-seg.hot{animation:none}}
 
-/* ---------- 19. nothing lands on the machine (2026-10-24 and 10-25) ---------- */
+/* ---------- 19. nothing lands on the machine (the owner 2026-10-24 and 10-25) ---------- */
 /* a live step (levelling, probing) is one slim strip under the bar: what it is, the round, the four corners; a tap opens Levelling */
 body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) .nx-activity{top:calc(var(--top) + var(--safe-t) + 10px)!important;width:auto!important;max-width:min(980px,calc(100vw - 2 * (var(--rail) + 340px)))!important;
  flex-direction:row!important;align-items:center!important;gap:14px!important;padding:8px 12px 8px 14px!important;border-radius:14px!important}
@@ -366,6 +366,8 @@ body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) .nx-acti
 body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) .nx-activity .nx-act-head{flex:none;gap:10px}
 body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) .nx-activity .nx-act-head span{display:none}
 body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) .nx-activity .nx-act-corners{display:flex!important;gap:6px!important;flex:none}
+/* app-final WO-01 (2026-11-01): the rule above forced the four gantry corners onto a one-Z printer's banner (a bed-screws run showed BACK LEFT — ...); hidden wins */
+body .nx-activity .nx-act-corners[hidden],body .nx-activity .nx-act-round[hidden],body .nx-activity .nx-act-map[hidden]{display:none!important}
 body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) .nx-activity .nx-act-c{flex-direction:column!important;gap:3px!important;padding:5px 9px!important;min-width:0;font-size:8.5px!important}
 body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) .nx-activity .nx-act-c b{font-size:13px!important}
 body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) .nx-activity .nx-act-c[data-ok]::after{width:12px!important;height:12px!important;font-size:8px!important;top:4px!important;right:4px!important}
@@ -596,7 +598,7 @@ body:has(#nx-sheet:not([hidden])) .nx-stagecard .nx-md-tools{opacity:0!important
 /* material cards: wider fields, a dash when empty */
 .nx-matprof{grid-template-columns:repeat(auto-fill,minmax(330px,1fr))!important}
 
-/* ---------- 30. Feedback (2026-10-27: feedback in every app): the message, who you are, what is sent, the reference that comes back ---------- */
+/* ---------- 30. Feedback (the owner 2026-10-27: feedback in every app): the message, who you are, what is sent, the reference that comes back ---------- */
 .nx-feedback .nx-fb-text{font:500 15px/1.5 var(--sans);min-height:150px;padding:12px 14px;resize:vertical;width:100%}
 .nx-feedback .nx-fb-count{display:block;text-align:right;color:var(--sp-t3,#8a919a);font:500 11px/1 var(--mono);margin-top:6px}
 .nx-feedback .nx-grid2 .nx-input{width:100%}
@@ -605,3 +607,78 @@ body:has(#nx-sheet:not([hidden])) .nx-stagecard .nx-md-tools{opacity:0!important
 .nx-fb-sends{font-size:12.5px;opacity:.8}
 .nx-fb-said[data-tone=ok]{color:var(--ok,#18E36B)}
 .nx-fb-said[data-tone=alarm]{color:var(--alarm,#ff4d4d)}
+
+/* fix-0.6.2 WO-05 / WO-06 (the owner 2026-10-29): speed, flow and every fan stand in one column on the right edge (the order: speed, flow, part fan, hotend fan, board fan); nozzle and bed stay stacked on the left.
+   The column is as tall as the window lets it be beside the dock (the dock is centred and never reaches the edge), and its rings take what is left of that height divided by how many there are (--ng, next.js sizeRight). */
+body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) #nx-right{grid-template-columns:auto;gap:10px;top:calc(var(--top) + (100% - var(--top) - var(--edge)) / 2)}
+body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]){--rr:clamp(76px,min(calc((100vh - 300px) / 4),calc((100vh - var(--top) - var(--edge) - 24px - (var(--ng,2) - 1) * 10px) / var(--ng,2))),156px)}
+body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) #nx-right .nxctl{--nxctl-size:var(--rr)!important}
+/* under 1280 wide the dock reaches under the stack, so there the stack stands above the dock */
+body[data-layout=tablet]{--rr:clamp(64px,calc((100vh - var(--top) - var(--dockzone) - 24px - (var(--ng,2) - 1) * 10px) / var(--ng,2)),130px)}
+body[data-layout=tablet] #nx-right{top:calc(var(--top) + (100% - var(--top) - var(--dockzone)) / 2)}
+/* the stack now stands as tall as the window, so the view cube and the model key stand to its left, not on it (they sat under SPEED and FLOW at 1568x751). The stage's "Drawn: ..." line is for the Model sheet, where it stays: on the stage it lay over the machine. */
+body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) .nx-stagecard .nx-md-tools{right:calc(24px + var(--safe-r) + var(--rr) + 14px)!important}
+.nx-stagecard .nx-md-scene .nx-note[data-drawn]{display:none}
+/* the phone's bar is 200 px tall with its position row; the row of gauges stands clear above it (its boxes ran 16 px into it) */
+body[data-layout=phone]{--barh:192px}
+/* the phone: nozzle, bed, speed and flow are one row along the bottom of the machine; the fans are a stack up the right edge above that row, never over the head or the print */
+body[data-layout=phone] .nx-fans{display:flex!important;flex-direction:column;align-items:center;gap:6px;position:absolute;right:8px;bottom:calc(100% + 8px)}
+/* three of them fit between the view keys above and the row below: 70 px at 390x844, 64 at 360x780 (a stack of 60 px ran 14 px up under the view keys, so the keys stand side by side now) */
+body[data-layout=phone] .nx-stagecard .nx-md-tools{flex-direction:row-reverse!important;align-items:flex-start!important}
+body[data-layout=phone] .nx-fans .nxctl{--nxctl-size:clamp(52px,min(calc((100vw - 24px) / 5.2),calc((100vh - var(--edge) - var(--safe-b) - var(--barh) - 20px - clamp(64px,calc((100vw - 24px) / 4),104px) - var(--top) - var(--safe-t) - 194px - 12px) / 3)),80px)}
+/* the machine has the band between the job card and that row, and a little less than the width on its right: the frame's edge may run under the fans, the head and the print never reach it */
+body[data-layout=phone] .nx-stagecard .nx-md-stage{top:calc(var(--top) + var(--safe-t) + 70px);bottom:calc(var(--edge) + var(--safe-b) + var(--barh) + 12px + clamp(64px,calc((100vw - 24px) / 4),104px));right:40px}
+/* fix-0.6.2 WO-05 (the owner 2026-10-29, nothing cut off at any size): at 360 wide the STOP key ran 28 px past the edge; the right group may shrink (the state pill gives up its width first) and the name needs no more than its two lines */
+body[data-layout=phone] #nx-top .nx-top-right{flex:0 1 auto}
+@media (max-width:380px){body[data-layout=phone] .nx-id{min-width:64px}body[data-layout=phone] .nx-id-text b{letter-spacing:.12em}body[data-layout=phone] #nx-top{gap:4px}body[data-layout=phone] .nx-state{padding:0 8px;gap:6px}}
+
+/* fix-0.6.2 WO-07 (the owner 2026-10-29): the opened farm card is sized to what is in it. It was a fixed 6vh-to-6vh frame whose right column pushed the keys to its floor (a hole under the job line) and whose
+   picture was whatever height was left, so the machine was drawn into a tall strip. Now the card is as tall as its right column, centred, and the machine view beside it is as tall as that column (never under 440 px or the window).
+   It is placed by its own middle (top 50%, then back by half its height): in WebKitGTK, the desktop window's engine, a fit-content height between a top and a bottom is a stretch, and the 584 px card stood 906 tall with the hole back (Chromium never showed it). `translate` and not `transform`: the card's opening animation runs on transform and ends on none. */
+@media (min-width:901px){
+ .fm-tile[data-open]{top:50%;bottom:auto;left:0;right:0;translate:0 -50%;margin:0 auto;width:min(1180px,calc(100vw - 32px));height:auto;max-height:calc(100dvh - 32px)!important;grid-template-columns:minmax(0,1.4fr) minmax(360px,1fr);grid-template-rows:auto auto;overflow:hidden}
+ .fm-tile[data-open] .fm-media{height:auto;min-height:min(440px,calc(100dvh - 190px))}
+ .fm-tile[data-open] .fm-inst{max-height:calc(100dvh - 32px - 82px)}
+ .fm-tile[data-open] .fm-act{margin-top:0}}
+@media (max-width:900px){
+ .fm-tile[data-open]{inset:50% 12px auto 12px!important;translate:0 -50%;margin:0!important;height:auto;max-height:calc(100dvh - 24px)!important;grid-template-rows:auto auto auto}
+ /* the machine takes what the window has left over the gauges, the job and the keys, and the keys stand five to a row: the fifth alone on a second row was a hole beside it and 66 px off the machine (2026-10-30) */
+ .fm-tile[data-open] .fm-media{min-height:0;height:clamp(200px,calc(100dvh - 530px),min(340px,100vw))}
+ .fm-tile[data-open] .fm-inst{padding:8px 16px 12px;gap:8px}
+ .fm-tile[data-open] .fm-act{margin-top:0;padding-top:0;gap:6px}
+ .fm-tile[data-open] .fm-act .nxkey{width:calc((100% - 24px) / 5)!important;height:58px!important;padding-top:8px!important}
+ .fm-tile[data-open] .fm-look{padding:2px 0 0;row-gap:6px}}
+/* fix-0.6.2 WO-05 (2026-10-30, nothing cut at 390 and 360 wide): the name and the state word need the room the word FARM took; the back key is its arrow here, and it keeps its tooltip */
+@media (max-width:400px){body[data-layout=phone] #nx-back .nx-lbl{display:none}body[data-layout=phone] #nx-back{padding:0 8px}}
+
+/* release-2026-11-14 WO-1 (the owner 2026-11-14): the dials at every window size. Temperatures are one column on the left beside the page rail; speed, flow and the
+   fans the printer has are one column on the right edge; every dial is one size; the machine is drawn between them. placeGauges() in next.js measures the header,
+   the job card, the rail and the bar and sets the numbers; this block is the only placement of the dials and wins over every layout's older rule. */
+body #nx-ui #nx-gauges{display:contents!important}
+body #nx-ui #nx-left,body #nx-ui #nx-right{position:absolute!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;
+ gap:10px!important;top:var(--gtop,80px)!important;bottom:var(--gbot,24px)!important;transform:none!important;grid-template-columns:none!important}
+body #nx-ui #nx-left{left:var(--railr,8px)!important;right:auto!important}
+body #nx-ui #nx-right{right:calc(12px + var(--safe-r))!important;left:auto!important}
+body #nx-ui #nx-right .nx-fans{display:contents!important;position:static!important}
+body #nx-ui .nx-cluster .nxctl,body #nx-ui #nx-right .nxctl,body #nx-ui #nx-left .nxctl{--nxctl-size:var(--pd,120px)!important}
+body #nx-ui .nx-stagecard .nx-md-tools{right:calc(var(--pd,120px) + 24px + var(--safe-r))!important;flex-direction:column!important;align-items:flex-end!important}
+body .nx-stagecard .nx-md-stage{top:var(--gtop,80px)!important;bottom:var(--sbot,24px)!important;left:calc(var(--railr,8px) + var(--pd,120px) + 12px)!important;right:calc(var(--pd,120px) + 24px + var(--safe-r))!important}
+
+/* release-2026-11-14 (the owner: "a ghost walkthrough ... maximum 10 frames"): the first-run walkthrough, web/next-tour.js. The page is dimmed but for the control
+   a step points at (ringed, shown, not pressed) and the emergency stop (always bright and pressable); the card stands beside the control, inside the window. */
+.nx-tour{position:fixed;inset:0;z-index:60;pointer-events:none}
+.nx-tour-dim{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}
+.nx-tour-shade{fill:rgba(3,5,8,.74);pointer-events:auto}
+.nx-tour-stopper{fill:transparent;pointer-events:all}
+.nx-tour-ring{fill:none;stroke:var(--accent);stroke-width:2;pointer-events:none;filter:drop-shadow(0 0 6px var(--accent))}
+.nx-tour-card{position:fixed;left:12px;top:12px;pointer-events:auto;box-sizing:border-box;width:min(380px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:auto;padding:16px 18px;border-radius:var(--r-l);display:flex;flex-direction:column;gap:12px}
+.nx-tour-card:focus{outline:none}
+.nx-tour-say{display:flex;flex-direction:column;gap:8px}
+.nx-tour-n{font:650 11px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.nx-tour-title{margin:0;font:650 18px/1.25 var(--sans);letter-spacing:.01em}
+.nx-tour-text{margin:0;font:500 14px/1.5 var(--sans);color:var(--ink-2)}
+.nx-tour-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.nx-tour-acts .nx-tour-skip{margin-right:auto}
+@media (prefers-reduced-motion:no-preference){.nx-tour-card{transition:left .2s ease,top .2s ease}}
+/* 0.6.3 build: a toast (e.g. "440 layers ... drawn on the plate") came up over the walkthrough card on a phone; toasts wait while it is open */
+body:has(.nx-tour) .nx-toasts{visibility:hidden}

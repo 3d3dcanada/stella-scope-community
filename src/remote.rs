@@ -1,4 +1,4 @@
-//! Anywhere access (2026-09-25): when `remote_link` is on, Stella Scope starts `stella-link`
+//! Anywhere access (the owner 2026-09-25): when `remote_link` is on, Stella Scope starts `stella-link`
 //! (the link/ crate, installed beside this binary). It holds an iroh endpoint whose key lives in
 //! `<database>.link.key` (mode 600) and joins every stream a phone opens to the phone listener, so
 //! a phone away from home meets exactly the same pairing code and device cookie as one on the home
@@ -77,17 +77,23 @@ pub fn start(cfg: &Config) {
             }
             // Finish-2 F10 (2026-10-19): a link that stops (killed, crashed) was gone until the service restarted, and
             // paired phones with it. It is started again, with the same key, so a phone finds the same id.
-            static WATCHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            static WATCHING: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
             if !WATCHING.swap(true, Ordering::SeqCst) {
                 let cfg = cfg.clone();
-                let _ = std::thread::Builder::new().name("stella-link-watch".into()).spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_secs(10));
-                    let gone = child().lock().ok().is_some_and(|mut g| g.as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_some()));
-                    if gone {
-                        eprintln!("stella-link stopped; starting it again");
-                        start(&cfg);
-                    }
-                });
+                let _ = std::thread::Builder::new()
+                    .name("stella-link-watch".into())
+                    .spawn(move || loop {
+                        std::thread::sleep(std::time::Duration::from_secs(10));
+                        let gone = child().lock().ok().is_some_and(|mut g| {
+                            g.as_mut()
+                                .is_some_and(|c| c.try_wait().ok().flatten().is_some())
+                        });
+                        if gone {
+                            eprintln!("stella-link stopped; starting it again");
+                            start(&cfg);
+                        }
+                    });
             }
         }
         Err(e) => eprintln!(
@@ -120,7 +126,7 @@ pub fn status(cfg: &Config) -> Value {
         "app_qr_svg":qr_svg(crate::server::APP_PAGE)})
 }
 
-/// One scan sets a phone up (2026-09-25: "it should just be a scan of the QR code"): the code a
+/// One scan sets a phone up (the owner 2026-09-25: "it should just be a scan of the QR code"): the code a
 /// new pairing window opens carries this computer's link id and the six digits, and the Stella app
 /// dials the id and pairs with the digits by itself. Expires with the window (five minutes).
 pub fn with_pair_qr(cfg: &Config, mut v: Value) -> Value {
@@ -171,7 +177,7 @@ fn eye_flag(cfg: &Config) -> String {
     format!("{}.eye.on", farm_db(cfg))
 }
 /// On in the config, or switched on from the app (a flag file beside the recording).
-/// 2026-09-27: the failure watch is an add-on the owner installs, not part of the installers
+/// the owner 2026-09-27: the failure watch is an add-on the owner installs, not part of the installers
 /// (Obico's model and scoring are AGPL). It is found beside the recording, where its model lives,
 /// or, on a machine built from source, beside this program.
 fn eye_bin(cfg: &Config) -> Option<std::path::PathBuf> {
@@ -202,7 +208,10 @@ static WATCHED: Mutex<Option<String>> = Mutex::new(None);
 /// while the watch ran). Unset (tests, a replay): the asking configuration's own.
 static FARM_DB: OnceLock<String> = OnceLock::new();
 fn farm_db(cfg: &Config) -> String {
-    FARM_DB.get().cloned().unwrap_or_else(|| cfg.database.clone())
+    FARM_DB
+        .get()
+        .cloned()
+        .unwrap_or_else(|| cfg.database.clone())
 }
 pub fn set_farm(database: &str) {
     let _ = FARM_DB.set(database.to_owned());
@@ -214,7 +223,9 @@ pub static PHONE_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 /// Name the printer to watch (an empty address: none). True when that is a different printer from the one before.
 pub fn set_watched(printer_id: &str, address: &str) -> bool {
     let new = (!address.trim().is_empty()).then(|| printer_id.to_owned());
-    let Ok(mut g) = WATCHED.lock() else { return false };
+    let Ok(mut g) = WATCHED.lock() else {
+        return false;
+    };
     let changed = *g != new;
     *g = new;
     changed
@@ -365,7 +376,7 @@ const EYE_MODEL_URL: &str =
     "https://tsd-pub-static.s3.amazonaws.com/ml-models/model-weights-5a6b1be1fa.onnx";
 const EYE_MODEL_BYTES: u64 = 202_223_918;
 
-/// `POST /api/eye/switch` {on}: the desktop turns the failure watch on or off (2026-09-25). The
+/// `POST /api/eye/switch` {on}: the desktop turns the failure watch on or off (the owner 2026-09-25). The
 /// first time on, Obico's model (200 MB) is fetched in the background beside the recording; the
 /// watch starts when it is complete. Off stops it; the model stays for next time.
 pub fn eye_switch(cfg: &Config, body: &[u8]) -> crate::Result<Value> {
@@ -387,7 +398,7 @@ pub fn eye_switch(cfg: &Config, body: &[u8]) -> crate::Result<Value> {
         return Ok(eye(cfg));
     }
     if eye_bin(cfg).is_none() {
-        return Err("The failure watch is an optional add-on that is not installed yet. The Help guide, under Failure watch, shows how to add it.".into());
+        return Err("The failure watch is coming soon. It is not part of this version.".into());
     }
     std::fs::write(eye_flag(cfg), b"on").map_err(|e| format!("cannot switch the watch on: {e}"))?;
     let model = eye_model(cfg);

@@ -11,6 +11,11 @@ use crate::{
 use serde_json::{json, Value};
 
 fn classified(object: &str, field: &str) -> (&'static str, &'static str) {
+    if is_load_cell(object)
+        && ["temperature", "measured_min_temp", "measured_max_temp"].contains(&field)
+    {
+        return ("load cell", "The bed load cell's weight reading. Klipper files it as a temperature sensor; it is not a temperature.");
+    }
     if (object == "probe" || object == "query_endstops") && field.starts_with("last_query") {
         return ("cached query","Last explicit query result; sample capture time is not trigger time. No command is sent to refresh it.");
     }
@@ -60,6 +65,14 @@ fn classified(object: &str, field: &str) -> (&'static str, &'static str) {
         "reported status",
         "Read from the selected sample. No additional physical measurement is inferred.",
     )
+}
+/// fix-0.6.2 WO-02 item 2 (the owner 2026-10-29): Z-Mod's AD5M files its bed load cell as `temperature_sensor weightValue`, and it read "520 degrees" (min 20, max 980);
+/// M105 on that machine shows it as `W:360`. A sensor whose name says weight or load is a load cell: a weight, never a temperature.
+pub fn is_load_cell(name: &str) -> bool {
+    name.strip_prefix("temperature_sensor ").is_some_and(|n| {
+        let n = n.to_ascii_lowercase();
+        n.contains("weight") || n.contains("load")
+    })
 }
 pub fn readable(name: &str) -> bool {
     crate::telemetry::allowed(name)
@@ -124,6 +137,7 @@ pub fn projection(d: &Value, ts: f64) -> Value {
     let mut pins = Vec::new();
     let mut fans = Vec::new();
     let mut sensors = Vec::new();
+    let mut load_cells = Vec::new();
     if let Some(map) = d.as_object() {
         for (name, value) in map {
             if readable(name) && name != "bed_mesh" {
@@ -144,7 +158,9 @@ pub fn projection(d: &Value, ts: f64) -> Value {
             {
                 fans.push(json!({"object":name,"command":fraction(&value["speed"]),"rpm":finite(&value["rpm"]).filter(|n|*n>=0.0),"temperature":finite(&value["temperature"]),"target":finite(&value["target"])}));
             }
-            if name.starts_with("temperature_sensor ") {
+            if is_load_cell(name) {
+                load_cells.push(json!({"object":name,"weight":value["temperature"],"minimum":value["measured_min_temp"],"maximum":value["measured_max_temp"],"basis":"The bed load cell. Klipper lists it as a temperature sensor, so it is shown here as a weight reading, never as a temperature."}));
+            } else if name.starts_with("temperature_sensor ") {
                 sensors.push(json!({"object":name,"temperature":value["temperature"],"minimum":value["measured_min_temp"],"maximum":value["measured_max_temp"]}));
             }
         }
@@ -193,7 +209,7 @@ pub fn projection(d: &Value, ts: f64) -> Value {
         }
     }
     let bl = &settings["bltouch"];
-    let probe = json!({"configured":bl.is_object(),"name":d["probe"]["name"],"sensor_pin":bl["sensor_pin"],"control_pin":bl["control_pin"],"x_offset":bl["x_offset"],"y_offset":bl["y_offset"],"z_offset":bl["z_offset"],"last_query":d["probe"]["last_query"],"last_probe_position":d["probe"]["last_probe_position"],"last_z_result_legacy":d["probe"]["last_z_result"],"pin_extension":null,"basis":"BLTouch installed per owner. Recorded configuration can differ across time. Last query is cached; pin extension is not observed by this feed."});
+    let probe = json!({"configured":bl.is_object(),"name":d["probe"]["name"],"sensor_pin":bl["sensor_pin"],"control_pin":bl["control_pin"],"x_offset":bl["x_offset"],"y_offset":bl["y_offset"],"z_offset":bl["z_offset"],"last_query":d["probe"]["last_query"],"last_probe_position":d["probe"]["last_probe_position"],"last_z_result_legacy":d["probe"]["last_z_result"],"pin_extension":null,"basis":if bl.is_object() {"BLTouch installed per owner. Recorded configuration can differ across time. Last query is cached; pin extension is not observed by this feed."} else {"No BLTouch is in this printer's configuration. Its probe, if it has one, is reported under Probe."}});
     // Configuration-only sections: Klipper exposes no status object for these three; surface their
     // recorded settings so the app shows real values instead of a wrong "not reported" warning.
     let config_sections: Vec<Value> = ["input_shaper", "adxl345", "safe_z_home"]
@@ -207,7 +223,7 @@ pub fn projection(d: &Value, ts: f64) -> Value {
             }
         })
         .collect();
-    json!({"sample_ts":ts,"signals":signals,"signal_limit":512,"limit_reached":signals.len()>=512,"controllers":mcus,"pins":pins,"pin_limit_reached":pins.len()>=256,"fans":fans,"sensors":sensors,"bltouch":probe,"config_sections":config_sections,"coverage":d["_scope_capture"],"host":d["_scope_host"],"unmeasured":["Physical bolt tightness and belt tension","Actual motor shaft position without encoders","Voltage/current waveforms or measured mains power without suitable sensors","Fan RPM without tachometer feedback","Printed part model, revision and material without an inventory record","BLTouch pin extension and continuous trigger edge timing"]})
+    json!({"sample_ts":ts,"signals":signals,"signal_limit":512,"limit_reached":signals.len()>=512,"controllers":mcus,"pins":pins,"pin_limit_reached":pins.len()>=256,"fans":fans,"sensors":sensors,"load_cells":load_cells,"bltouch":probe,"config_sections":config_sections,"coverage":d["_scope_capture"],"host":d["_scope_host"],"unmeasured":["Physical bolt tightness and belt tension","Actual motor shaft position without encoders","Voltage/current waveforms or measured mains power without suitable sensors","Fan RPM without tachometer feedback","Printed part model, revision and material without an inventory record",if bl.is_object() {"BLTouch pin extension and continuous trigger edge timing"} else {"Continuous probe trigger edge timing"}]})
 }
 fn path_value<'a>(d: &'a Value, object: &str, field: &str) -> Option<&'a Value> {
     let mut v = d.get(object)?;
@@ -364,6 +380,78 @@ mod tests {
         assert_eq!(p["fans"].as_array().unwrap().len(), 1);
         assert!(p["fans"][0]["rpm"].is_null());
         assert_eq!(p["sensors"][0]["temperature"], 45);
+    }
+    /// fix-0.6.2 WO-02 item 2: the 10-28 AD5M's `temperature_sensor weightValue` (520, min 20, max 980; M105 prints it `W:360`) is its bed load cell.
+    #[test]
+    fn a_weight_sensor_is_the_load_cell_not_a_temperature() {
+        let p = projection(
+            &json!({"temperature_sensor weightValue":{"temperature":520.0,"measured_min_temp":20.0,"measured_max_temp":980.0},"temperature_sensor chamber":{"temperature":31.0}}),
+            3.0,
+        );
+        let names: Vec<&str> = p["sensors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["object"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            ["temperature_sensor chamber"],
+            "kept out of the temperatures"
+        );
+        assert_eq!(
+            p["load_cells"][0]["object"],
+            "temperature_sensor weightValue"
+        );
+        assert_eq!(p["load_cells"][0]["weight"], 520.0);
+        assert_eq!(p["load_cells"][0]["maximum"], 980.0);
+        let row = |id: &str| {
+            p["signals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|s| s["id"] == id)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(
+            row("temperature_sensor weightValue/temperature")["kind"],
+            "load cell"
+        );
+        assert_eq!(
+            row("temperature_sensor chamber/temperature")["kind"],
+            "sensor reading"
+        );
+        assert!(
+            is_load_cell("temperature_sensor load_cell")
+                && !is_load_cell("temperature_sensor chamber")
+                && !is_load_cell("heater_bed")
+        );
+    }
+    /// fix-0.6.2 WO-02 item 1: no BLTouch in the config means no "installed per owner" and no pin extension left unmeasured.
+    #[test]
+    fn a_printer_without_a_bltouch_says_so() {
+        let p = projection(
+            &json!({"probe":{"last_query":false},"configfile":{"settings":{"probe":{"pin":"PB1"}}}}),
+            3.0,
+        );
+        assert_eq!(p["bltouch"]["configured"], false);
+        assert!(!p["bltouch"]["basis"]
+            .as_str()
+            .unwrap()
+            .contains("per owner"));
+        assert!(!p["unmeasured"].to_string().contains("BLTouch"));
+        let with = projection(
+            &json!({"configfile":{"settings":{"bltouch":{"control_pin":"PA1"}}}}),
+            3.0,
+        );
+        assert!(with["bltouch"]["basis"]
+            .as_str()
+            .unwrap()
+            .contains("per owner"));
+        assert!(with["unmeasured"]
+            .to_string()
+            .contains("BLTouch pin extension"));
     }
     #[test]
     fn bltouch_does_not_invent_extension() {

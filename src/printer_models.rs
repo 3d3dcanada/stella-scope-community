@@ -38,32 +38,68 @@ use std::{
 
 type Result<T> = std::result::Result<T, String>;
 
-const CATALOGUE: &str = include_str!("../web/printer-models.json");
-const MOTION: &str = include_str!("../web/printer-motion.json");
-const THUMBS: &str = include_str!("../web/printer-thumbs.json");
+const CATALOGUE: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-models.json"));
+const MOTION: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-motion.json"));
+const THUMBS: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-thumbs.json"));
 /// Machines added by hand from their maker's own CAD (the Prusa CORE One L, 2026-10-13), beside the
 /// 3D Print Rig catalogue, so a rebuild of that catalogue never drops them.
-const EXTRA: &str = include_str!("../web/printer-models-extra.json");
-const MOTION_EXTRA: &str = include_str!("../web/printer-motion-extra.json");
+const EXTRA: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-models-extra.json"));
+const MOTION_EXTRA: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-motion-extra.json"));
 /// Motion read from the part records inside the models of machines 3D Print Rig registers there rather
 /// than in its motion-profiles folder (Voron V2.4 300 and 350, Trident 300, V0.2, Micron+ 180, Ender-3), made by
 /// `tools/printer-motion-parts.rs` (polish WO-02, 2026-10-18).
-const MOTION_PARTS: &str = include_str!("../web/printer-motion-parts.json");
+const MOTION_PARTS: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-motion-parts.json"));
 /// Where a print file's X0 Y0 Z0 sits on each machine's model (polish WO-03, 2026-10-18), made by
 /// `tools/printer-print-frames.rs` from the model files and the makers' machine profiles.
-const PRINT_FRAMES: &str = include_str!("../web/printer-print-frames.json");
+const PRINT_FRAMES: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-print-frames.json"));
 /// The same for the Prusa machines whose converted CAD ships in the build (F09, 2026-10-19), made by the same tool into a file of its own.
-const PRINT_FRAMES_PRUSA: &str = include_str!("../web/printer-print-frames-prusa.json");
+const PRINT_FRAMES_PRUSA: &str = include_str!(concat!(
+    env!("STELLA_WEB"),
+    "/printer-print-frames-prusa.json"
+));
+/// fix-0.6.2 WO-08 (2026-10-30, the owner: every demo machine moves): what `tools/printer-motion-measured.mjs` reads off the model files, merged field by field over the tables above: the motion of the
+/// two machines the rig ships static (S-BOOM, DoomCube 2), the Trident's nozzle now that its head is drawn, and every machine's belts and tubes (`flex`).
+const MOTION_MEASURED: &str =
+    include_str!(concat!(env!("STELLA_WEB"), "/printer-motion-measured.json"));
 
-/// This public copy carries no printer model (2026-11-15): add your own in the app (Printer models, Install a file I downloaded), or download one
-/// from its maker's published file. The table stays so the code paths that read it are unchanged.
-const BUNDLED: [(&str, &[u8]); 0] = [
+/// One table's fields over another's, id by id: what the measured table says wins, what it does not say stays.
+fn merge_measured(into: &mut Value, table: &str) {
+    let measured: Value =
+        serde_json::from_str(MOTION_MEASURED).expect("the measured motion table is valid JSON");
+    for (id, fields) in measured[table].as_object().into_iter().flatten() {
+        let row = &mut into[id.as_str()];
+        if !row.is_object() {
+            *row = json!({});
+        }
+        for (k, v) in fields.as_object().into_iter().flatten() {
+            row[k.as_str()] = v.clone();
+        }
+    }
+}
+
+/// release-2026-11-14 (the owner: "The installer should not carry any 3D printed models at all"): no build carries a model file. These five have no file address
+/// published by their makers (Prusa Research shares the CAD, not a viewer file; the Trident R2 Stealthburner is cut from the rig's Trident 500), so 3D3D
+/// hosts the converted files, unchanged from what finish-2 F09 and fix-0.6.2 WO-08 shipped, at `HOST/model-<id>.glb.gz` (3d3d.ca's Stella download route, R2 bucket stella-downloads), each with its notice. Every other
+/// model comes from the address its author publishes it at. Either way a file is fetched only when the person asks, and checked against the catalogue's pin.
+const HOSTED: [&str; 5] = [
+    "prusa_core_one_l",
+    "prusa_core_one",
+    "prusa_mk3s",
+    "prusa_mini",
+    "trident_r2_stealthburner",
 ];
+const HOST: &str = "https://3d3d.ca/downloads/stella";
 /// What a person reads about each carried model: who made it, under what terms and what was done to the file (shown in the model's own sheet and
 /// in About). The two Prusa notices end with the Open Community License text.
 const NOTICES: [(&str, &str); 4] = [
-    ("prusa_core_one_l", include_str!("../docs/notices/prusa_core_one_l.txt")),
-    ("prusa_core_one", include_str!("../docs/notices/prusa_core_one.txt")),
+    (
+        "prusa_core_one_l",
+        include_str!("../docs/notices/prusa_core_one_l.txt"),
+    ),
+    (
+        "prusa_core_one",
+        include_str!("../docs/notices/prusa_core_one.txt"),
+    ),
     ("prusa_mk3s", include_str!("../docs/notices/prusa_mk3s.txt")),
     ("prusa_mini", include_str!("../docs/notices/prusa_mini.txt")),
 ];
@@ -95,7 +131,9 @@ pub fn catalogue() -> &'static Value {
         }
         for o in extra["options"].as_array().into_iter().flatten() {
             for m in o["fits"].as_object().into_iter().flat_map(|f| f.keys()) {
-                let row = c["machines"].as_array_mut().and_then(|ms| ms.iter_mut().find(|r| r["id"] == m.as_str()));
+                let row = c["machines"]
+                    .as_array_mut()
+                    .and_then(|ms| ms.iter_mut().find(|r| r["id"] == m.as_str()));
                 if let Some(list) = row.and_then(|r| r["fits"].as_array_mut()) {
                     list.push(o["id"].clone());
                 }
@@ -124,11 +162,15 @@ fn motion_table() -> &'static Value {
                 p.extend(x.iter().map(|(k, v)| (k.clone(), v.clone())));
             }
         }
+        merge_measured(&mut m["profiles"], "profiles");
         // A registration with no calibration of its own starts at the low end of each travel, which leaves the nozzle
         // wherever the CAD pose put it. Where the plate and the nozzle were both measured (print frames), that
         // measurement is the calibration and the travel reaches the plate (polish WO-03).
         for (id, frame) in print_frames()["machines"].as_object().into_iter().flatten() {
-            let (Some(over), Some(profile)) = (frame["profile"].as_object(), m["profiles"].get_mut(id.as_str())) else {
+            let (Some(over), Some(profile)) = (
+                frame["profile"].as_object(),
+                m["profiles"].get_mut(id.as_str()),
+            ) else {
                 continue;
             };
             if profile.get("calibration").is_some() {
@@ -153,11 +195,14 @@ pub fn print_frame(id: &str) -> Option<&'static Value> {
 fn print_frames() -> &'static Value {
     static F: OnceLock<Value> = OnceLock::new();
     F.get_or_init(|| {
-        let mut f: Value = serde_json::from_str(PRINT_FRAMES).expect("the print frames are valid JSON");
-        let extra: Value = serde_json::from_str(PRINT_FRAMES_PRUSA).expect("the Prusa print frames are valid JSON");
+        let mut f: Value =
+            serde_json::from_str(PRINT_FRAMES).expect("the print frames are valid JSON");
+        let extra: Value = serde_json::from_str(PRINT_FRAMES_PRUSA)
+            .expect("the Prusa print frames are valid JSON");
         if let (Some(m), Some(x)) = (f["machines"].as_object_mut(), extra["machines"].as_object()) {
             m.extend(x.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
+        merge_measured(&mut f["machines"], "frames");
         f
     })
 }
@@ -196,7 +241,7 @@ pub fn part(id: &str) -> Option<&'static Value> {
 }
 
 /// May a build carry a model of this licence class? Only classes that allow redistribution, with notice.
-/// Finish-2 F09 (2026-10-19: "we can share it on the application ... every Prusa printer should be available"): Prusa Research's Open Community
+/// Finish-2 F09 (2026-10-19, the owner: "we can share it on the application ... every Prusa printer should be available"): Prusa Research's Open Community
 /// License is one of them. It lets the CAD be modified and the modification passed on under the same licence; what it does not allow is selling
 /// machines or remixes made from it, and the converted files are passed on free of charge, with Prusa's notice and the licence text, shown in the
 /// model's sheet and in About. (Whether a build that is itself sold may carry them is a question for Prusa; the report to the owner says so.)
@@ -237,9 +282,21 @@ pub fn upstream_url(row: &Value) -> Option<String> {
     row["location"]["upstream"].as_str().map(str::to_owned)
 }
 
-/// Does this build carry the model (finish-2 F09)? It is put in the person's library when the service starts (`Library::seed_bundled`).
-pub fn is_bundled(id: &str) -> bool {
-    BUNDLED.iter().any(|(b, _)| *b == id)
+/// Does 3D3D host this model's file (it has no address of its author's)?
+pub fn is_hosted(id: &str) -> bool {
+    HOSTED.contains(&id)
+}
+
+/// Where a model's file is fetched from on a press: 3D3D's download server for the hosted five, else the address its author publishes it at
+/// (a project's pages or a release), https only. None for a maker's web page, which is not a file.
+fn fetch_url(row: &Value) -> Option<String> {
+    let id = row["id"].as_str().unwrap_or("");
+    if is_hosted(id) {
+        return Some(format!("{HOST}/model-{id}.glb.gz"));
+    }
+    let kind = row["location"]["kind"].as_str().unwrap_or("");
+    upstream_url(row)
+        .filter(|u| u.starts_with("https://") && (kind == "registry" || kind == "release_zip"))
 }
 
 /// The notice a person reads about a carried model: who made it, the terms, what was done to the file, then the licence text it is under.
@@ -277,21 +334,21 @@ const GPL3_TEXT: &str = include_str!("../docs/licences/GPL-3.0.txt");
 
 /// Who is credited for each model the build carries, for About: the machine, the maker, the licence in words and where the CAD comes from.
 pub fn credits() -> Value {
-    let rows: Vec<Value> = BUNDLED
+    let rows: Vec<Value> = HOSTED
         .iter()
-        .filter_map(|(id, bytes)| {
-            let m = machine(id)?;
+        .filter_map(|id| {
+            let m = machine(id).or_else(|| part(id))?;
             let class = class_of(m);
             Some(json!({
                 "id":id,"label":m["label"].as_str().unwrap_or(id).split(" / ").next().unwrap_or(id),
                 "author":m["licence"]["author"],"licence":m["licence"]["text"],"class":class,"words":class_words(class),
-                "source":m["licence"]["source"],"bytes":bytes.len(),
+                "source":m["licence"]["source"],"bytes":model_bytes(m),
             }))
         })
         .collect();
-    let bytes: usize = BUNDLED.iter().map(|(_, b)| b.len()).sum();
+    let bytes: u64 = rows.iter().filter_map(|r| r["bytes"].as_u64()).sum();
     // Finish-2 F07 (2026-10-19): About also says who to write to and credits 3D Print Rig with its MIT notice (docs/licences/3D-Print-Rig-MIT.txt).
-    json!({"version":env!("CARGO_PKG_VERSION"),"licence":"AGPL-3.0","maker":"3D3D Canada","contact":"info@3d3d.ca",
+    json!({"version":env!("CARGO_PKG_VERSION"),"licence":"GNU AGPL-3.0","licence_words":"Stella Scope is open source under the GNU Affero General Public License 3.0.","maker":"3D3D Canada","contact":"info@3d3d.ca",
         "rig":{"name":"3D Print Rig","by":"Psych0h3ad","licence":"MIT","source":"https://github.com/Psych0h3ad/3d-print-rig","notice":crate::help::RIG_NOTICE},
         "models":rows,"bytes":bytes})
 }
@@ -329,8 +386,13 @@ impl Source {
             return Ok(Source::Published);
         }
         // WO-13: https works now (ureq with rustls); the pinned SHA-256 is still checked before use.
-        if t.starts_with("https://") || t.starts_with("http://") {
+        // the owner 2026-11-14 (red team #12): a web address must be https, or plain http only on this network (a folder server
+        // on the LAN), so the service is never sent to a plain-http address elsewhere.
+        if t.starts_with("https://") || (t.starts_with("http://") && crate::config::camera_ok(t)) {
             return Ok(Source::Http(t.trim_end_matches('/').to_owned()));
+        }
+        if t.starts_with("http://") {
+            return Err("a plain http:// address must be on this network; use https:// for an address on the internet".into());
         }
         let p = PathBuf::from(t);
         if !p.is_absolute() {
@@ -395,19 +457,15 @@ impl Source {
                 Err(format!("the source did not give this model ({last})"))
             }
             Source::Published => {
-                // Only a file the catalogue knows the address of: a maker's web page is not a file.
-                let kind = row["location"]["kind"].as_str().unwrap_or("");
-                let url = upstream_url(row).filter(|u| {
-                    u.starts_with("https://") && (kind == "registry" || kind == "release_zip")
-                });
-                let url = url.ok_or_else(|| {
+                // Only a file the catalogue knows the address of (or one 3D3D hosts): a maker's web page is not a file.
+                let url = fetch_url(row).ok_or_else(|| {
                     format!(
                         "{} has no published file address; download it from its author and install the file",
                         row["label"].as_str().unwrap_or("this model")
                     )
                 })?;
                 http_get(&url)
-                    .map_err(|e| format!("the author's address did not give this model ({e})"))
+                    .map_err(|e| format!("the download address did not give this model ({e})"))
             }
         }
     }
@@ -444,7 +502,9 @@ pub struct Library {
 pub fn carried_dir() -> Option<PathBuf> {
     // Tests never read an installed package's folder: what the library holds must not depend on what is installed on the machine running them.
     if cfg!(test) {
-        return std::env::var_os("STELLA_MODELS_DIR").map(PathBuf::from).filter(|p| p.is_dir());
+        return std::env::var_os("STELLA_MODELS_DIR")
+            .map(PathBuf::from)
+            .filter(|p| p.is_dir());
     }
     let exe = std::env::current_exe().ok();
     let dir = exe.as_deref().and_then(Path::parent);
@@ -461,7 +521,10 @@ pub fn carried_dir() -> Option<PathBuf> {
 
 impl Library {
     pub fn new(root: PathBuf) -> Self {
-        Self { root, carried: None }
+        Self {
+            root,
+            carried: None,
+        }
     }
     /// The service's library: its own files, and the carried folder (`carried_dir()`). `new` alone carries nothing (tests, a library that is not there).
     pub fn with_carried(root: PathBuf, carried: Option<PathBuf>) -> Self {
@@ -485,11 +548,17 @@ impl Library {
     }
 
     pub fn record(&self, id: &str) -> Option<Value> {
-        if let Some(t) = self.dir(id).ok().and_then(|d| fs::read_to_string(d.join("install.json")).ok()) {
+        if let Some(t) = self
+            .dir(id)
+            .ok()
+            .and_then(|d| fs::read_to_string(d.join("install.json")).ok())
+        {
             return serde_json::from_str(&t).ok();
         }
         let p = self.carried_file(id)?;
-        Some(json!({"origin":"carried with Stella Scope","bytes":fs::metadata(&p).ok()?.len(),"installed_at":null,"carried":true}))
+        Some(
+            json!({"origin":"carried with Stella Scope","bytes":fs::metadata(&p).ok()?.len(),"installed_at":null,"carried":true}),
+        )
     }
 
     /// The stored model file and whether it is gzipped.
@@ -516,33 +585,7 @@ impl Library {
             .collect()
     }
 
-    /// Put the models this build carries in the library (finish-2 F09, 2026-10-19): each whose file is not there, or is not the one the catalogue
-    /// pins. A copy the person put there themselves that has the pinned content is left as it is. The bytes are checked against the pins on the way
-    /// in like any other file. Returns the ids written. Called once when the service starts, so a fresh install draws these machines with nothing
-    /// to download and no file to find.
-    pub fn seed_bundled(&self) -> Vec<String> {
-        let mut wrote = Vec::new();
-        for (id, bytes) in BUNDLED {
-            let Some(row) = machine(id) else { continue };
-            let (_, want_decoded) = pin(row);
-            // Here already: the record says it is this model and the file is the size the record says (a cut-short copy is written again).
-            let here = self.model_file(id).and_then(|(p, _)| fs::metadata(p).ok()).map(|m| m.len());
-            if self.record(id).is_some_and(|r| r["decoded_sha256"] == want_decoded.as_str() && here.is_some() && r["bytes"].as_u64() == here) {
-                continue;
-            }
-            match self.store(row, &mut std::io::Cursor::new(bytes), "bundled with Stella Scope") {
-                Ok(_) => wrote.push((*id).to_owned()),
-                Err(e) => eprintln!("stella-scope: could not put the {id} model in the library: {e}"),
-            }
-        }
-        wrote
-    }
-
     pub fn remove(&self, id: &str) -> Result<()> {
-        // A model the build carries comes back at the next start (and is the one thing that makes a CORE One L draw on a fresh install), so it is not removed.
-        if is_bundled(id) {
-            return Err(format!("{} ships inside Stella Scope and cannot be removed here.", machine(id).and_then(|m| m["label"].as_str()).unwrap_or(id).split(" / ").next().unwrap_or(id)));
-        }
         let d = self.dir(id)?;
         if d.is_dir() {
             fs::remove_dir_all(&d).map_err(|e| format!("cannot remove {id}: {e}"))?;
@@ -561,10 +604,18 @@ impl Library {
 
     /// A tool or add-on file the installer carries (`<carried>/parts/<id>.glb.gz`), for open-licence parts only.
     fn carried_part(&self, id: &str) -> Option<PathBuf> {
-        if !may_bundle(part(id)?["licence"]["class"].as_str().unwrap_or("unlicensed")) {
+        if !may_bundle(
+            part(id)?["licence"]["class"]
+                .as_str()
+                .unwrap_or("unlicensed"),
+        ) {
             return None;
         }
-        let p = self.carried.as_ref()?.join("parts").join(format!("{id}.glb.gz"));
+        let p = self
+            .carried
+            .as_ref()?
+            .join("parts")
+            .join(format!("{id}.glb.gz"));
         p.is_file().then_some(p)
     }
 
@@ -781,7 +832,7 @@ impl Library {
             "stored_sha256":facts["stored_sha256"],"decoded_sha256":facts["decoded_sha256"],
             "bytes":facts["bytes"],"unpacked_bytes":facts["unpacked_bytes"],
             "licence":row["licence"],"source_url":upstream_url(row),
-            "notice":if is_bundled(id) { "This model ships inside Stella Scope under its author's licence. Its notice is under About and under Printer models." } else { "The model keeps its author's licence. It is stored here for this installation and is not part of Stella Scope." },
+            "notice":if is_hosted(id) { "3D3D hosts this model's file for download under its author's licence. Its notice is under About and under Printer models." } else { "The model keeps its author's licence. It is stored here for this installation and is not part of Stella Scope." },
         });
         fs::write(
             dir.join("install.json"),
@@ -826,8 +877,8 @@ pub fn view(row: &Value, lib: &Library) -> Value {
         "id":id,"label":row["label"],"family":row["family"],"size_mm":row["size_mm"],
         "licence":{"class":class,"text":row["licence"]["text"],"author":row["licence"]["author"],"source":row["licence"]["source"],"words":class_words(class)},
         "bundled":may_bundle(class),
-        // finish-2 F09: the build carries this model's file (it is in the library from the first start and cannot be removed)
-        "in_build":is_bundled(id),
+        // release-2026-11-14: no build carries a model file; every one is fetched when the person asks
+        "in_build":false,"hosted":is_hosted(id),
         "motion":motion.is_some(),
         "basis":basis(id),
         "axes":motion.map(|p| p["axes"].clone()),
@@ -853,7 +904,9 @@ pub fn list(lib: &Library) -> Value {
     let no_model: Vec<Value> = crate::prusa_machines::MACHINES
         .iter()
         .filter(|m| m.cad.is_none())
-        .map(|m| json!({"id":m.id,"label":m.name,"short":m.short,"family":"prusa","why":m.no_model}))
+        .map(
+            |m| json!({"id":m.id,"label":m.name,"short":m.short,"family":"prusa","why":m.no_model}),
+        )
         .collect();
     json!({"schema":"stella-scope.printer-models.v1","count":rows.len(),"source":catalogue()["source"],"models":rows,"no_model":no_model})
 }
@@ -1283,7 +1336,7 @@ fn scene_with(machine_id: &str, selection: &Value, lib: &Library, swap: bool) ->
                         "addon",
                         -1,
                         oid,
-                        None,
+                        p["follows"].as_str(),
                     );
                 }
                 for k in fit["hide_machine_keys"].as_array().into_iter().flatten() {
@@ -1330,16 +1383,22 @@ pub struct BankTool {
 /// The tools of the tool bank chosen on a machine, in dock order, for a machine with registered motion. None when no
 /// bank is chosen, the machine has no head motion or a tool does not give one rigid move.
 pub fn bank_tools(machine_id: &str, selection: &Value) -> Option<Vec<BankTool>> {
-    let item = selection
-        .as_array()?
-        .iter()
-        .find(|i| i["option"].as_str().and_then(option).is_some_and(|o| o["attach"]["kind"] == "bank"))?;
+    let item = selection.as_array()?.iter().find(|i| {
+        i["option"]
+            .as_str()
+            .and_then(option)
+            .is_some_and(|o| o["attach"]["kind"] == "bank")
+    })?;
     let o = option(item["option"].as_str()?)?;
     let fit = o["fits"].get(machine_id).filter(|f| f.is_object())?;
     let profile = profile(machine_id)?;
     let head = profile["motions"].get("head")?;
     let cal = Calibration::starting(profile);
-    let tools: Vec<&str> = item["tools"].as_array()?.iter().filter_map(Value::as_str).collect();
+    let tools: Vec<&str> = item["tools"]
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
     let (anchor, pitch, shift) = (
         n3(&fit["anchor_mm"]),
         fit["pitch_mm"].as_f64().unwrap_or(0.0),
@@ -1358,21 +1417,34 @@ pub fn bank_tools(machine_id: &str, selection: &Value) -> Option<Vec<BankTool>> 
             .as_array()?
             .iter()
             .filter_map(|x| {
-                let y = tool["parked"].as_array()?.iter().find(|y| y["part"] == x["part"])?;
+                let y = tool["parked"]
+                    .as_array()?
+                    .iter()
+                    .find(|y| y["part"] == x["part"])?;
                 let (xa, ya) = (n3(&x["translation_mm"]), n3(&y["translation_mm"]));
                 Some([0, 1, 2].map(|c| xa[c] + shift[c] - ya[c] - a[c]))
             })
             .collect();
         let delta = *moves.first()?;
-        if moves.iter().any(|m| (0..3).any(|c| (m[c] - delta[c]).abs() > 0.01)) {
+        if moves
+            .iter()
+            .any(|m| (0..3).any(|c| (m[c] - delta[c]).abs() > 0.01))
+        {
             return None;
         }
         // The tool's nozzle, measured from its file: the file's display frame into the machine's frame, then to where the
         // tool's head part sits on the carriage. Its difference from the machine's nozzle is the tool's offset.
-        let head_pl = tool["active"].as_array()?.iter().find(|x| x["role"] == "head")?;
+        let head_pl = tool["active"]
+            .as_array()?
+            .iter()
+            .find(|x| x["role"] == "head")?;
         let file_tip = n3(&print_frames()["tools"][*tid]["tip_file_mm"]);
         let b = basis(machine_id);
-        let tip: [f64; 3] = [0, 1, 2].map(|c| (0..3).map(|r| b[r][c].as_f64().unwrap_or(0.0) * file_tip[r]).sum::<f64>());
+        let tip: [f64; 3] = [0, 1, 2].map(|c| {
+            (0..3)
+                .map(|r| b[r][c].as_f64().unwrap_or(0.0) * file_tip[r])
+                .sum::<f64>()
+        });
         let stock = n3(&print_frame(machine_id)?["nozzle_mm"]);
         let ht = n3(&head_pl["translation_mm"]);
         let offset: [f64; 3] = [0, 1, 2].map(|c| tip[c] + ht[c] + shift[c] - stock[c]);
@@ -1382,7 +1454,10 @@ pub fn bank_tools(machine_id: &str, selection: &Value) -> Option<Vec<BankTool>> 
         for c in 0..3 {
             let (name, factor) = match &head[c] {
                 Value::String(s) => (s.as_str(), 1.0),
-                Value::Object(m) => m.iter().next().map_or(("", 0.0), |(k, f)| (k.as_str(), f.as_f64().unwrap_or(1.0))),
+                Value::Object(m) => m
+                    .iter()
+                    .next()
+                    .map_or(("", 0.0), |(k, f)| (k.as_str(), f.as_f64().unwrap_or(1.0))),
                 _ => ("", 0.0),
             };
             if let (Some(i), true) = (NAMES.iter().position(|n| *n == name), factor != 0.0) {
@@ -1393,7 +1468,13 @@ pub fn bank_tools(machine_id: &str, selection: &Value) -> Option<Vec<BankTool>> 
         for i in 0..3 {
             dock[cal.source[i]] = (park[i] - cal.offset_mm[i]) / cal.sign[i];
         }
-        out.push(BankTool { group: format!("tool{slot}"), rest_mm: rest, offset_mm: offset, park, dock });
+        out.push(BankTool {
+            group: format!("tool{slot}"),
+            rest_mm: rest,
+            offset_mm: offset,
+            park,
+            dock,
+        });
     }
     (!out.is_empty()).then_some(out)
 }
@@ -1421,8 +1502,7 @@ pub fn pose_spec(machine_id: &str, selection: Option<&Value>) -> Option<Value> {
 
 /// Can this file be fetched on one press: its author publishes it at an https address (the project's pages or release)?
 fn is_published(row: &Value) -> bool {
-    let kind = row["location"]["kind"].as_str().unwrap_or("");
-    upstream_url(row).is_some_and(|u| u.starts_with("https://") && (kind == "registry" || kind == "release_zip"))
+    fetch_url(row).is_some()
 }
 
 /// What a farm's printers draw that is not in the library yet (polish WO-03, 2026-10-18): one row per machine model and per
@@ -1442,17 +1522,26 @@ pub fn wanted(printers: &[(String, Option<Value>)], lib: &Library) -> Value {
         let published = is_published(m);
         let open = may_bundle(class) && published;
         // The machine's name without the model's description ("Prusa CORE One L / Native CAD" is the Prusa CORE One L).
-        let short = m["label"].as_str().unwrap_or(id).split(" / ").next().unwrap_or(id);
-        // Finish-2 F09 (2026-10-19): the models Prusa shares under its own licence ship inside the build and are in the library from the first start, so
-        // nothing here is fetched from a releases page that may not exist, and no notice has to be read before a download: it is read in the model's sheet and in About.
+        let short = m["label"]
+            .as_str()
+            .unwrap_or(id)
+            .split(" / ")
+            .next()
+            .unwrap_or(id);
+        // release-2026-11-14: the models Prusa shares under its own licence are fetched from 3D3D's download server like any open model; their notice is
+        // read in the model's sheet and in About.
         let why = if open {
             Value::Null
-        } else if is_bundled(id) {
-            json!(format!("The {short} model ships inside Stella Scope and is put in your library when the service starts. It is not there yet: restart Stella Scope."))
         } else if !published {
             json!(format!("The {short} model comes from its maker's own files and is added by hand under Printer models."))
         } else {
-            json!(format!("The {short} model is under {}: {}", m["licence"]["text"].as_str().unwrap_or("terms its author did not state"), class_words(class)))
+            json!(format!(
+                "The {short} model is under {}: {}",
+                m["licence"]["text"]
+                    .as_str()
+                    .unwrap_or("terms its author did not state"),
+                class_words(class)
+            ))
         };
         rows.push(json!({
             "kind":"model","id":id,"label":m["label"],"bytes":model_bytes(m),
@@ -1463,11 +1552,19 @@ pub fn wanted(printers: &[(String, Option<Value>)], lib: &Library) -> Value {
     // The files of a toolchanger or add-on chosen for a printer: only those its selection draws (a bank's other tools, and
     // their licences, are not asked for).
     for (id, selection) in printers {
-        let Some(sel) = selection.as_ref().filter(|s| s.as_array().is_some_and(|a| !a.is_empty())) else {
+        let Some(sel) = selection
+            .as_ref()
+            .filter(|s| s.as_array().is_some_and(|a| !a.is_empty()))
+        else {
             continue;
         };
         let scene = scene_swapping(id, sel, lib);
-        for pid in scene["missing"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        for pid in scene["missing"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
             if seen.iter().any(|x| x == pid) {
                 continue;
             }
@@ -1484,7 +1581,11 @@ pub fn wanted(printers: &[(String, Option<Value>)], lib: &Library) -> Value {
             }));
         }
     }
-    let open_bytes: u64 = rows.iter().filter(|r| r["open"] == true).filter_map(|r| r["bytes"].as_u64()).sum();
+    let open_bytes: u64 = rows
+        .iter()
+        .filter(|r| r["open"] == true)
+        .filter_map(|r| r["bytes"].as_u64())
+        .sum();
     let open_count = rows.iter().filter(|r| r["open"] == true).count();
     json!({"models":rows,"open_count":open_count,"open_bytes":open_bytes})
 }
@@ -1518,8 +1619,16 @@ pub fn needs(printers: &[(String, String, Option<Value>)], lib: &Library) -> Val
         if machine(model).is_some() && lib.model_file(model).is_none() {
             ids.push(model.clone());
         }
-        if let Some(sel) = selection.as_ref().filter(|s| s.as_array().is_some_and(|a| !a.is_empty())) {
-            for p in scene_swapping(model, sel, lib)["missing"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        if let Some(sel) = selection
+            .as_ref()
+            .filter(|s| s.as_array().is_some_and(|a| !a.is_empty()))
+        {
+            for p in scene_swapping(model, sel, lib)["missing"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
                 if !ids.iter().any(|x| x == p) {
                     ids.push(p.to_owned());
                 }
@@ -1532,7 +1641,7 @@ pub fn needs(printers: &[(String, String, Option<Value>)], lib: &Library) -> Val
     Value::Object(out)
 }
 
-/// The open licences of what a farm would fetch, as one line of plain words and the facts behind it (F03, 2026-10-19; our rule for
+/// The open licences of what a farm would fetch, as one line of plain words and the facts behind it (F03, 2026-10-19; the owner's rule for
 /// the demo farm: one press shows the licences in one line, then fetches). Built from the catalogue, never typed: the licences and
 /// their authors are the files' own, the size is the sum of what would be fetched, and a model that needs its maker's notice read
 /// first is named, not fetched. `printers` is each printer's machine and chosen options.
@@ -1543,11 +1652,29 @@ pub fn licence_line(printers: &[(String, Option<Value>)]) -> Value {
     let rows: Vec<&Value> = w["models"].as_array().into_iter().flatten().collect();
     let mut by: Vec<(String, Vec<String>)> = Vec::new();
     for r in rows.iter().filter(|r| r["open"] == true) {
-        let text = r["licence"]["text"].as_str().unwrap_or("terms its author did not state").to_owned();
+        let text = r["licence"]["text"]
+            .as_str()
+            .unwrap_or("terms its author did not state")
+            .to_owned();
         // "Copyright SOVOL and the original contributors" is SOVOL; a file whose row names nobody is credited to the owner of the repository it comes from.
-        let who = match r["licence"]["author"].as_str().map(|a| a.trim_start_matches("Copyright ").split(" and the original").next().unwrap_or(a).trim()).filter(|a| !a.is_empty()) {
+        let who = match r["licence"]["author"]
+            .as_str()
+            .map(|a| {
+                a.trim_start_matches("Copyright ")
+                    .split(" and the original")
+                    .next()
+                    .unwrap_or(a)
+                    .trim()
+            })
+            .filter(|a| !a.is_empty())
+        {
             Some(a) => a.to_owned(),
-            None => r["licence"]["source"].as_str().and_then(|u| u.strip_prefix("https://github.com/")).and_then(|u| u.split('/').next()).filter(|o| !o.is_empty()).map_or_else(|| "its author".to_owned(), str::to_owned),
+            None => r["licence"]["source"]
+                .as_str()
+                .and_then(|u| u.strip_prefix("https://github.com/"))
+                .and_then(|u| u.split('/').next())
+                .filter(|o| !o.is_empty())
+                .map_or_else(|| "its author".to_owned(), str::to_owned),
         };
         match by.iter_mut().find(|(t, _)| *t == text) {
             Some((_, v)) => {
@@ -1558,35 +1685,17 @@ pub fn licence_line(printers: &[(String, Option<Value>)]) -> Value {
             None => by.push((text, vec![who])),
         }
     }
-    // Finish-2 F09: the machines of this farm whose CAD ships inside the build need no fetch; they are credited here by name so the line is the whole of it.
-    let carried: Vec<Value> = printers
+    let groups = by
         .iter()
-        .filter(|(id, _)| is_bundled(id))
-        .filter_map(|(id, _)| machine(id))
-        .map(|m| json!({"id":m["id"],"label":m["label"],"licence":m["licence"]["text"],"author":m["licence"]["author"]}))
-        .collect::<Vec<_>>();
-    let mut carried_unique: Vec<Value> = Vec::new();
-    for c in carried {
-        if !carried_unique.contains(&c) {
-            carried_unique.push(c);
-        }
-    }
-    let carried = carried_unique;
-    let groups = by.iter().map(|(t, v)| format!("{t} ({})", v.join(", "))).collect::<Vec<_>>().join(" and ");
+        .map(|(t, v)| format!("{t} ({})", v.join(", ")))
+        .collect::<Vec<_>>()
+        .join(" and ");
     let bytes = w["open_bytes"].as_u64().unwrap_or(0);
     let mut line = format!(
-        "Open licences: {groups}. {} MB downloaded from the authors' own sites, each file checked against the checksum its author published (SHA-256).",
+        "Open licences: {groups}. {} MB, downloaded only when you ask, from the authors' own sites or 3D3D's download server, each file checked against its published checksum (SHA-256).",
         bytes.div_ceil(1_000_000)
     );
-    for n in &carried {
-        let name = n["label"].as_str().unwrap_or("A model").split(" / ").next().unwrap_or("A model").trim_start_matches("Prusa ");
-        let first = |v: &Value, d: &str| v.as_str().and_then(|t| t.split(" (").next()).filter(|t| !t.is_empty()).unwrap_or(d).to_owned();
-        line.push_str(&format!(" The {name} model is inside Stella Scope (from {}, {}): nothing is downloaded for it.", first(&n["author"], "its maker"), first(&n["licence"], "its licence")));
-    }
-    if !carried.is_empty() {
-        line.push_str(" Who made each model and under what terms is under About.");
-    }
-    json!({"line":line,"files":w["open_count"],"bytes":bytes,"licences":by.iter().map(|(t, v)| json!({"licence":t,"by":v})).collect::<Vec<_>>(),"carried":carried})
+    json!({"line":line,"files":w["open_count"],"bytes":bytes,"licences":by.iter().map(|(t, v)| json!({"licence":t,"by":v})).collect::<Vec<_>>(),"carried":[]})
 }
 
 /// The size of a machine's model file as stored, from what the catalogue knows of it.
@@ -1666,20 +1775,37 @@ fn lock_job(j: &Mutex<FetchJob>) -> std::sync::MutexGuard<'_, FetchJob> {
 pub fn failure_words(error: &str) -> (&'static str, String) {
     let e = error.to_ascii_lowercase();
     if e.contains("no connection") {
-        return ("offline", "No connection to the author's site. Check the internet, then try again.".to_owned());
+        return (
+            "offline",
+            "No connection to the author's site. Check the internet, then try again.".to_owned(),
+        );
     }
-    if let Some(code) = e.split("answered ").nth(1).and_then(|r| r.get(..3)).filter(|c| c.bytes().all(|b| b.is_ascii_digit())) {
+    if let Some(code) = e
+        .split("answered ")
+        .nth(1)
+        .and_then(|r| r.get(..3))
+        .filter(|c| c.bytes().all(|b| b.is_ascii_digit()))
+    {
         return if code == "404" {
-            ("gone", "The author's site no longer has this file (it answered 404).".to_owned())
+            (
+                "gone",
+                "The author's site no longer has this file (it answered 404).".to_owned(),
+            )
         } else {
-            ("refused", format!("The author's site answered {code}, not the file. Try again later."))
+            (
+                "refused",
+                format!("The author's site answered {code}, not the file. Try again later."),
+            )
         };
     }
     if e.contains("not the model the author published") {
         return ("changed", "The file from the author's site is not the one expected (its SHA-256 differs), so it was not kept.".to_owned());
     }
     if e.contains("interrupted") {
-        return ("interrupted", "The download was interrupted. Try again.".to_owned());
+        return (
+            "interrupted",
+            "The download was interrupted. Try again.".to_owned(),
+        );
     }
     ("other", error.chars().take(200).collect())
 }
@@ -1728,12 +1854,21 @@ pub fn fetch_status(lib: &Library) -> Value {
 /// the licences (shown first). A fetch already running is not started twice. Returns the status.
 pub fn start_fetch(lib: &Library, ids: &[String], source: Source, accepted: bool) -> Result<Value> {
     // A machine's model or one file of a tool bank (the catalogue's part rows say `"kind":"part"`).
-    let mut rows: Vec<Value> = ids.iter().filter_map(|id| machine(id).or_else(|| part(id))).cloned().collect();
+    let mut rows: Vec<Value> = ids
+        .iter()
+        .filter_map(|id| machine(id).or_else(|| part(id)))
+        .cloned()
+        .collect();
     rows.sort_by_key(|r| model_bytes(r).unwrap_or(0));
     start_fetch_rows(lib, rows, source, accepted)
 }
 
-fn start_fetch_rows(lib: &Library, rows: Vec<Value>, source: Source, accepted: bool) -> Result<Value> {
+fn start_fetch_rows(
+    lib: &Library,
+    rows: Vec<Value>,
+    source: Source,
+    accepted: bool,
+) -> Result<Value> {
     let job = job_for(lib);
     {
         let mut j = lock_job(&job);
@@ -1778,7 +1913,10 @@ fn start_fetch_rows(lib: &Library, rows: Vec<Value>, source: Source, accepted: b
                         (j.items[i].id.clone(), j.items[i].got.clone())
                     };
                     let result = source.open(row).and_then(|r| {
-                        let mut reader = Counting { inner: r, seen: seen.clone() };
+                        let mut reader = Counting {
+                            inner: r,
+                            seen: seen.clone(),
+                        };
                         if row["kind"] == "part" {
                             own.store_into(own.part_dir(&id)?, row, &mut reader, &source.label())
                         } else {
@@ -2377,11 +2515,10 @@ mod extra_tests {
     /// measured calibration puts X0 Y0 at the sheet's front-left. (It was "never shipped (OCL)"; finish-2 F09,
     /// 2026-10-19: Prusa's licence lets the converted CAD be passed on under the same licence, so the build carries it.)
     #[test]
-    #[ignore = "needs the Prusa models, which this public copy does not carry"]
     fn the_core_one_l_is_in_the_catalogue_with_its_own_calibration() {
         let row = machine("prusa_core_one_l").expect("the CORE One L is listed");
         assert_eq!(class_of(row), "ocl");
-        assert!(may_bundle("ocl") && is_bundled("prusa_core_one_l"));
+        assert!(may_bundle("ocl") && is_hosted("prusa_core_one_l"));
         let p = profile("prusa_core_one_l").expect("it has motion");
         let cal = Calibration::starting(p);
         assert_eq!(cal.sign, [1.0, -1.0, 1.0]);
@@ -2994,6 +3131,8 @@ mod option_tests {
         let core = machine("prusa_core_one_l").unwrap();
         let mut page_only = core.clone();
         page_only["location"] = json!({"kind":"maker","upstream":upstream_url(core).unwrap()});
+        // release-2026-11-14: 3D3D hosts the real CORE One L, so the page-only row takes an id 3D3D does not host.
+        page_only["id"] = json!("maker_page_only");
         let e = match Source::Published.open(&page_only) {
             Err(e) => e,
             Ok(_) => panic!("a web page is not a file"),
@@ -3137,24 +3276,42 @@ mod print_frame_tests {
             let row = machine(id).unwrap_or_else(|| panic!("{id} is not in the catalogue"));
             assert_eq!(f["model_sha256"], row["pin"]["model_sha256"], "{id}");
             // The origin is a point, the axes are a signed permutation (three unit vectors, one per direction).
-            vec3(&f["origin_mm"]).iter().for_each(|v| assert!(v.is_finite(), "{id}"));
+            vec3(&f["origin_mm"])
+                .iter()
+                .for_each(|v| assert!(v.is_finite(), "{id}"));
             let mut used = [0.0_f64; 3];
             for i in 0..3 {
                 let a = vec3(&f["axes"][i]);
-                assert!((a.iter().map(|v| v * v).sum::<f64>() - 1.0).abs() < 1e-9, "{id}: axis {i} is a unit vector");
-                assert!(a.iter().all(|v| v.abs() < 1e-9 || (v.abs() - 1.0).abs() < 1e-9), "{id}");
+                assert!(
+                    (a.iter().map(|v| v * v).sum::<f64>() - 1.0).abs() < 1e-9,
+                    "{id}: axis {i} is a unit vector"
+                );
+                assert!(
+                    a.iter()
+                        .all(|v| v.abs() < 1e-9 || (v.abs() - 1.0).abs() < 1e-9),
+                    "{id}"
+                );
                 for c in 0..3 {
                     used[c] += a[c].abs();
                 }
             }
-            assert_eq!(used, [1.0, 1.0, 1.0], "{id}: each frame direction is one printer axis");
-            assert!(f["basis"].as_str().is_some_and(|b| b.len() > 40), "{id}: says how it was found");
+            assert_eq!(
+                used,
+                [1.0, 1.0, 1.0],
+                "{id}: each frame direction is one printer axis"
+            );
+            assert!(
+                f["basis"].as_str().is_some_and(|b| b.len() > 40),
+                "{id}: says how it was found"
+            );
             // The group that carries the plate really holds parts and moves (a bed that drops or slides).
             if let Some(g) = f["group"].as_str() {
-                let p = profile(id).unwrap_or_else(|| panic!("{id}: a carried plate needs registered motion"));
+                let p = profile(id)
+                    .unwrap_or_else(|| panic!("{id}: a carried plate needs registered motion"));
                 assert!(p["motions"].get(g).is_some(), "{id}: {g} has no motion");
                 // The CORE One L's groups, and (F09) those of the other Prusa machines, come from their models' own part records, not a list in the profile.
-                let has_parts = p["groups"][g].as_array().is_some_and(|a| !a.is_empty()) || id.starts_with("prusa_");
+                let has_parts = p["groups"][g].as_array().is_some_and(|a| !a.is_empty())
+                    || id.starts_with("prusa_");
                 assert!(has_parts, "{id}: {g} holds no parts");
             }
         }
@@ -3171,7 +3328,12 @@ mod print_frame_tests {
             };
             let cal = Calibration::starting(p);
             let n0 = vec3(&f["nozzle_mm"]);
-            for pos in [[0.0, 0.0, 0.0], [10.0, 20.0, 5.0], [100.0, 100.0, 40.0], [60.0, 90.0, 0.2]] {
+            for pos in [
+                [0.0, 0.0, 0.0],
+                [10.0, 20.0, 5.0],
+                [100.0, 100.0, 40.0],
+                [60.0, 90.0, 0.2],
+            ] {
                 let pz = pose(p, &cal, pos.map(Some));
                 let group = |name: &str| pz["groups"].get(name).map_or([0.0; 3], vec3);
                 let head = group("head");
@@ -3190,13 +3352,19 @@ mod print_frame_tests {
             }
             checked += 1;
         }
-        assert!(checked >= 7, "the machines with a measured nozzle were all checked: {checked}");
+        assert!(
+            checked >= 7,
+            "the machines with a measured nozzle were all checked: {checked}"
+        );
     }
 
     #[test]
     fn the_sv08_reaches_its_plate_with_a_calibration_measured_from_its_model() {
         let p = profile("sovol_sv08_350").unwrap();
-        assert!(p["calibration_basis"].as_str().unwrap().starts_with("Measured from the model"));
+        assert!(p["calibration_basis"]
+            .as_str()
+            .unwrap()
+            .starts_with("Measured from the model"));
         let cal = Calibration::starting(p);
         // The first layer is not held above the plate and the far corner is inside the travel.
         for pos in [[0.0, 0.0, 0.2], [350.0, 350.0, 0.2], [175.0, 175.0, 300.0]] {
@@ -3205,8 +3373,127 @@ mod print_frame_tests {
         }
         // A machine that already had its own calibration keeps it.
         let v24 = profile("voron_v24_350_printed").unwrap();
-        assert!(!v24["calibration_basis"].as_str().unwrap().starts_with("Measured from the model"));
+        assert!(!v24["calibration_basis"]
+            .as_str()
+            .unwrap()
+            .starts_with("Measured from the model"));
     }
+}
+
+/// fix-0.6.2 WO-08 (2026-10-30, the owner: "a Stealthburner printing with the belt not moved, not with the gantry, just sitting there in the middle of the prints"; every demo machine moves).
+#[cfg(test)]
+mod measured_tests {
+    use super::*;
+
+    /// The machines the film's farm and "Try the demo farm" draw: each has registered motion, so its head moves, and a print frame with a measured nozzle, so the nozzle is on the part
+    /// (the toolchanger's nozzles are its tools': swapping_tests). `the_nozzle_is_on_the_part_wherever_the_head_is` then checks each of them.
+    const DEMO: [&str; 12] = [
+        "voron_v24_350_printed",
+        "voron_v24_300_printed",
+        "voron_trident_300",
+        "voron_v02_120",
+        "micron_plus_r1_180",
+        "siboor_sboom_220",
+        "doomcube2_350_reference",
+        "satsuma180_v10",
+        "sovol_sv08_350",
+        "prusa_core_one_l",
+        "ender3_stock_220",
+        "prusa_mk3s",
+    ];
+
+    #[test]
+    fn every_demo_machine_moves_and_its_nozzle_is_measured() {
+        for id in DEMO {
+            let p = profile(id).unwrap_or_else(|| panic!("{id} has no registered motion"));
+            assert!(p["motions"]["head"].is_array(), "{id}: the head moves");
+            assert!(
+                ["x_beam", "gantry", "beam"]
+                    .iter()
+                    .any(|g| p["motions"][g].is_array()),
+                "{id}: the beam moves"
+            );
+            assert!(p["calibration"].is_object(), "{id}: a measured calibration");
+            let f = print_frame(id).unwrap_or_else(|| panic!("{id} has no print frame"));
+            assert!(f["nozzle_mm"].is_array(), "{id}: its nozzle is measured");
+        }
+        // The two the rig ships static, and what each says it is.
+        assert_eq!(
+            crate::demo::Frame::of_profile(profile("siboor_sboom_220")),
+            crate::demo::Frame::BedY
+        );
+        assert_eq!(
+            crate::demo::Frame::of_profile(profile("doomcube2_350_reference")),
+            crate::demo::Frame::GantryZ
+        );
+        assert_eq!(
+            print_frame("doomcube2_350_reference").unwrap()["model_sha256"],
+            machine("doomcube2_350_reference").unwrap()["pin"]["model_sha256"]
+        );
+        // The measured table adds to the Trident and takes nothing away: its part lists and motions are the rig's.
+        let t = profile("voron_trident_300").unwrap();
+        assert!(
+            t["groups"]["bed"].as_array().is_some_and(|a| !a.is_empty())
+                && t["motions"]["gantry"].is_array()
+        );
+        assert!(
+            t["calibration_basis"]
+                .as_str()
+                .unwrap()
+                .contains("machine profile"),
+            "the maker's calibration stands"
+        );
+        assert!(
+            t["rest_offsets_mm"]["bed"][2].as_f64().unwrap() > 5.0,
+            "the bed starts at the Stealthburner's nozzle"
+        );
+    }
+
+    /// A machine with belts in its model names them: a belt no entry names stands still while the gantry leaves it behind. Nothing here is a stand-in: the DoomCube's and the Prusas' CAD holds no belts.
+    #[test]
+    fn the_machines_with_belts_in_their_models_name_them() {
+        for (id, n) in [
+            ("voron_v24_350_printed", 2),
+            ("voron_v24_300_printed", 2),
+            ("voron_trident_300", 2),
+            ("voron_v02_120", 2),
+            ("micron_plus_r1_180", 2),
+            ("siboor_sboom_220", 3),
+            ("satsuma180_v10", 2),
+            ("sovol_sv08_350", 2),
+            ("ender3_stock_220", 9),
+        ] {
+            let belts = profile(id).unwrap()["flex"]["belts"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{id} names no belts"));
+            assert_eq!(belts.len(), n, "{id}");
+        }
+        // Every tube follows a group that moves.
+        for id in DEMO {
+            let p = profile(id).unwrap();
+            for t in p["flex"]["tubes"].as_array().into_iter().flatten() {
+                let g = t["follows"].as_str().unwrap_or("head");
+                assert!(
+                    p["motions"][g].is_array(),
+                    "{id}: a tube follows {g}, which does not move"
+                );
+            }
+        }
+    }
+
+    fn option_is_chosen_on_the_demo_trident() -> bool {
+        crate::demo::demo_farm().iter().any(|e| {
+            e.cad_model.as_deref() == Some("voron_trident_300")
+                && e.cad_options.as_ref().is_some_and(|o| {
+                    check_selection("voron_trident_300", o).is_ok()
+                        && o.as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|x| x["option"] == "trident_r2_stealthburner")
+                })
+        })
+    }
+
 }
 
 #[cfg(test)]
@@ -3246,13 +3533,26 @@ mod swapping_tests {
             let p = profile(machine).unwrap();
             for t in &tools {
                 for (i, n) in NAMES.iter().enumerate() {
-                    let (lo, hi) = (p["axes"][n][0].as_f64().unwrap(), p["axes"][n][1].as_f64().unwrap());
-                    assert!(t.park[i] >= lo && t.park[i] <= hi, "{machine} {}: park {n} {} is outside {lo}..{hi}", t.group, t.park[i]);
+                    let (lo, hi) = (
+                        p["axes"][n][0].as_f64().unwrap(),
+                        p["axes"][n][1].as_f64().unwrap(),
+                    );
+                    assert!(
+                        t.park[i] >= lo && t.park[i] <= hi,
+                        "{machine} {}: park {n} {} is outside {lo}..{hi}",
+                        t.group,
+                        t.park[i]
+                    );
                 }
             }
             // Two docks of the same tool differ by the pitch along X and in nothing else: the same tool, a different place.
             let (a, b) = (&tools[0], &tools[2]);
-            assert!((a.rest_mm[0] - b.rest_mm[0] - 180.0).abs() < 0.01, "docks 0 and 2 are two pitches apart: {:?} {:?}", a.rest_mm, b.rest_mm);
+            assert!(
+                (a.rest_mm[0] - b.rest_mm[0] - 180.0).abs() < 0.01,
+                "docks 0 and 2 are two pitches apart: {:?} {:?}",
+                a.rest_mm,
+                b.rest_mm
+            );
             assert_eq!((a.rest_mm[1], a.rest_mm[2]), (b.rest_mm[1], b.rest_mm[2]));
             // No bank, no tools; a machine the bank does not fit, none either.
             assert!(bank_tools(machine, &json!([])).is_none());
@@ -3271,16 +3571,27 @@ mod swapping_tests {
         let tools = bank_tools(machine, &sel).unwrap();
         let v = |x: &Value| [0, 1, 2].map(|i| x[i].as_f64().unwrap());
         for active in 0..3 {
-            let pz = pose_for_tool(&spec, &cal, [Some(150.0), Some(150.0), Some(40.0)], Some(active));
+            let pz = pose_for_tool(
+                &spec,
+                &cal,
+                [Some(150.0), Some(150.0), Some(40.0)],
+                Some(active),
+            );
             for t in 0..3 {
                 let g = v(&pz["groups"][format!("tool{t}")]);
                 if t == active {
                     let head = v(&pz["groups"]["head"]);
                     for c in 0..3 {
-                        assert!((g[c] - head[c] - tools[t].rest_mm[c]).abs() < 1e-9, "tool {t} follows the head plus its rest offset");
+                        assert!(
+                            (g[c] - head[c] - tools[t].rest_mm[c]).abs() < 1e-9,
+                            "tool {t} follows the head plus its rest offset"
+                        );
                     }
                 } else {
-                    assert!(g.iter().all(|x| x.abs() < 0.01), "tool {t} is in its dock when tool {active} is active: {g:?}");
+                    assert!(
+                        g.iter().all(|x| x.abs() < 0.01),
+                        "tool {t} is in its dock when tool {active} is active: {g:?}"
+                    );
                 }
             }
         }
@@ -3288,7 +3599,11 @@ mod swapping_tests {
         for (t, tool) in tools.iter().enumerate() {
             let pz = pose_for_tool(&spec, &cal, tool.dock.map(Some), Some(t));
             let g = v(&pz["groups"][format!("tool{t}")]);
-            assert!(g.iter().all(|x| x.abs() < 0.01), "tool {t} at its dock: {g:?} (clamped {})", pz["clamped"]);
+            assert!(
+                g.iter().all(|x| x.abs() < 0.01),
+                "tool {t} at its dock: {g:?} (clamped {})",
+                pz["clamped"]
+            );
             assert_eq!(pz["clamped"], json!([]), "the dock is inside the travel");
         }
         // A machine's own pose spec, with no bank, is its profile's motion.
@@ -3303,7 +3618,9 @@ mod swapping_tests {
     fn the_active_tools_nozzle_is_on_the_part_whichever_tool_it_is() {
         let machine = "voron_v24_300_printed";
         let sel = bank(machine, &[XOL, JAB, XOL]);
-        let empty = Library::new(std::env::temp_dir().join(format!("stella-swap-nozzle-{}", std::process::id())));
+        let empty = Library::new(
+            std::env::temp_dir().join(format!("stella-swap-nozzle-{}", std::process::id())),
+        );
         let sc = scene_swapping(machine, &sel, &empty);
         let spec = pose_spec(machine, Some(&sel)).unwrap();
         let cal = Calibration::starting(profile(machine).unwrap());
@@ -3313,16 +3630,44 @@ mod swapping_tests {
         let b = basis(machine);
         let tools = bank_tools(machine, &sel).unwrap();
         // The measured nozzles differ from the machine's by millimetres, and by tool.
-        assert!((tools[1].offset_mm[2] - 9.75).abs() < 0.2 && (tools[0].offset_mm[2] - 3.47).abs() < 0.2, "{:?} {:?}", tools[0].offset_mm, tools[1].offset_mm);
+        assert!(
+            (tools[1].offset_mm[2] - 9.75).abs() < 0.2
+                && (tools[0].offset_mm[2] - 3.47).abs() < 0.2,
+            "{:?} {:?}",
+            tools[0].offset_mm,
+            tools[1].offset_mm
+        );
         let o = option("stealthchanger_bank").unwrap();
         for active in 0..3 {
             let tid = [XOL, JAB, XOL][active];
-            let head_part = o["attach"]["tools"][tid]["active"].as_array().unwrap().iter().find(|x| x["role"] == "head").unwrap()["part"].as_str().unwrap();
-            let pl = sc["placements"].as_array().unwrap().iter().find(|p| p["slot"] == active as i64 && p["part"] == head_part && p["role"] == "tool").unwrap();
+            let head_part = o["attach"]["tools"][tid]["active"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|x| x["role"] == "head")
+                .unwrap()["part"]
+                .as_str()
+                .unwrap();
+            let pl = sc["placements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| {
+                    p["slot"] == active as i64 && p["part"] == head_part && p["role"] == "tool"
+                })
+                .unwrap();
             let t = n3v(&pl["translation_mm"]);
             let tip_file = n3v(&print_frames()["tools"][tid]["tip_file_mm"]);
-            let tip: [f64; 3] = [0, 1, 2].map(|c| (0..3).map(|r| b[r][c].as_f64().unwrap() * tip_file[r]).sum::<f64>());
-            for pos in [[150.0, 150.0, 0.2], [60.0, 90.0, 20.0], [240.0, 200.0, 55.0]] {
+            let tip: [f64; 3] = [0, 1, 2].map(|c| {
+                (0..3)
+                    .map(|r| b[r][c].as_f64().unwrap() * tip_file[r])
+                    .sum::<f64>()
+            });
+            for pos in [
+                [150.0, 150.0, 0.2],
+                [60.0, 90.0, 20.0],
+                [240.0, 200.0, 55.0],
+            ] {
                 let pz = pose_for_tool(&spec, &cal, pos.map(Some), Some(active));
                 let g = n3v(&pz["groups"][format!("tool{active}")]);
                 for c in 0..3 {
@@ -3332,36 +3677,83 @@ mod swapping_tests {
                 }
             }
         }
-        assert!(tools.iter().all(|t| t.dock[2] < 280.0 && t.dock[2] > 100.0), "the docks stay inside the machine: {:?}", tools.iter().map(|t| t.dock).collect::<Vec<_>>());
+        assert!(
+            tools.iter().all(|t| t.dock[2] < 280.0 && t.dock[2] > 100.0),
+            "the docks stay inside the machine: {:?}",
+            tools.iter().map(|t| t.dock).collect::<Vec<_>>()
+        );
     }
 
     /// The swapping scene: every tool at its dock in a group of its own, the shuttle with the head, the machine's own head
     /// hidden once the bank's files are all here, and shown while they are not (the demo plays with the machine alone).
     #[test]
-    fn the_swapping_scene_has_every_tool_at_its_dock_and_keeps_the_stock_head_until_the_bank_is_here() {
+    fn the_swapping_scene_has_every_tool_at_its_dock_and_keeps_the_stock_head_until_the_bank_is_here(
+    ) {
         let machine = "voron_v24_300_printed";
         let sel = bank(machine, &[XOL, JAB, XOL]);
-        let empty = Library::new(std::env::temp_dir().join(format!("stella-swap-none-{}", std::process::id())));
+        let empty = Library::new(
+            std::env::temp_dir().join(format!("stella-swap-none-{}", std::process::id())),
+        );
         let none = scene_swapping(machine, &sel, &empty);
-        assert!(!none["missing"].as_array().unwrap().is_empty(), "nothing is installed");
-        assert_eq!(none["hide_machine_keys"], json!([]), "the stock head stays while the bank is not here");
+        assert!(
+            !none["missing"].as_array().unwrap().is_empty(),
+            "nothing is installed"
+        );
+        assert_eq!(
+            none["hide_machine_keys"],
+            json!([]),
+            "the stock head stays while the bank is not here"
+        );
         assert_eq!(none["swapping"], json!(true));
         let (lib, root) = full_library("swap", &none);
         let here = scene_swapping(machine, &sel, &lib);
         assert_eq!(here["missing"], json!([]));
-        assert!(!here["hide_machine_keys"].as_array().unwrap().is_empty(), "the stock head is replaced once the bank is here");
+        assert!(
+            !here["hide_machine_keys"].as_array().unwrap().is_empty(),
+            "the stock head is replaced once the bank is here"
+        );
         let follows = |p: &Value| p["follows"].as_str().unwrap_or("").to_owned();
-        let tool_groups: std::collections::BTreeSet<String> = here["placements"].as_array().unwrap().iter()
-            .filter(|p| p["role"] == "tool").map(follows).collect();
-        assert_eq!(tool_groups, ["tool0", "tool1", "tool2"].map(String::from).into_iter().collect());
-        let shuttles: Vec<&Value> = here["placements"].as_array().unwrap().iter().filter(|p| p["role"] == "shuttle").collect();
+        let tool_groups: std::collections::BTreeSet<String> = here["placements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["role"] == "tool")
+            .map(follows)
+            .collect();
+        assert_eq!(
+            tool_groups,
+            ["tool0", "tool1", "tool2"]
+                .map(String::from)
+                .into_iter()
+                .collect()
+        );
+        let shuttles: Vec<&Value> = here["placements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["role"] == "shuttle")
+            .collect();
         assert_eq!(shuttles.len(), 1, "one carriage half");
         assert_eq!(shuttles[0]["follows"], "head");
         // The docks and fasteners stand still.
-        assert!(here["placements"].as_array().unwrap().iter().filter(|p| p["role"] == "dock").all(|p| p["follows"].is_null()));
+        assert!(here["placements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p["role"] == "dock")
+            .all(|p| p["follows"].is_null()));
         // The static scene (a printer that reports no toolchanger) is what it was.
         let still = scene(machine, &sel, &lib);
-        assert!(still["swapping"] == false && still["placements"].as_array().unwrap().iter().filter(|p| p["follows"] == "head").count() > 1);
+        assert!(
+            still["swapping"] == false
+                && still["placements"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|p| p["follows"] == "head")
+                    .count()
+                    > 1
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -3372,14 +3764,25 @@ mod swapping_tests {
     fn a_bank_the_demo_draws_has_every_placement_here_while_the_options_own_flag_is_false() {
         let machine = "voron_v24_300_printed";
         let sel = bank(machine, &[JAB, JAB, JAB]);
-        let empty = Library::new(std::env::temp_dir().join(format!("stella-swap-flag0-{}", std::process::id())));
+        let empty = Library::new(
+            std::env::temp_dir().join(format!("stella-swap-flag0-{}", std::process::id())),
+        );
         let (lib, root) = full_library("flag", &scene_swapping(machine, &sel, &empty));
         let here = scene_swapping(machine, &sel, &lib);
         assert_eq!(here["missing"], json!([]));
         assert_eq!(here["options"][0]["option"], "stealthchanger_bank");
-        assert_eq!(here["options"][0]["installed"], json!(false), "the option lists files the demo does not use");
+        assert_eq!(
+            here["options"][0]["installed"],
+            json!(false),
+            "the option lists files the demo does not use"
+        );
         let ps = here["placements"].as_array().unwrap();
-        assert!(!ps.is_empty() && ps.iter().all(|p| p["option"] == "stealthchanger_bank" && p["installed"] == json!(true)));
+        assert!(
+            !ps.is_empty()
+                && ps
+                    .iter()
+                    .all(|p| p["option"] == "stealthchanger_bank" && p["installed"] == json!(true))
+        );
         let _ = fs::remove_dir_all(root);
     }
 }
@@ -3398,7 +3801,11 @@ mod fetch_tests {
         for &b in body {
             crc ^= u32::from(b);
             for _ in 0..8 {
-                crc = if crc & 1 == 1 { 0xedb8_8320 ^ (crc >> 1) } else { crc >> 1 };
+                crc = if crc & 1 == 1 {
+                    0xedb8_8320 ^ (crc >> 1)
+                } else {
+                    crc >> 1
+                };
             }
         }
         out.extend_from_slice(&(!crc).to_le_bytes());
@@ -3428,10 +3835,16 @@ mod fetch_tests {
     fn a_models_published_address_is_the_pages_of_the_repository_that_holds_it() {
         let mut checked = 0;
         for m in catalogue()["machines"].as_array().unwrap() {
-            let (Some(git), Some(up)) = (m["location"]["mirror"]["git"].as_str(), m["location"]["upstream"].as_str()) else {
+            let (Some(git), Some(up)) = (
+                m["location"]["mirror"]["git"].as_str(),
+                m["location"]["upstream"].as_str(),
+            ) else {
                 continue;
             };
-            let repo = git.strip_prefix("git/").and_then(|g| g.strip_suffix(".git")).unwrap();
+            let repo = git
+                .strip_prefix("git/")
+                .and_then(|g| g.strip_suffix(".git"))
+                .unwrap();
             assert!(
                 up.starts_with(&format!("https://psych0h3ad.github.io/{repo}/")),
                 "{}: held by {repo} but published at {up}",
@@ -3439,105 +3852,16 @@ mod fetch_tests {
             );
             checked += 1;
         }
-        assert!(checked > 25, "the registry machines were all checked: {checked}");
-        assert!(machine("doomcube2_350_reference").unwrap()["location"]["upstream"].as_str().unwrap().contains("-large-voron-models/doomcube-v103/"));
-    }
-
-    /// What a fresh install is missing after "Try the demo farm" (finish-2 F09, 2026-10-19): the build carries four models (the CORE One L, the CORE One, the
-    /// MK3S+ and the MINI) and puts them in the library when the service starts, so they are not asked for; what is left is the seven open models and the seven
-    /// open files of the toolchanger's tools and the Trident's gantry, fetched on one press. Nothing it asks for is non-commercial. Before the service has put the
-    /// carried models in, a machine of the build is said to be on its way, never fetched from a page that may not exist.
-    /// rc9 WO-02: the installer's open-licence models are read in place, never copied, and a non-commercial file in that
-    /// folder is ignored (the folder is the package's, but a build may never carry one).
-    #[test]
-    fn carried_models_are_read_in_place_and_only_open_ones_count() {
-        let root = scratch("carried-in-place").join("printer-models");
-        let carried = scratch("carried-folder");
-        fs::write(carried.join("voron_v24_350_printed.glb.gz"), b"gz").unwrap();
-        fs::write(carried.join("tictac_21_120.glb.gz"), b"gz").unwrap();
-        let lib = Library::with_carried(root.clone(), Some(carried.clone()));
-        let (p, gz) = lib.model_file("voron_v24_350_printed").expect("carried model");
-        assert!(gz && p.starts_with(&carried));
-        assert_eq!(lib.record("voron_v24_350_printed").unwrap()["origin"], "carried with Stella Scope");
-        assert!(lib.model_file("tictac_21_120").is_none(), "non-commercial is never carried");
-        assert!(!root.join("voron_v24_350_printed").exists(), "nothing copied");
-        assert!(lib.installed_ids().contains(&"voron_v24_350_printed".to_string()));
-        let n = notice_text(machine("voron_v24_350_printed").unwrap()).unwrap();
-        assert!(n.contains("VoronDesign") && n.contains("GNU GENERAL PUBLIC LICENSE"));
-        fs::create_dir_all(carried.join("parts")).unwrap();
-        fs::write(carried.join("parts").join("additional_doublet_v24.glb.gz"), b"gz").unwrap();
-        assert!(lib.part_file("additional_doublet_v24").is_some_and(|(p, _)| p.starts_with(&carried)), "a carried tool file");
-        assert!(Library::new(root).model_file("voron_v24_350_printed").is_none(), "new() carries nothing");
-    }
-    #[test]
-    #[ignore = "needs the Prusa models, which this public copy does not carry"]
-    fn a_fresh_install_has_the_models_the_build_carries_and_wants_the_open_ones_and_tool_files() {
-        let lib = Library::new(scratch("wanted").join("printer-models"));
-        let want: Vec<(String, Option<Value>)> = crate::demo::demo_farm().into_iter().filter_map(|e| e.cad_model.clone().map(|m| (m, e.cad_options.clone()))).collect();
-        assert_eq!(want.len(), 9, "eight machines and the Prusa MK3S+");
-        // Before the service starts: the build's own models are not fetchable and say so.
-        let before = wanted(&want, &lib);
-        let core = before["models"].as_array().unwrap().iter().find(|m| m["id"] == "prusa_core_one_l").unwrap();
-        assert!(core["open"] == false && core["why"].as_str().unwrap().contains("ships inside Stella Scope"), "{core}");
-        // The service starts: the four are in the library, checked against their pins, and a second start writes nothing.
-        let wrote = lib.seed_bundled();
-        assert_eq!(wrote, ["prusa_core_one_l", "prusa_core_one", "prusa_mk3s", "prusa_mini"]);
-        assert!(lib.seed_bundled().is_empty());
-        let w = wanted(&want, &lib);
-        let rows = w["models"].as_array().unwrap();
-        let models: Vec<&Value> = rows.iter().filter(|m| m["kind"] == "model").collect();
-        let parts: Vec<&Value> = rows.iter().filter(|m| m["kind"] == "part").collect();
-        // F03 (2026-10-19): the Trident carries its R2 gantry and X carriage (two more open files). F09: the CORE One L and the MK3S+ are not asked for (it was 8 models, 7 files and 14 in all).
-        assert_eq!((models.len(), parts.len(), w["open_count"].clone()), (7, 7, json!(14)), "{w}");
-        assert!(models.iter().all(|m| m["id"] != "prusa_core_one_l" && m["id"] != "prusa_mk3s"));
-        let open: Vec<&Value> = rows.iter().filter(|m| m["open"] == true).collect();
-        assert!(open.iter().all(|m| ["gpl", "cc-by-sa"].contains(&m["licence"]["class"].as_str().unwrap()) && m["bytes"].as_u64().unwrap() > 1_000 && m["why"].is_null()), "no open row is under a non-commercial licence");
-        let bytes: u64 = open.iter().map(|m| m["bytes"].as_u64().unwrap()).sum();
-        assert_eq!(w["open_bytes"], json!(bytes));
-        assert!(bytes > 140_000_000 && bytes < 190_000_000, "about 160 MB: {bytes}");
-        let ids: Vec<&str> = parts.iter().map(|p| p["id"].as_str().unwrap()).collect();
-        assert!(ids.contains(&"head_jabberwocky") && ids.contains(&"changer_sc_dock_jabberwocky") && !ids.contains(&"xol"), "{ids:?}");
-        assert!(ids.contains(&"trident_r2_gantry_300") && ids.contains(&"trident_r2_sb_carriage"), "the Trident's gantry and carriage are asked for: {ids:?}");
-        // A model that is already here is not asked for again, and neither is one named twice.
-        let mut twice = want.clone();
-        twice.extend(want.clone());
-        assert_eq!(wanted(&twice, &lib)["models"].as_array().unwrap().len(), 14);
-        let _ = fs::remove_dir_all(lib.root.parent().unwrap());
-    }
-
-
-    /// Finish-2 F09 (2026-10-19): a model the build carries is a model whose parts are already given to the motion groups (the groups a profile moves are read from
-    /// each part's own record in the file), with as many parts as the catalogue says, and a registered motion that moves each group the model holds: a model that
-    /// is one lump, or whose bed holds nothing, would draw a printer that does not follow the real one.
-    #[test]
-    fn every_model_the_build_carries_has_its_parts_in_the_groups_its_motion_moves() {
-        for (id, bytes) in BUNDLED {
-            let mut glb = Vec::new();
-            gzip::gunzip(std::io::Cursor::new(bytes), |c| { glb.extend_from_slice(c); Ok(()) }).unwrap();
-            assert_eq!(&glb[..4], b"glTF", "{id}");
-            let len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
-            let json: Value = serde_json::from_slice(&glb[20..20 + len]).unwrap();
-            let mut groups: std::collections::BTreeMap<String, usize> = Default::default();
-            let nodes = json["nodes"].as_array().unwrap();
-            for n in nodes {
-                let g = json["meshes"][n["mesh"].as_u64().unwrap() as usize]["extras"]["group"].as_str().unwrap_or("").to_owned();
-                *groups.entry(g).or_default() += 1;
-            }
-            let row = machine(id).unwrap();
-            assert_eq!(nodes.len() as u64, row["parts"].as_u64().unwrap(), "{id}: the catalogue's part count is the file's");
-            let p = profile(id).unwrap();
-            for g in ["bed", "head", "gantry"] {
-                assert!(groups.get(g).copied().unwrap_or(0) >= 5, "{id}: group {g} holds parts: {groups:?}");
-                assert!(p["motions"].get(g).is_some(), "{id}: the profile moves {g}");
-            }
-            assert!(groups.get("fixed").copied().unwrap_or(0) > 20, "{id}: most of a machine stands still: {groups:?}");
-            // every registered motion group is one the file has, and the file has no group the motion does not know
-            for g in groups.keys() {
-                assert!(p["motions"].get(g).is_some(), "{id}: the file has a group {g} the profile does not move");
-            }
-            // the plate is carried by the bed, and the print frame says so
-            assert_eq!(print_frame(id).unwrap()["group"], "bed", "{id}");
-        }
+        assert!(
+            checked > 25,
+            "the registry machines were all checked: {checked}"
+        );
+        assert!(
+            machine("doomcube2_350_reference").unwrap()["location"]["upstream"]
+                .as_str()
+                .unwrap()
+                .contains("-large-voron-models/doomcube-v103/")
+        );
     }
 
     /// The fetch runs in the background: a good file lands and is checked, a wrong one is refused and not kept and the others
@@ -3562,21 +3886,42 @@ mod fetch_tests {
         // fx_c is pinned to an unpacked hash its file does not have.
         let mut part = row("changer_sc_bank_fasteners", &sp, &dp, pf.len());
         part["kind"] = json!("part");
-        part["location"]["upstream"] = json!("https://psych0h3ad.github.io/3d-print-rig/modules/changer_sc_bank_fasteners.glb.gz");
-        let rows = vec![row("fx_a", &sa, &da, a.len()), row("fx_c", &sc, &"0".repeat(64), c.len()), part, row("fx_b", &sb, &db, b.len())];
+        part["location"]["upstream"] = json!(
+            "https://psych0h3ad.github.io/3d-print-rig/modules/changer_sc_bank_fasteners.glb.gz"
+        );
+        let rows = vec![
+            row("fx_a", &sa, &da, a.len()),
+            row("fx_c", &sc, &"0".repeat(64), c.len()),
+            part,
+            row("fx_b", &sb, &db, b.len()),
+        ];
         // A model that needs a licence read first is not fetched without it.
         let mut nc = rows[0].clone();
         nc["licence"]["class"] = json!("nc");
-        assert!(start_fetch_rows(&lib, vec![nc], Source::Dir(src.clone()), false).unwrap_err().contains("Read the licence"));
-        assert_eq!(fetch_status(&lib)["state"], "idle", "a refused start leaves no job behind");
+        assert!(
+            start_fetch_rows(&lib, vec![nc], Source::Dir(src.clone()), false)
+                .unwrap_err()
+                .contains("Read the licence")
+        );
+        assert_eq!(
+            fetch_status(&lib)["state"],
+            "idle",
+            "a refused start leaves no job behind"
+        );
         // Pressing while one is running changes nothing: it says where that one stands (the state is set by hand, so the
         // test does not race the thread).
         lock_job(&job_for(&lib)).state = "running";
         let busy = start_fetch_rows(&lib, rows.clone(), Source::Dir(src.clone()), true).unwrap();
-        assert_eq!((busy["state"].clone(), busy["count"].clone()), (json!("running"), json!(0)));
+        assert_eq!(
+            (busy["state"].clone(), busy["count"].clone()),
+            (json!("running"), json!(0))
+        );
         lock_job(&job_for(&lib)).state = "";
         let first = start_fetch_rows(&lib, rows, Source::Dir(src), true).unwrap();
-        assert_eq!((first["state"].clone(), first["count"].clone()), (json!("running"), json!(4)));
+        assert_eq!(
+            (first["state"].clone(), first["count"].clone()),
+            (json!("running"), json!(4))
+        );
         let mut best = 0;
         let end = loop {
             let st = fetch_status(&lib);
@@ -3586,18 +3931,37 @@ mod fetch_tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
         };
-        assert_eq!(end["finished"], json!(["fx_a", "changer_sc_bank_fasteners", "fx_b"]), "{end}");
+        assert_eq!(
+            end["finished"],
+            json!(["fx_a", "changer_sc_bank_fasteners", "fx_b"]),
+            "{end}"
+        );
         assert_eq!(end["failed"].as_array().unwrap().len(), 1);
         assert_eq!(end["failed"][0]["id"], "fx_c");
-        assert!(end["failed"][0]["error"].as_str().unwrap().contains("not the model the author published"), "{end}");
-        assert_eq!(end["total_bytes"], json!(a.len() + b.len() + c.len() + pf.len()));
-        assert_eq!(end["done_bytes"], end["total_bytes"], "all three were read, the refused one too");
+        assert!(
+            end["failed"][0]["error"]
+                .as_str()
+                .unwrap()
+                .contains("not the model the author published"),
+            "{end}"
+        );
+        assert_eq!(
+            end["total_bytes"],
+            json!(a.len() + b.len() + c.len() + pf.len())
+        );
+        assert_eq!(
+            end["done_bytes"], end["total_bytes"],
+            "all three were read, the refused one too"
+        );
         assert!(best <= end["total_bytes"].as_u64().unwrap());
         for (id, ok) in [("fx_a", true), ("fx_b", true), ("fx_c", false)] {
             assert_eq!(lib.root.join(id).join("model.glb.gz").is_file(), ok, "{id}");
             assert_eq!(lib.root.join(id).join("install.json").is_file(), ok, "{id}");
         }
-        assert!(lib.part_file("changer_sc_bank_fasteners").is_some(), "the tool file is in the library as a part");
+        assert!(
+            lib.part_file("changer_sc_bank_fasteners").is_some(),
+            "the tool file is in the library as a part"
+        );
         assert!(end["current"].is_null());
         let _ = fs::remove_dir_all(root);
     }
@@ -3607,19 +3971,43 @@ mod fetch_tests {
     /// SHA-256 is not the pinned one is "changed" and is not kept. (Finish-2 F09 removed the kind "unpublished": no model is fetched from Stella Scope's own releases now.)
     #[test]
     fn a_failed_fetch_says_what_happened_in_plain_words() {
-        let offline = http_get("http://127.0.0.1:1/model.glb.gz").err().expect("nothing listens on port 1");
+        let offline = http_get("http://127.0.0.1:1/model.glb.gz")
+            .err()
+            .expect("nothing listens on port 1");
         assert!(offline.contains("no connection"), "{offline}");
         assert_eq!(failure_words(&offline).0, "offline");
-        assert!(failure_words(&offline).1.contains("No connection") && failure_words(&offline).1.contains("try again"));
+        assert!(
+            failure_words(&offline).1.contains("No connection")
+                && failure_words(&offline).1.contains("try again")
+        );
         assert_eq!(failure_words("https://x/y.glb.gz answered 404").0, "gone");
-        assert_eq!(failure_words("https://x/y.glb.gz answered 503").0, "refused");
-        assert!(failure_words("https://x/y.glb.gz answered 503").1.contains("503"));
-        assert_eq!(failure_words(&refusal("Fixture", &"a".repeat(64), &"b".repeat(64))).0, "changed");
-        assert_eq!(failure_words("the download was interrupted: connection reset").0, "interrupted");
+        assert_eq!(
+            failure_words("https://x/y.glb.gz answered 503").0,
+            "refused"
+        );
+        assert!(failure_words("https://x/y.glb.gz answered 503")
+            .1
+            .contains("503"));
+        assert_eq!(
+            failure_words(&refusal("Fixture", &"a".repeat(64), &"b".repeat(64))).0,
+            "changed"
+        );
+        assert_eq!(
+            failure_words("the download was interrupted: connection reset").0,
+            "interrupted"
+        );
         assert_eq!(failure_words("something else entirely").0, "other");
         // No word a farm owner would not use: no URL, no "ureq", no raw error in the plain sentence of an offline file.
-        for (_, plain) in [failure_words(&offline), failure_words("https://x/y answered 404")] {
-            assert!(!plain.contains("http") && !plain.to_ascii_lowercase().contains("ureq") && !plain.contains("os error"), "{plain}");
+        for (_, plain) in [
+            failure_words(&offline),
+            failure_words("https://x/y answered 404"),
+        ] {
+            assert!(
+                !plain.contains("http")
+                    && !plain.to_ascii_lowercase().contains("ureq")
+                    && !plain.contains("os error"),
+                "{plain}"
+            );
         }
     }
 
@@ -3630,7 +4018,7 @@ mod fetch_tests {
     fn each_file_of_a_fetch_reports_on_its_own_and_offline_is_said_per_file() {
         let root = scratch("items");
         let (a, sa, da) = gz(&vec![b'a'; 50_000]);
-        let (b, sb, db) = gz(&vec![b'b'; 40_000]);   // (the test helper makes one stored block: 65,535 bytes at most)
+        let (b, sb, db) = gz(&vec![b'b'; 40_000]); // (the test helper makes one stored block: 65,535 bytes at most)
         let src = root.join("src");
         for (id, body) in [("fx_a", &a), ("fx_b", &b)] {
             let d = src.join(format!("machines/{id}"));
@@ -3638,32 +4026,69 @@ mod fetch_tests {
             fs::write(d.join("model.glb.gz"), body).unwrap();
         }
         let lib = Library::new(root.join("printer-models"));
-        let rows = vec![row("fx_a", &sa, &da, a.len()), row("fx_missing", &sa, &da, 1_000), row("fx_b", &sb, &db, b.len())];
+        let rows = vec![
+            row("fx_a", &sa, &da, a.len()),
+            row("fx_missing", &sa, &da, 1_000),
+            row("fx_b", &sb, &db, b.len()),
+        ];
         start_fetch_rows(&lib, rows, Source::Dir(src), true).unwrap();
         let first = fetch_status(&lib);
         assert_eq!(first["count"], json!(3));
-        assert_eq!(first["items"].as_array().unwrap().iter().map(|i| i["id"].as_str().unwrap()).collect::<Vec<_>>(), ["fx_a", "fx_missing", "fx_b"], "in the order asked");
+        assert_eq!(
+            first["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["fx_a", "fx_missing", "fx_b"],
+            "in the order asked"
+        );
         let mut seen_states = std::collections::BTreeSet::new();
         let end = loop {
             let st = fetch_status(&lib);
             for i in st["items"].as_array().unwrap() {
                 seen_states.insert(i["state"].as_str().unwrap().to_owned());
-                assert!(i["got"].as_u64().unwrap() <= i["bytes"].as_u64().unwrap().max(1), "a file's own progress never passes its size: {i}");
+                assert!(
+                    i["got"].as_u64().unwrap() <= i["bytes"].as_u64().unwrap().max(1),
+                    "a file's own progress never passes its size: {i}"
+                );
             }
             if st["state"] == "done" {
                 break st;
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         };
-        let states: Vec<&str> = end["items"].as_array().unwrap().iter().map(|i| i["state"].as_str().unwrap()).collect();
+        let states: Vec<&str> = end["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["state"].as_str().unwrap())
+            .collect();
         assert_eq!(states, ["done", "failed", "done"], "{end}");
         assert_eq!(end["finished"], json!(["fx_a", "fx_b"]));
-        assert_eq!(end["items"][1]["got"], end["items"][1]["bytes"], "a file that was tried counts as read");
-        assert!(end["items"][1]["failure"]["plain"].as_str().unwrap().len() > 20 && end["items"][1]["failure"]["kind"].is_string(), "{end}");
+        assert_eq!(
+            end["items"][1]["got"], end["items"][1]["bytes"],
+            "a file that was tried counts as read"
+        );
+        assert!(
+            end["items"][1]["failure"]["plain"].as_str().unwrap().len() > 20
+                && end["items"][1]["failure"]["kind"].is_string(),
+            "{end}"
+        );
         assert!(end["elapsed_s"].as_f64().unwrap() >= 0.0 && end["current"].is_null());
         // Offline: the source answers nothing at all.
         let lib2 = Library::new(root.join("printer-models-offline"));
-        start_fetch_rows(&lib2, vec![row("fx_a", &sa, &da, a.len()), row("fx_b", &sb, &db, b.len())], Source::Http("http://127.0.0.1:1".into()), true).unwrap();
+        start_fetch_rows(
+            &lib2,
+            vec![
+                row("fx_a", &sa, &da, a.len()),
+                row("fx_b", &sb, &db, b.len()),
+            ],
+            Source::Http("http://127.0.0.1:1".into()),
+            true,
+        )
+        .unwrap();
         let off = loop {
             let st = fetch_status(&lib2);
             if st["state"] == "done" {
@@ -3672,9 +4097,16 @@ mod fetch_tests {
             std::thread::sleep(std::time::Duration::from_millis(2));
         };
         for i in off["items"].as_array().unwrap() {
-            assert_eq!((i["state"].clone(), i["failure"]["kind"].clone()), (json!("failed"), json!("offline")), "{off}");
+            assert_eq!(
+                (i["state"].clone(), i["failure"]["kind"].clone()),
+                (json!("failed"), json!("offline")),
+                "{off}"
+            );
         }
-        assert!(lib2.model_file("fx_a").is_none() && lib2.model_file("fx_b").is_none(), "nothing was kept");
+        assert!(
+            lib2.model_file("fx_a").is_none() && lib2.model_file("fx_b").is_none(),
+            "nothing was kept"
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -3684,19 +4116,47 @@ mod fetch_tests {
     fn each_demo_printer_knows_what_its_picture_waits_for() {
         let root = scratch("needs");
         let lib = Library::new(root.join("printer-models"));
-        let farm: Vec<(String, String, Option<Value>)> = crate::demo::demo_farm().into_iter().filter_map(|e| e.cad_model.clone().map(|m| (e.id.clone(), m, e.cad_options.clone()))).collect();
+        let farm: Vec<(String, String, Option<Value>)> = crate::demo::demo_farm()
+            .into_iter()
+            .filter_map(|e| {
+                e.cad_model
+                    .clone()
+                    .map(|m| (e.id.clone(), m, e.cad_options.clone()))
+            })
+            .collect();
         let n = needs(&farm, &lib);
-        assert_eq!(n.as_object().unwrap().len(), 9, "eight machines and the Prusa MK3S+ (finish-2 F09): {n}");
-        let of = |id: &str| -> Vec<String> { n[id].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect() };
+        assert_eq!(
+            n.as_object().unwrap().len(),
+            9,
+            "eight machines and the Prusa MK3S+ (finish-2 F09): {n}"
+        );
+        let of = |id: &str| -> Vec<String> {
+            n[id]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_owned())
+                .collect()
+        };
         assert_eq!(of("demo-voron-24"), ["voron_v24_350_printed"]);
         assert_eq!(of("demo-core-one-l"), ["prusa_core_one_l"]);
         assert_eq!(of("demo-mk3s"), ["prusa_mk3s"]);
         let trident = of("demo-trident");
         assert_eq!(trident[0], "voron_trident_300");
-        assert!(trident.contains(&"trident_r2_gantry_300".to_owned()) && trident.contains(&"trident_r2_sb_carriage".to_owned()) && trident.len() == 3, "{trident:?}");
+        assert!(
+            trident.contains(&"trident_r2_gantry_300".to_owned())
+                && trident.contains(&"trident_r2_sb_carriage".to_owned())
+                && trident.contains(&"trident_r2_stealthburner".to_owned())
+                && trident.len() == 4,
+            "{trident:?}"
+        );
         let changer = of("demo-toolchanger");
         assert_eq!(changer[0], "voron_v24_300_printed");
-        assert_eq!(changer.len(), 6, "its model and five tool files: {changer:?}");
+        assert_eq!(
+            changer.len(),
+            6,
+            "its model and five tool files: {changer:?}"
+        );
         // A model that is here is no longer waited for.
         let dir = root.join("printer-models/voron_v24_350_printed");
         fs::create_dir_all(&dir).unwrap();
@@ -3709,24 +4169,48 @@ mod fetch_tests {
     /// The open licences of the demo farm in one line (the owner: one press shows them in one line, then fetches): built from the catalogue, so it names the real
     /// licences and authors, the real size, and the CORE One L's notice; nothing in it is typed.
     #[test]
-    #[ignore = "needs the Prusa models, which this public copy does not carry"]
     fn the_demo_farms_open_licences_are_one_line_built_from_the_catalogue() {
-        let farm: Vec<(String, Option<Value>)> = crate::demo::demo_farm().into_iter().filter_map(|e| e.cad_model.clone().map(|m| (m, e.cad_options.clone()))).collect();
+        let farm: Vec<(String, Option<Value>)> = crate::demo::demo_farm()
+            .into_iter()
+            .filter_map(|e| e.cad_model.clone().map(|m| (m, e.cad_options.clone())))
+            .collect();
         let v = licence_line(&farm);
         let line = v["line"].as_str().unwrap();
-        assert!(!line.contains('\n') && line.len() > 120 && line.len() < 600, "one line of plain words: {line}");
+        assert!(
+            !line.contains('\n') && line.len() > 120 && line.len() < 600,
+            "one line of plain words: {line}"
+        );
         assert!(line.starts_with("Open licences: "), "{line}");
-        for must in ["GPL-3.0", "CC-BY-SA-4.0", "VoronDesign", "PrintersForAnts", "SOVOL", "Creality3DPrinting", "SHA-256", "kinematicdigit", "Open Community License", "Prusa", "model is inside Stella Scope", "under About"] {
+        for must in [
+            "GPL-3.0",
+            "CC-BY-SA-4.0",
+            "VoronDesign",
+            "PrintersForAnts",
+            "SOVOL",
+            "Creality3DPrinting",
+            "SHA-256",
+            "kinematicdigit",
+            "Open Community License",
+            "Prusa",
+            "only when you ask",
+            "3D3D's download server",
+        ] {
             assert!(line.contains(must), "the line says {must}: {line}");
         }
-        assert!(!line.contains("Copyright") && !line.contains("non-commercial"), "only open files are on it: {line}");
+        assert!(
+            !line.contains("Copyright") && !line.contains("non-commercial"),
+            "only open files are on it: {line}"
+        );
         let bytes = v["bytes"].as_u64().unwrap();
-        assert!(line.contains(&format!("{} MB", bytes.div_ceil(1_000_000))) && bytes > 150_000_000 && bytes < 190_000_000, "{bytes}");
-        assert_eq!(v["files"], json!(14));
-        // Finish-2 F09: the CORE One L and the MK3S+ are inside the build, credited by name on the line instead of fetched after a notice.
-        assert_eq!(v["carried"].as_array().unwrap().len(), 2);
-        assert_eq!(v["carried"][0]["id"], "prusa_core_one_l");
-        assert!(line.contains("MK3S+ model is inside Stella Scope"), "{line}");
+        assert!(
+            line.contains(&format!("{} MB", bytes.div_ceil(1_000_000)))
+                && bytes > 150_000_000
+                && bytes < 200_000_000,
+            "{bytes}"
+        );
+        assert_eq!(v["files"], json!(17));
+        // release-2026-11-14: nothing is inside the build any more; the CORE One L and the MK3S+ are fetched like the rest.
+        assert!(v["carried"].as_array().unwrap().is_empty());
     }
 
     /// F03 item 4: the catalogue never offers a file that cannot be fetched. The live check (every address answers 200 and is the size the catalogue
@@ -3736,19 +4220,30 @@ mod fetch_tests {
     fn no_address_in_the_catalogue_is_a_folder_or_a_page_that_is_not_a_file() {
         let mut files = 0;
         for m in catalogue()["machines"].as_array().unwrap() {
-            let (id, kind) = (m["id"].as_str().unwrap(), m["location"]["kind"].as_str().unwrap_or(""));
+            let (id, kind) = (
+                m["id"].as_str().unwrap(),
+                m["location"]["kind"].as_str().unwrap_or(""),
+            );
             let Some(up) = m["location"]["upstream"].as_str() else {
                 assert_eq!(kind, "none", "{id} has no address and says it has no file");
                 continue;
             };
             assert!(up.starts_with("https://"), "{id}: {up}");
             if kind == "registry" || kind == "release_zip" {
-                assert!(up.ends_with("/model.glb.gz") || up.ends_with(".glb.gz") || up.ends_with("/model.glb"), "{id}: a file is a .glb.gz: {up}");
+                assert!(
+                    up.ends_with("/model.glb.gz")
+                        || up.ends_with(".glb.gz")
+                        || up.ends_with("/model.glb"),
+                    "{id}: a file is a .glb.gz: {up}"
+                );
                 files += 1;
             } else if kind == "none" {
                 // A machine with no file Stella Scope can read points the person at the author's repository, which answers.
                 assert!(!up.ends_with('/'), "{id}: the author's page, not a folder of the pages site that answers 404: {up}");
-                assert!(m["location"]["why"].as_str().is_some_and(|w| w.len() > 20), "{id} says why it has no file");
+                assert!(
+                    m["location"]["why"].as_str().is_some_and(|w| w.len() > 20),
+                    "{id} says why it has no file"
+                );
             }
         }
         assert!(files > 55, "{files}");
@@ -3758,7 +4253,11 @@ mod fetch_tests {
         );
         for p in catalogue()["parts"].as_object().unwrap().values() {
             let up = p["location"]["upstream"].as_str().unwrap_or("");
-            assert!(up.starts_with("https://") && up.ends_with(".glb.gz") || up.ends_with(".glb"), "{}: {up}", p["id"]);
+            assert!(
+                up.starts_with("https://") && up.ends_with(".glb.gz") || up.ends_with(".glb"),
+                "{}: {up}",
+                p["id"]
+            );
         }
     }
 
@@ -3768,35 +4267,117 @@ mod fetch_tests {
     #[test]
     fn the_trident_gantry_is_an_option_with_motion_registered() {
         let o = option("trident_r2_gantry").expect("the option is in the catalogue");
-        assert_eq!((class_of(o), o["attach"]["kind"].as_str()), ("gpl", Some("place")));
-        assert!(machine("voron_trident_300").unwrap()["fits"].as_array().unwrap().iter().any(|x| x == "trident_r2_gantry"));
-        assert!(check_selection("voron_trident_300", &json!([{"option":"trident_r2_gantry"}])).is_ok());
-        assert!(check_selection("voron_trident_350", &json!([{"option":"trident_r2_gantry"}])).is_err(), "only the 300's module is registered");
+        assert_eq!(
+            (class_of(o), o["attach"]["kind"].as_str()),
+            ("gpl", Some("place"))
+        );
+        assert!(machine("voron_trident_300").unwrap()["fits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x == "trident_r2_gantry"));
+        assert!(check_selection(
+            "voron_trident_300",
+            &json!([{"option":"trident_r2_gantry"}])
+        )
+        .is_ok());
+        assert!(
+            check_selection(
+                "voron_trident_350",
+                &json!([{"option":"trident_r2_gantry"}])
+            )
+            .is_err(),
+            "only the 300's module is registered"
+        );
         for id in ["trident_r2_gantry_300", "trident_r2_sb_carriage"] {
             let p = part(id).unwrap();
-            assert!(may_bundle(class_of(p)) && p["location"]["upstream"].as_str().unwrap().ends_with(&format!("/modules/{id}.glb.gz")), "{id}");
-            assert_eq!((p["pin"]["model_sha256"].as_str().unwrap().len(), p["pin"]["stored_model_sha256"].as_str().unwrap().len()), (64, 64));
+            assert!(
+                may_bundle(class_of(p))
+                    && p["location"]["upstream"]
+                        .as_str()
+                        .unwrap()
+                        .ends_with(&format!("/modules/{id}.glb.gz")),
+                "{id}"
+            );
+            assert_eq!(
+                (
+                    p["pin"]["model_sha256"].as_str().unwrap().len(),
+                    p["pin"]["stored_model_sha256"].as_str().unwrap().len()
+                ),
+                (64, 64)
+            );
         }
         let lib = Library::new(std::env::temp_dir().join("stella-no-such-library"));
-        let sc = scene("voron_trident_300", &json!([{"option":"trident_r2_gantry"}]), &lib);
-        let placed: Vec<&str> = sc["placements"].as_array().unwrap().iter().map(|p| p["part"].as_str().unwrap()).collect();
+        let sc = scene(
+            "voron_trident_300",
+            &json!([{"option":"trident_r2_gantry"}]),
+            &lib,
+        );
+        let placed: Vec<&str> = sc["placements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["part"].as_str().unwrap())
+            .collect();
         assert_eq!(placed, ["trident_r2_gantry_300", "trident_r2_sb_carriage"]);
-        assert!(sc["placements"].as_array().unwrap().iter().all(|p| p["translation_mm"] == json!([0.0, 0.0, 0.0]) && p["follows"].is_null()), "placed in the machine's frame, each part in its own group by its record: {sc}");
+        assert!(
+            sc["placements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|p| p["translation_mm"] == json!([0.0, 0.0, 0.0]) && p["follows"].is_null()),
+            "placed in the machine's frame, each part in its own group by its record: {sc}"
+        );
         let p = profile("voron_trident_300").unwrap();
-        for (group, spec) in [("bed", json!([0, 0, {"z": -1}])), ("gantry", json!([0, "y", 0])), ("head", json!(["x", "y", 0]))] {
+        for (group, spec) in [
+            ("bed", json!([0, 0, {"z": -1}])),
+            ("gantry", json!([0, "y", 0])),
+            ("head", json!(["x", "y", 0])),
+        ] {
             assert_eq!(p["motions"][group], spec, "{group}");
-            assert!(p["groups"][group].as_array().is_some_and(|a| !a.is_empty()), "{group} holds parts");
+            assert!(
+                p["groups"][group].as_array().is_some_and(|a| !a.is_empty()),
+                "{group} holds parts"
+            );
         }
-        let keys = |g: &str| -> Vec<&str> { p["groups"][g].as_array().unwrap().iter().filter_map(Value::as_str).collect() };
-        assert!(keys("gantry").iter().chain(keys("head").iter()).all(|k| k.starts_with("trident_r2_")), "only the modules' own parts");
-        assert!(keys("gantry").iter().all(|k| !keys("head").contains(k)), "a part is in one group");
+        let keys = |g: &str| -> Vec<&str> {
+            p["groups"][g]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(Value::as_str)
+                .collect()
+        };
+        assert!(
+            keys("gantry")
+                .iter()
+                .chain(keys("head").iter())
+                .all(|k| k.starts_with("trident_r2_")),
+            "only the modules' own parts"
+        );
+        assert!(
+            keys("gantry").iter().all(|k| !keys("head").contains(k)),
+            "a part is in one group"
+        );
         // A pose moves them: X and Y of the head, Y of the beam.
         let cal = Calibration::starting(p);
         let at = |x: f64, y: f64, z: f64| pose(p, &cal, [Some(x), Some(y), Some(z)]);
         let (a, b) = (at(50.0, 60.0, 5.0), at(200.0, 250.0, 90.0));
-        let g = |v: &Value, name: &str| -> [f64; 3] { [0, 1, 2].map(|i| v["groups"][name][i].as_f64().unwrap()) };
-        assert_eq!([g(&b, "head")[0] - g(&a, "head")[0], g(&b, "head")[1] - g(&a, "head")[1], g(&b, "head")[2]], [150.0, 190.0, 0.0]);
-        assert_eq!([g(&b, "gantry")[0], g(&b, "gantry")[1] - g(&a, "gantry")[1]], [0.0, 190.0]);
+        let g = |v: &Value, name: &str| -> [f64; 3] {
+            [0, 1, 2].map(|i| v["groups"][name][i].as_f64().unwrap())
+        };
+        assert_eq!(
+            [
+                g(&b, "head")[0] - g(&a, "head")[0],
+                g(&b, "head")[1] - g(&a, "head")[1],
+                g(&b, "head")[2]
+            ],
+            [150.0, 190.0, 0.0]
+        );
+        assert_eq!(
+            [g(&b, "gantry")[0], g(&b, "gantry")[1] - g(&a, "gantry")[1]],
+            [0.0, 190.0]
+        );
         assert_eq!(g(&b, "bed")[2] - g(&a, "bed")[2], -85.0);
     }
 
@@ -3817,9 +4398,20 @@ mod fetch_tests {
         ] {
             let p = profile(id).unwrap_or_else(|| panic!("{id}: no registered motion"));
             assert!(print_frame(id).is_some(), "{id} has a print frame");
-            assert!(p["calibration_basis"].as_str().unwrap().starts_with("Measured from the model"), "{id}");
+            assert!(
+                p["calibration_basis"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("Measured from the model"),
+                "{id}"
+            );
             let cal = Calibration::starting(p);
-            for pos in [[0.0, 0.0, 0.2], [size, size, 0.2], [size / 2.0, size / 2.0, 40.0], [0.0, size, 0.2]] {
+            for pos in [
+                [0.0, 0.0, 0.2],
+                [size, size, 0.2],
+                [size / 2.0, size / 2.0, 40.0],
+                [0.0, size, 0.2],
+            ] {
                 let pz = pose(p, &cal, pos.map(Some));
                 assert_eq!(pz["clamped"], json!([]), "{id} at {pos:?}: {pz}");
             }
@@ -3834,25 +4426,74 @@ mod fetch_tests {
     /// (evidence/F03: each machine upright, its part on its plate under its head).
     #[test]
     fn the_annex_machines_are_turned_upright_by_their_profile() {
-        let (cad, display) = (json!([[1, 0, 0], [0, 0, 1], [0, -1, 0]]), json!([[1, 0, 0], [0, 1, 0], [0, 0, 1]]));
+        let (cad, display) = (
+            json!([[1, 0, 0], [0, 0, 1], [0, -1, 0]]),
+            json!([[1, 0, 0], [0, 1, 0], [0, 0, 1]]),
+        );
         for (id, orient, basis) in [
-            ("annex_k1_assembly", json!([[1, 0, 0], [0, -1, 0], [0, 0, -1]]), &cad),
-            ("annex_k2_assembly", json!([[1, 0, 0], [0, 0, -1], [0, 1, 0]]), &display),
-            ("annex_k3_assembly", json!([[1, 0, 0], [0, 0, -1], [0, 1, 0]]), &display),
+            (
+                "annex_k1_assembly",
+                json!([[1, 0, 0], [0, -1, 0], [0, 0, -1]]),
+                &cad,
+            ),
+            (
+                "annex_k2_assembly",
+                json!([[1, 0, 0], [0, 0, -1], [0, 1, 0]]),
+                &display,
+            ),
+            (
+                "annex_k3_assembly",
+                json!([[1, 0, 0], [0, 0, -1], [0, 1, 0]]),
+                &display,
+            ),
         ] {
             let p = profile(id).unwrap();
             assert_eq!(p["orient"], orient, "{id}");
             assert_eq!(p["basis"], *basis, "{id}");
-            assert!(p["see_through"]["match"].as_str().unwrap().contains("panel") && p["see_through"]["except"].as_str().unwrap().contains("hinge"), "{id}");
+            assert!(
+                p["see_through"]["match"]
+                    .as_str()
+                    .unwrap()
+                    .contains("panel")
+                    && p["see_through"]["except"]
+                        .as_str()
+                        .unwrap()
+                        .contains("hinge"),
+                "{id}"
+            );
             // every part is named by its node's own key (p00000), and the groups hold only such keys
-            let keys: Vec<&str> = p["groups"].as_object().unwrap().values().flat_map(|g| g.as_array().unwrap().iter().filter_map(Value::as_str)).collect();
-            assert!(keys.len() > 1_000 && keys.iter().all(|k| k.starts_with('p') && k[1..].bytes().all(|b| b.is_ascii_digit())), "{id}: {} keys", keys.len());
+            let keys: Vec<&str> = p["groups"]
+                .as_object()
+                .unwrap()
+                .values()
+                .flat_map(|g| g.as_array().unwrap().iter().filter_map(Value::as_str))
+                .collect();
+            assert!(
+                keys.len() > 1_000
+                    && keys
+                        .iter()
+                        .all(|k| k.starts_with('p') && k[1..].bytes().all(|b| b.is_ascii_digit())),
+                "{id}: {} keys",
+                keys.len()
+            );
             // the plate is measured and the print frame turns with the basis: printer X is the display's X, Y the display's back, Z its up
             let f = print_frame(id).unwrap_or_else(|| panic!("{id} has a print frame"));
-            assert!(f["nozzle_mm"].is_array() && f["basis"].as_str().unwrap().contains("slab"), "{id}");
+            assert!(
+                f["nozzle_mm"].is_array() && f["basis"].as_str().unwrap().contains("slab"),
+                "{id}"
+            );
         }
         // The page applies none of this to a machine that does not name it.
-        assert!(profile("voron_v24_350_printed").unwrap().get("orient").is_none() && profile("rook_mk2_120").unwrap().get("see_through").is_none());
+        assert!(
+            profile("voron_v24_350_printed")
+                .unwrap()
+                .get("orient")
+                .is_none()
+                && profile("rook_mk2_120")
+                    .unwrap()
+                    .get("see_through")
+                    .is_none()
+        );
     }
 
     /// F03 item 5: the one IDEX machine in the catalogue whose file carries motion (the SnakeOil XY IDEX; every Rat Rig IDEX file is one static heap of 3,049 parts with no
@@ -3861,31 +4502,69 @@ mod fetch_tests {
     #[test]
     fn the_idex_machine_moves_both_carriages_and_parks_the_one_that_is_not_printing() {
         let p = profile("snakeoil_xy_idex").expect("registered motion");
-        assert_eq!((p["motions"]["head"].clone(), p["motions"]["head2"].clone()), (json!(["x", "y", 0]), json!(["x", "y", 0])));
+        assert_eq!(
+            (p["motions"]["head"].clone(), p["motions"]["head2"].clone()),
+            (json!(["x", "y", 0]), json!(["x", "y", 0]))
+        );
         let tools = p["tools"].as_array().unwrap();
-        assert_eq!(tools.iter().map(|t| t["group"].as_str().unwrap()).collect::<Vec<_>>(), ["head", "head2"]);
+        assert_eq!(
+            tools
+                .iter()
+                .map(|t| t["group"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["head", "head2"]
+        );
         for g in ["head", "head2", "beam", "bed"] {
-            assert!(p["groups"][g].as_array().is_some_and(|a| a.len() > 50), "{g}");
+            assert!(
+                p["groups"][g].as_array().is_some_and(|a| a.len() > 50),
+                "{g}"
+            );
         }
         let f = print_frame("snakeoil_xy_idex").unwrap();
         let cal = Calibration::starting(p);
         let n0 = [0, 1, 2].map(|i| f["nozzle_mm"][i].as_f64().unwrap());
         let rest = [0, 1, 2].map(|i| p["rest_offsets_mm"]["head2"][i].as_f64().unwrap());
-        assert!(rest[0].abs() > 200.0 && rest[0].abs() < 260.0 && rest[1].abs() < 1.0 && rest[2].abs() < 1.0, "the second nozzle is about 237 mm from the first, at the same height: {rest:?}");
-        let g = |v: &Value, name: &str| -> [f64; 3] { [0, 1, 2].map(|i| v["groups"][name][i].as_f64().unwrap()) };
+        assert!(
+            rest[0].abs() > 200.0
+                && rest[0].abs() < 260.0
+                && rest[1].abs() < 1.0
+                && rest[2].abs() < 1.0,
+            "the second nozzle is about 237 mm from the first, at the same height: {rest:?}"
+        );
+        let g = |v: &Value, name: &str| -> [f64; 3] {
+            [0, 1, 2].map(|i| v["groups"][name][i].as_f64().unwrap())
+        };
         for pos in [[125.0, 100.0, 5.0], [30.0, 200.0, 40.0]] {
-            let (a, b) = (pose_for_tool(p, &cal, pos.map(Some), Some(0)), pose_for_tool(p, &cal, pos.map(Some), Some(1)));
+            let (a, b) = (
+                pose_for_tool(p, &cal, pos.map(Some), Some(0)),
+                pose_for_tool(p, &cal, pos.map(Some), Some(1)),
+            );
             // Tool 0 prints: its carriage is the head's, the other waits at the far end; tool 1 prints: the other way round.
             let (h0, h1) = (g(&a, "head"), g(&b, "head2"));
             assert!((h0[0] - (pos[0] + cal.offset_mm[0])).abs() < 1e-6, "{h0:?}");
-            assert!((h1[0] - (pos[0] + cal.offset_mm[0] + rest[0])).abs() < 1e-6, "the second carriage is the head's, moved by the nozzle difference: {h1:?}");
+            assert!(
+                (h1[0] - (pos[0] + cal.offset_mm[0] + rest[0])).abs() < 1e-6,
+                "the second carriage is the head's, moved by the nozzle difference: {h1:?}"
+            );
             let park = |t: usize| tools[t]["park"]["x"].as_f64().unwrap();
-            assert!((g(&b, "head")[0] - park(0)).abs() < 1e-6 && (g(&a, "head2")[0] - (park(1) + rest[0])).abs() < 1e-6, "the idle carriage waits at its end: {a} {b}");
+            assert!(
+                (g(&b, "head")[0] - park(0)).abs() < 1e-6
+                    && (g(&a, "head2")[0] - (park(1) + rest[0])).abs() < 1e-6,
+                "the idle carriage waits at its end: {a} {b}"
+            );
             // The printing nozzle is where the file asks, whichever tool it is: the first nozzle is where the frame says, the second is the first less their
             // difference, and each goes with its own carriage (the plate goes with the bed).
-            let want = [0, 1, 2].map(|c| f["origin_mm"][c].as_f64().unwrap() + (0..3).map(|i| pos[i] * f["axes"][i][c].as_f64().unwrap()).sum::<f64>());
+            let want = [0, 1, 2].map(|c| {
+                f["origin_mm"][c].as_f64().unwrap()
+                    + (0..3)
+                        .map(|i| pos[i] * f["axes"][i][c].as_f64().unwrap())
+                        .sum::<f64>()
+            });
             let bed = g(&a, "bed");
-            for (tool, nozzle, carriage) in [(0, n0, g(&a, "head")), (1, [0, 1, 2].map(|c| n0[c] - rest[c]), g(&b, "head2"))] {
+            for (tool, nozzle, carriage) in [
+                (0, n0, g(&a, "head")),
+                (1, [0, 1, 2].map(|c| n0[c] - rest[c]), g(&b, "head2")),
+            ] {
                 for c in 0..3 {
                     let at_pose = nozzle[c] + carriage[c] - bed[c];
                     assert!((at_pose - want[c]).abs() < 0.6, "tool {tool}, axis {c}: the nozzle is at {at_pose:.2} and the part at {:.2}", want[c]);

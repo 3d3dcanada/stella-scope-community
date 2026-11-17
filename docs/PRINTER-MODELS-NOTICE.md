@@ -8,11 +8,11 @@ Stella Scope's Printer models page lists the 67 machines of **3D Print Rig** (ht
 - **Registered motion** (`web/printer-motion.json`): which parts move with X, Y and Z for 9 machines. This is 3D Print Rig's own data from `site/viewer/motion-profiles/` (MIT), kept with this notice.
 - **Pictures** (`web/printer-thumbs.json`): a small picture of each machine whose licence class allows redistribution (open licences only, listed below). A picture of a non-commercial, mixed-terms or unlicensed machine is never included.
 
-Of 3D Print Rig's material no CAD file of any machine or option is in this build: a model is fetched, checked against its published SHA-256 and kept in the person's own library, under its author's terms, which the page shows first. The one exception is the four Prusa models below, which ship inside the build.
+Of 3D Print Rig's material no CAD file of any machine or option is in this build: a model is fetched, checked against its published SHA-256 and kept in the person's own library, under its author's terms, which the page shows first. The exception is the five models below, which 3D3D hosts at its own download address because their makers publish none.
 
-## Four Prusa models inside the build (finish-2 F09, 2026-10-19)
+## Five models hosted by 3D3D, fetched only on request
 
-2026-10-19: "We can share it on the application ... every Prusa printer should be available." The converted CAD of four Prusa machines is embedded in the binary (`models/*.glb.gz`, 24.7 MB together, made by `tools/printer-cad/build-model.sh` from the makers' STEP files) and put in the person's library when the service starts, with each model's notice (`docs/notices/`) and licence text (`docs/licences/`) shown in the model's sheet and under About.
+the owner, 2026-10-19: "We can share it on the application ... every Prusa printer should be available." The converted CAD of four Prusa machines and a Trident R2 Stealthburner cut is hosted by 3D3D (made by `tools/printer-cad/build-model.sh` from the makers' STEP files). None of it is in this repository or in the program: the app downloads a model only when the person presses its button, checks it against its published SHA-256, and shows the maker's notice (`docs/notices`) and licence text (`docs/licences`) with it.
 
 | machine | maker | licence | source |
 |---|---|---|---|
@@ -21,7 +21,7 @@ Of 3D Print Rig's material no CAD file of any machine or option is in this build
 | Prusa i3 MK3S+ / MK3S / MK3 | Swesen, jzkmath, Leto; Prusa Research's design | GNU GPL (Prusa, jzkmath), CC BY (Swesen), CC0 (Leto); passed on under the GPL | Printables 563056 |
 | Prusa MINI / MINI+ | Luis; Prusa Research's printed parts | stated CC0; Prusa's printed parts GPL-3.0; passed on under the GPL | Printables 307054 |
 
-The OCL lets the CAD be converted and passed on under the same licence and forbids selling machines or remixes made from it and systematic or automated mining of it. The converted files are passed on free of charge, with Prusa's notice, and are not sold; whether a build that is itself sold with a farm licence may carry them is a question for Prusa Research that the owner has been told about (finish-2 F09 report). Every other Prusa machine is listed under Printer models with the reason it has no 3D model yet (`src/prusa_machines.rs`).
+The OCL lets the CAD be converted and passed on under the same licence and forbids selling machines or remixes made from it and systematic or automated mining of it. The converted files are passed on free of charge, with Prusa's notice, and are not sold. Stella Scope is free and open source and sells nothing. Every other Prusa machine is listed under Printer models with the reason it has no 3D model yet (`src/prusa_machines.rs`).
 
 ## The machines whose pictures are carried
 

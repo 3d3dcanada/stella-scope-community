@@ -1,4 +1,4 @@
-//! Phone access (2026-09-24: "a way to be able to use this on my phone ... over the network").
+//! Phone access (the owner 2026-09-24: "a way to be able to use this on my phone ... over the network").
 //!
 //! Off unless `lan_port` is set. The loopback phone listener answers only paired devices: a device pairs
 //! by typing a six-digit code that the desktop shows for five minutes, and receives a random device
@@ -11,7 +11,7 @@
 //! check, the tiers and the reviews all still apply. Keys are stored beside the recording in
 //! `<database>.devices.json` (mode 600) and can be revoked from the desktop.
 //!
-//! 2026-09-27: at most three phones, each bound to its own phone. A phone that pairs through the
+//! the owner 2026-09-27: at most three phones, each bound to its own phone. A phone that pairs through the
 //! link has its link key (the `X-Stella-Peer` header stella-link sets) stored with its device key;
 //! later requests must arrive over that same phone key. `<database>.link.allow` tells stella-link
 //! which phone keys are paired and until when a pairing window is open, so nobody else can hold a

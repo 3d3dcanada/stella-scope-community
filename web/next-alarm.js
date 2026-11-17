@@ -1,4 +1,4 @@
-// UI board U07 (2026-10-20): the failure alarm takes the screen, the way docs/design/real-parts-2026-10-20/shots/1-computer-alarm.png and 1-phone-alarm.png show it:
+// UI board U07 (2026-10-20, the owner): the failure alarm takes the screen, the way docs/design/real-parts-2026-10-20/shots/1-computer-alarm.png and 1-phone-alarm.png show it:
 // the camera picture with a box drawn where the failure watch saw it, the three answers as big square keys, a red wash at the edges of the screen, and the day's alarms beside it.
 // It grows out of the tile (the farm) or the state chip (a printer's page) it is about and folds back into it. Nothing is stopped by it: a print is paused only by the first key.
 // Used by next-fleet.js (the pop-ups poll) on both pages; the words and the boxes are next-core.js (node-tested).

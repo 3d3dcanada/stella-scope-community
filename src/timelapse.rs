@@ -1,4 +1,4 @@
-//! Timelapse and print reports (2026-10-26, "build those five"). While a printer prints, one picture from its camera at each new
+//! Timelapse and print reports (the owner 2026-10-26, "build those five"). While a printer prints, one picture from its camera at each new
 //! layer (at most one every MIN_GAP_S; one every EVERY_S when the printer does not report its layer), kept per print beside the recording:
 //! `<database>.timelapse/<started>-<file>/000001.jpg` and `print.json` (the file, when it started and ended, how it ended, the frames).
 //! The page plays the pictures back in order. Bounded: FRAMES_MAX a print, the newest KEEP_PRINTS prints, TOTAL_MAX_BYTES on disk.
@@ -39,21 +39,43 @@ pub fn root(cfg: &Config) -> PathBuf {
 /// A folder name a person can read and nothing can escape from: the start time and the file's own name, letters and digits only.
 pub fn session_name(started: f64, file: &str) -> String {
     let stem = file.rsplit('/').next().unwrap_or(file);
-    let stem = stem.strip_suffix(".gcode").or_else(|| stem.strip_suffix(".bgcode")).unwrap_or(stem);
+    let stem = stem
+        .strip_suffix(".gcode")
+        .or_else(|| stem.strip_suffix(".bgcode"))
+        .unwrap_or(stem);
     let safe: String = stem
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .take(60)
         .collect();
-    format!("{:.0}-{}", started.max(0.0), if safe.is_empty() { "print".into() } else { safe })
+    format!(
+        "{:.0}-{}",
+        started.max(0.0),
+        if safe.is_empty() {
+            "print".into()
+        } else {
+            safe
+        }
+    )
 }
 
 /// A session name as `session_name` makes them; anything else (a path, dots) is refused before it touches the disk.
 pub fn valid_session(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 80
-        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        && name.split('-').next().is_some_and(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && name
+            .split('-')
+            .next()
+            .is_some_and(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// What one tick says about the print: its state, the file, and the layer when the printer reports it.
@@ -61,7 +83,11 @@ fn job_of(tick: &Value) -> (String, String, Option<f64>) {
     let job = &tick["job"];
     (
         job["state"].as_str().unwrap_or("").to_owned(),
-        job["name"].as_str().or_else(|| job["file"].as_str()).unwrap_or("").to_owned(),
+        job["name"]
+            .as_str()
+            .or_else(|| job["file"].as_str())
+            .unwrap_or("")
+            .to_owned(),
         job["layer"].as_f64(),
     )
 }
@@ -84,7 +110,10 @@ struct Session {
 
 impl Session {
     fn write_meta(&self) {
-        let _ = fs::write(self.dir.join("print.json"), serde_json::to_vec_pretty(&self.meta).unwrap_or_default());
+        let _ = fs::write(
+            self.dir.join("print.json"),
+            serde_json::to_vec_pretty(&self.meta).unwrap_or_default(),
+        );
     }
 }
 
@@ -101,7 +130,11 @@ fn run(cfg: &Config, state: &Shared, stop: &AtomicBool) {
     let mut no_camera_until = 0.0;
     while !stop.load(Ordering::Relaxed) {
         thread::sleep(Duration::from_secs(2));
-        let tick = state.lock().ok().and_then(|s| s.last_tick.clone()).unwrap_or(Value::Null);
+        let tick = state
+            .lock()
+            .ok()
+            .and_then(|s| s.last_tick.clone())
+            .unwrap_or(Value::Null);
         let (job_state, file, layer) = job_of(&tick);
         let t = now();
         let printing = job_state == "printing" && !file.is_empty();
@@ -109,7 +142,11 @@ fn run(cfg: &Config, state: &Shared, stop: &AtomicBool) {
         if let Some(s) = session.as_mut() {
             if !printing || s.meta["file"].as_str() != Some(file.as_str()) {
                 s.meta["ended"] = json!(t);
-                s.meta["outcome"] = json!(if job_state.is_empty() { "unknown".to_owned() } else { job_state.clone() });
+                s.meta["outcome"] = json!(if job_state.is_empty() {
+                    "unknown".to_owned()
+                } else {
+                    job_state.clone()
+                });
                 s.write_meta();
                 session = None;
                 prune(&root(cfg));
@@ -125,7 +162,13 @@ fn run(cfg: &Config, state: &Shared, stop: &AtomicBool) {
                 no_camera_until = t + NO_CAMERA_RETRY_S;
                 continue;
             }
-            let s = Session { dir, meta: json!({"file":file,"started":started,"ended":null,"outcome":"printing","frames":0}), frames: 0, last_layer: None, last_at: 0.0 };
+            let s = Session {
+                dir,
+                meta: json!({"file":file,"started":started,"ended":null,"outcome":"printing","frames":0}),
+                frames: 0,
+                last_layer: None,
+                last_at: 0.0,
+            };
             s.write_meta();
             session = Some(s);
         }
@@ -159,7 +202,12 @@ fn run(cfg: &Config, state: &Shared, stop: &AtomicBool) {
 
 fn dir_bytes(dir: &Path) -> u64 {
     fs::read_dir(dir)
-        .map(|it| it.flatten().filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum())
+        .map(|it| {
+            it.flatten()
+                .filter_map(|e| e.metadata().ok())
+                .map(|m| m.len())
+                .sum()
+        })
         .unwrap_or(0)
 }
 
@@ -175,7 +223,12 @@ pub fn prune(root: &Path) {
                 .collect()
         })
         .unwrap_or_default();
-    sessions.sort_by_key(|(n, _)| n.split('-').next().and_then(|t| t.parse::<u64>().ok()).unwrap_or(0));
+    sessions.sort_by_key(|(n, _)| {
+        n.split('-')
+            .next()
+            .and_then(|t| t.parse::<u64>().ok())
+            .unwrap_or(0)
+    });
     let mut total: u64 = sessions.iter().map(|(_, p)| dir_bytes(p)).sum();
     while sessions.len() > KEEP_PRINTS || (total > TOTAL_MAX_BYTES && sessions.len() > 1) {
         let (_, p) = sessions.remove(0);
@@ -191,7 +244,9 @@ pub fn handle(method: &str, path: &str, cfg: &Config) -> crate::api::Response {
         return Response::json(405, json!({"error":"read-only; use GET"}));
     }
     let root = root(cfg);
-    let rest = path.trim_start_matches("/api/timelapse").trim_start_matches('/');
+    let rest = path
+        .trim_start_matches("/api/timelapse")
+        .trim_start_matches('/');
     if rest.is_empty() {
         let mut out: Vec<Value> = fs::read_dir(&root)
             .map(|it| {
@@ -207,18 +262,36 @@ pub fn handle(method: &str, path: &str, cfg: &Config) -> crate::api::Response {
                     .collect()
             })
             .unwrap_or_default();
-        out.sort_by(|a, b| b["started"].as_f64().unwrap_or(0.0).total_cmp(&a["started"].as_f64().unwrap_or(0.0)));
-        return Response::json(200, json!({"prints":out,"keep":KEEP_PRINTS,"frames_max":FRAMES_MAX}));
+        out.sort_by(|a, b| {
+            b["started"]
+                .as_f64()
+                .unwrap_or(0.0)
+                .total_cmp(&a["started"].as_f64().unwrap_or(0.0))
+        });
+        return Response::json(
+            200,
+            json!({"prints":out,"keep":KEEP_PRINTS,"frames_max":FRAMES_MAX}),
+        );
     }
     let Some((session, frame)) = rest.split_once('/') else {
-        return Response::json(404, json!({"error":"ask for /api/timelapse/<print>/<n>.jpg"}));
+        return Response::json(
+            404,
+            json!({"error":"ask for /api/timelapse/<print>/<n>.jpg"}),
+        );
     };
-    let n = frame.strip_suffix(".jpg").and_then(|n| n.parse::<usize>().ok()).filter(|n| (1..=FRAMES_MAX).contains(n));
+    let n = frame
+        .strip_suffix(".jpg")
+        .and_then(|n| n.parse::<usize>().ok())
+        .filter(|n| (1..=FRAMES_MAX).contains(n));
     let (true, Some(n)) = (valid_session(session), n) else {
         return Response::json(400, json!({"error":"not a timelapse picture"}));
     };
     match fs::read(root.join(session).join(format!("{n:06}.jpg"))) {
-        Ok(body) => Response { code: 200, mime: "image/jpeg", body },
+        Ok(body) => Response {
+            code: 200,
+            mime: "image/jpeg",
+            body,
+        },
         Err(_) => Response::json(404, json!({"error":"no such picture"})),
     }
 }
@@ -229,7 +302,10 @@ mod tests {
 
     #[test]
     fn names_are_safe_and_only_safe_names_are_read() {
-        assert_eq!(session_name(1792000000.4, "folder/3D3D twist vase.gcode"), "1792000000-3D3D_twist_vase");
+        assert_eq!(
+            session_name(1792000000.4, "folder/3D3D twist vase.gcode"),
+            "1792000000-3D3D_twist_vase"
+        );
         assert_eq!(session_name(5.0, ""), "5-print");
         assert!(valid_session("1792000000-3D3D_twist_vase"));
         for bad in ["", "../etc", "x-1", "1792/../2", "1792.0-a", "1792-a b"] {
@@ -241,14 +317,23 @@ mod tests {
     fn a_frame_is_taken_at_each_new_layer_or_every_half_minute_without_one() {
         assert!(frame_due(Some(2.0), Some(1.0), 10.0), "a new layer");
         assert!(!frame_due(Some(2.0), Some(2.0), 100.0), "the same layer");
-        assert!(!frame_due(Some(3.0), Some(2.0), 1.0), "layers faster than the gap");
-        assert!(frame_due(None, None, 31.0) && !frame_due(None, None, 10.0), "no layer: every 30 s");
+        assert!(
+            !frame_due(Some(3.0), Some(2.0), 1.0),
+            "layers faster than the gap"
+        );
+        assert!(
+            frame_due(None, None, 31.0) && !frame_due(None, None, 10.0),
+            "no layer: every 30 s"
+        );
     }
 
     #[test]
     fn the_api_lists_prints_serves_their_pictures_and_refuses_paths() {
         let db = std::env::temp_dir().join(format!("stella-tl-{}", std::process::id()));
-        let cfg = Config { database: db.to_string_lossy().into_owned(), ..Config::default() };
+        let cfg = Config {
+            database: db.to_string_lossy().into_owned(),
+            ..Config::default()
+        };
         let dir = root(&cfg).join("1792000000-vase");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("print.json"), br#"{"file":"vase.gcode","started":1792000000,"ended":1792003600,"outcome":"complete","frames":1}"#).unwrap();
@@ -257,9 +342,15 @@ mod tests {
         let v: Value = serde_json::from_slice(&list.body).unwrap();
         assert_eq!(v["prints"][0]["id"], "1792000000-vase");
         assert_eq!(v["prints"][0]["outcome"], "complete");
-        assert_eq!(handle("GET", "/api/timelapse/1792000000-vase/1.jpg", &cfg).body, b"\xff\xd8jpeg");
+        assert_eq!(
+            handle("GET", "/api/timelapse/1792000000-vase/1.jpg", &cfg).body,
+            b"\xff\xd8jpeg"
+        );
         assert_eq!(handle("GET", "/api/timelapse/../1.jpg", &cfg).code, 400);
-        assert_eq!(handle("GET", "/api/timelapse/1792000000-vase/../../x.jpg", &cfg).code, 400);
+        assert_eq!(
+            handle("GET", "/api/timelapse/1792000000-vase/../../x.jpg", &cfg).code,
+            400
+        );
         assert_eq!(handle("POST", "/api/timelapse", &cfg).code, 405);
         let _ = fs::remove_dir_all(root(&cfg));
     }
@@ -273,7 +364,10 @@ mod tests {
         prune(&base);
         let left = fs::read_dir(&base).unwrap().count();
         assert_eq!(left, KEEP_PRINTS);
-        assert!(!base.join("1000-p").exists() && base.join(format!("{}-p", 1000 + KEEP_PRINTS + 2)).exists());
+        assert!(
+            !base.join("1000-p").exists()
+                && base.join(format!("{}-p", 1000 + KEEP_PRINTS + 2)).exists()
+        );
         let _ = fs::remove_dir_all(&base);
     }
 }

@@ -61,7 +61,7 @@ async function open(p,btn){$('msg').textContent='';btn.classList.add('busy');btn
  catch(e){$('msg').textContent='Could not reach '+p.name+': '+e+'. Is the computer on, with Stella Scope open?';btn.classList.remove('busy');btn.textContent='Open';}}
 function add(id,name){id=clean(id);if(!/^[0-9a-f]{64}$/i.test(id)){$('msg').textContent='That is not a Stella link code.';return null;}
  const old=load().find(p=>p.id===id),l=load().filter(p=>p.id!==id),p={id,name:(name||'').trim()||old?.name||(l.length?'Printer '+(l.length+1):'Stella')};l.push(p);save(l);$('paste').value='';$('name').value='';$('msg').textContent='';paint();return p;}
-// One scan sets a phone up (2026-09-25): the desktop's pairing code reads stella://pair/<id>?code=123456.
+// One scan sets a phone up (the owner 2026-09-25): the desktop's pairing code reads stella://pair/<id>?code=123456.
 // The app adds the printer, dials it and pairs with the code, with nothing to type. stella://link/<id>
 // only adds it. The same links open the app from the phone's own camera.
 async function handle(text,name){const t=String(text||'').trim(),k=StellaLinks.parse(t);

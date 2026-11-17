@@ -269,9 +269,18 @@ fn probe_rtsp(host: &str, port: u16, ms: u64) -> Option<Value> {
     // DESCRIBE slowly (or not at all) while a page or the plate check has its picture open, and 600 ms was all it was given. Only an address with the
     // RTSP port open gets here (a camera, one per search), so it is given 2.5 s and a second try.
     for _ in 0..2 {
-        let Ok(mut s) = std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(ms.max(600))) else { continue };
+        let Ok(mut s) =
+            std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(ms.max(600)))
+        else {
+            continue;
+        };
         let _ = s.set_read_timeout(Some(Duration::from_millis(2500)));
-        if s.write_all(format!("DESCRIBE {url} RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n").as_bytes()).is_err() {
+        if s.write_all(
+            format!("DESCRIBE {url} RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n")
+                .as_bytes(),
+        )
+        .is_err()
+        {
             continue;
         }
         let mut buf = [0_u8; 512];
@@ -393,16 +402,20 @@ pub fn scan_all(
             h["host"].as_str().unwrap_or("").to_owned(),
         );
         let flash = h["driver"] == "flashforge";
+        // fix-0.6.2 WO-02 item 5 (the owner 2026-10-29): a FlashForge answer on a host that is already in the farm is that printer, whatever driver it was added with. The Z-Mod
+        // AD5M keeps the stock FlashForge door (8899) open in its boot window, and that was offered as a second, new printer next to its Klipper one. The other
+        // brands still match on their own driver and port (two Moonraker instances on one host are two printers).
         let found = added.iter().find(|(a, _, driver)| {
             let a = authority(a);
-            let same = if flash {
+            if flash {
                 a.split(':').next() == Some(host.as_str())
+            } else if Some(driver.as_str()) != h["driver"].as_str() {
+                false
             } else {
                 a == addr
                     || (a == host && addr.ends_with(":80"))
                     || (addr == host && a.ends_with(":80"))
-            };
-            same && Some(driver.as_str()) == h["driver"].as_str()
+            }
         });
         h["added"] = json!(found.is_some());
         h["added_id"] = found.map(|(_, id, _)| json!(id)).unwrap_or(Value::Null);
@@ -429,11 +442,21 @@ pub fn describe(c: &Capabilities) -> Vec<Value> {
     // (key, words, on, only a Klipper printer has it)
     [
         ("heat", "Set nozzle and bed temperatures", c.heat, false),
-        ("pause_resume", "Pause and resume a print", c.pause_resume, false),
+        (
+            "pause_resume",
+            "Pause and resume a print",
+            c.pause_resume,
+            false,
+        ),
         ("cancel", "Cancel a print", c.cancel, false),
         ("start_print", "Start a file", c.start_print, false),
         ("upload", "Send files to the printer", c.upload, false),
-        ("extrude", "Push and pull filament by a length", c.extrude, false),
+        (
+            "extrude",
+            "Push and pull filament by a length",
+            c.extrude,
+            false,
+        ),
         ("filament", "Load and unload filament", c.filament, false),
         ("jog", "Move the head by hand", c.jog, false),
         ("home", "Home the axes", c.home, false),
@@ -532,7 +555,14 @@ pub fn test(
 pub fn plain_error(kind: &str, url: &str, e: &str) -> String {
     let host = url.trim_start_matches("http://").trim_end_matches('/');
     let lower = e.to_ascii_lowercase();
-    if lower.contains("cannot reach") && (lower.contains("refused") || lower.contains("timed out") || lower.contains("unreachable") || lower.contains("lookup") || lower.contains("no route") || lower.contains("os error")) {
+    if lower.contains("cannot reach")
+        && (lower.contains("refused")
+            || lower.contains("timed out")
+            || lower.contains("unreachable")
+            || lower.contains("lookup")
+            || lower.contains("no route")
+            || lower.contains("os error"))
+    {
         return format!("Nothing answered at {host}: cannot reach the printer. Check that it is on and on the same network as this computer, and that the address is the one on the printer's own screen.");
     }
     if kind == "prusalink" && lower.contains("firmware may be too old") {
@@ -561,6 +591,51 @@ mod tests {
         assert_eq!(hosts_of("192.168.1.139").unwrap(), vec!["192.168.1.139"]);
         assert!(hosts_of("8.8.8.8").is_err());
         assert!(hosts_of("10.0.0").is_ok() && hosts_of("172.16.5").is_ok());
+    }
+
+    /// fix-0.6.2 WO-02 item 5: the AD5M's boot-window 8899 is the printer already in the farm as Klipper, never a new FlashForge; a FlashForge on a
+    /// host nobody added is still offered, and a different host's Klipper does not hide it.
+    #[test]
+    fn a_flashforge_door_on_an_added_klipper_host_is_not_a_new_printer() {
+        let f = FakeFlashForge::start(0, 0, "SNFAKE5M00002", "0fake000");
+        let ports = Ports {
+            moonraker: vec![],
+            prusalink: vec![],
+            flashforge: vec![f.tcp_port()],
+            rtsp: vec![],
+        };
+        let hosts = vec!["127.0.0.1".to_owned()];
+        let at_host = |url: &str| {
+            vec![(
+                url.to_owned(),
+                "adventurer-5m".to_owned(),
+                "moonraker".to_owned(),
+            )]
+        };
+        let on_host = scan(&hosts, &ports, &at_host("http://127.0.0.1:7125"), 400);
+        let ff = on_host
+            .iter()
+            .find(|h| h["driver"] == "flashforge")
+            .expect("answered");
+        assert_eq!(
+            (ff["added"].clone(), ff["added_id"].clone()),
+            (json!(true), json!("adventurer-5m"))
+        );
+        let elsewhere = scan(&hosts, &ports, &at_host("http://192.0.2.9:7125"), 400);
+        assert_eq!(
+            elsewhere
+                .iter()
+                .find(|h| h["driver"] == "flashforge")
+                .unwrap()["added"],
+            false
+        );
+        assert_eq!(
+            scan(&hosts, &ports, &[], 400)
+                .iter()
+                .find(|h| h["driver"] == "flashforge")
+                .unwrap()["added"],
+            false
+        );
     }
 
     #[test]
@@ -606,10 +681,13 @@ mod tests {
         );
         assert_eq!(prusa["added"], false);
         let ff = by("flashforge");
+        // fix-0.6.2 WO-02 item 5 (2026-10-29): this used to say a Klipper at the same host is not this FlashForge. It is the same machine: a Z-Mod AD5M
+        // answers on 8899 in its boot window, and was offered as a second printer. Kept as the same check, with the new answer.
         assert_eq!(
-            ff["added"], false,
-            "a Klipper at the same host is not this FlashForge"
+            ff["added"], true,
+            "a Klipper already added at the same host is this FlashForge's printer"
         );
+        assert_eq!(ff["added_id"], "stella");
         assert_eq!(ff["serial"], "SNFAKE5M00001");
         assert_eq!(ff["needs"], json!(["check_code"]));
         assert!(ff["model"].as_str().unwrap().contains("Adventurer 5M"));
@@ -724,17 +802,40 @@ mod tests {
     /// that a camera was "not available" when a Prusa's camera is added by its address. Those are listed on a Klipper printer, where they are real.
     #[test]
     fn what_only_klipper_has_is_not_listed_as_missing_on_another_brand() {
-        let keys = |c: &Capabilities| -> Vec<String> { describe(c).iter().map(|v| v["key"].as_str().unwrap().to_owned()).collect() };
-        let prusa = Capabilities { pause_resume: true, cancel: true, start_print: true, upload: true, ..Capabilities::none() };
+        let keys = |c: &Capabilities| -> Vec<String> {
+            describe(c)
+                .iter()
+                .map(|v| v["key"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        let prusa = Capabilities {
+            pause_resume: true,
+            cancel: true,
+            start_print: true,
+            upload: true,
+            ..Capabilities::none()
+        };
         let k = keys(&prusa);
         for gone in ["console", "macros", "level", "camera"] {
-            assert!(!k.contains(&gone.to_owned()), "{gone} is not a thing to miss on a Prusa: {k:?}");
+            assert!(
+                !k.contains(&gone.to_owned()),
+                "{gone} is not a thing to miss on a Prusa: {k:?}"
+            );
         }
-        assert!(k.contains(&"heat".to_owned()) && k.contains(&"jog".to_owned()), "what a Prusa lacks and could have is still said: {k:?}");
-        let klipper = Capabilities { klipper: true, ..Capabilities::none() };
+        assert!(
+            k.contains(&"heat".to_owned()) && k.contains(&"jog".to_owned()),
+            "what a Prusa lacks and could have is still said: {k:?}"
+        );
+        let klipper = Capabilities {
+            klipper: true,
+            ..Capabilities::none()
+        };
         let k = keys(&klipper);
         for here in ["console", "macros", "level", "camera"] {
-            assert!(k.contains(&here.to_owned()), "{here} is listed on a Klipper printer: {k:?}");
+            assert!(
+                k.contains(&here.to_owned()),
+                "{here} is listed on a Klipper printer: {k:?}"
+            );
         }
     }
 
@@ -746,7 +847,9 @@ mod tests {
         let server = std::thread::spawn(move || {
             // the first connection is answered after a pause longer than the old 600 ms; a Buddy3D busy with another viewer does that
             for _ in 0..2 {
-                let Ok((mut c, _)) = listener.accept() else { return };
+                let Ok((mut c, _)) = listener.accept() else {
+                    return;
+                };
                 let mut buf = [0_u8; 512];
                 let n = c.read(&mut buf).unwrap_or(0);
                 if String::from_utf8_lossy(&buf[..n]).starts_with("DESCRIBE ") {
@@ -756,9 +859,17 @@ mod tests {
                 }
             }
         });
-        let ports = Ports { moonraker: vec![], prusalink: vec![], flashforge: vec![], rtsp: vec![port] };
+        let ports = Ports {
+            moonraker: vec![],
+            prusalink: vec![],
+            flashforge: vec![],
+            rtsp: vec![port],
+        };
         let (printers, cameras) = scan_all(&["127.0.0.1".to_owned()], &ports, &[], 300);
-        assert!(printers.is_empty(), "a camera is not a printer: {printers:?}");
+        assert!(
+            printers.is_empty(),
+            "a camera is not a printer: {printers:?}"
+        );
         assert_eq!(cameras, vec![format!("rtsp://127.0.0.1:{port}/live")]);
         let _ = server.join();
     }
@@ -767,18 +878,60 @@ mod tests {
     #[test]
     fn a_failed_connection_test_says_what_to_check_not_the_socket_error() {
         let base = Config::default();
-        let none = test(&base, "prusalink", "http://127.0.0.1:9", &Default::default(), None);
+        let none = test(
+            &base,
+            "prusalink",
+            "http://127.0.0.1:9",
+            &Default::default(),
+            None,
+        );
         let why = none["error"].as_str().unwrap();
-        assert!(why.starts_with("Nothing answered at 127.0.0.1:9") && why.contains("cannot reach the printer") && why.contains("on the same network"), "{why}");
-        assert!(!why.contains("os error") && !why.contains("io:"), "no socket words: {why}");
+        assert!(
+            why.starts_with("Nothing answered at 127.0.0.1:9")
+                && why.contains("cannot reach the printer")
+                && why.contains("on the same network"),
+            "{why}"
+        );
+        assert!(
+            !why.contains("os error") && !why.contains("io:"),
+            "no socket words: {why}"
+        );
         // a Klipper printer's address, given as a Prusa
         let klipper = crate::fakes::FakeMoonraker::start(0);
-        let wrong = test(&base, "prusalink", &klipper.url(), &[("user".to_owned(), "maker".to_owned()), ("password".to_owned(), "x".to_owned())].into(), None);
+        let wrong = test(
+            &base,
+            "prusalink",
+            &klipper.url(),
+            &[
+                ("user".to_owned(), "maker".to_owned()),
+                ("password".to_owned(), "x".to_owned()),
+            ]
+            .into(),
+            None,
+        );
         let why = wrong["error"].as_str().unwrap();
-        assert!(why.contains("not like a Prusa with PrusaLink") && why.contains("right brand") && why.contains("firmware may be too old"), "{why}");
+        assert!(
+            why.contains("not like a Prusa with PrusaLink")
+                && why.contains("right brand")
+                && why.contains("firmware may be too old"),
+            "{why}"
+        );
         // a wrong login keeps its own sentence
         let p = FakePrusaLink::start(0, "maker", "secret");
-        let bad = test(&base, "prusalink", &p.url(), &[("user".to_owned(), "maker".to_owned()), ("password".to_owned(), "nope".to_owned())].into(), None);
-        assert!(bad["error"].as_str().unwrap().contains("refused the login"), "{bad}");
+        let bad = test(
+            &base,
+            "prusalink",
+            &p.url(),
+            &[
+                ("user".to_owned(), "maker".to_owned()),
+                ("password".to_owned(), "nope".to_owned()),
+            ]
+            .into(),
+            None,
+        );
+        assert!(
+            bad["error"].as_str().unwrap().contains("refused the login"),
+            "{bad}"
+        );
     }
 }

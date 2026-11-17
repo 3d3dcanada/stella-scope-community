@@ -56,7 +56,8 @@ test('a failure is said in the service words, with its kind, and wins over files
 
 test('nothing fetching it: a press gets it; a model whose maker\'s notice comes first, or that is added by hand, says so', () => {
  const m = modelStatus(answer({ needs: { a: ['m'] }, models: [row('m', { bytes: 5000 })], state: 'idle' }), 'a');
- assert.deepEqual(m, { state: 'missing', bytes: 5000 });
+ // release-2026-11-14: the answer also names this printer's own files (`ids`), so a tile's Get fetches only those
+ assert.deepEqual(m, { state: 'missing', bytes: 5000, ids: ['m'] });
  // Finish-2 F09 (2026-10-19): there is no "notice first" state any more. The models Prusa shares under its own licence ship inside the build, so a farm never waits
  // for a download behind a notice; the CORE One L's row that said {notice:true} now never reaches this answer, and a model that is neither open nor fetchable says why ("hand").
  const core = row('core', { open: false, bytes: 10_225_282, why: 'The CORE One L model ships inside Stella Scope and is put in your library when the service starts.' });

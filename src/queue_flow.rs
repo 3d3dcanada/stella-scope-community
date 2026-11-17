@@ -246,23 +246,36 @@ pub fn start_next(
 fn dry_run(farm: &Farm, q: &Queue, p: &Printer, job_id: Option<i64>) -> Result<Value> {
     let (state, _) = state_of(farm, &p.id);
     if !matches!(state.as_str(), "idle" | "finished") {
-        return Err(format!("{} is {state}; a dry run can start when it is ready or done", p.entry.name));
+        return Err(format!(
+            "{} is {state}; a dry run can start when it is ready or done",
+            p.entry.name
+        ));
     }
-    let job = q.jobs()?.into_iter().find(|j| Some(j.id) == job_id).ok_or("no such job")?;
+    let job = q
+        .jobs()?
+        .into_iter()
+        .find(|j| Some(j.id) == job_id)
+        .ok_or("no such job")?;
     if job.source["kind"] == "printer" {
         return Err("This file is on the printer, which cannot send it back; add it to the queue from this computer to dry-run it.".into());
     }
-    let path = q.stored_path(&job).ok_or("the file is missing from the queue")?;
+    let path = q
+        .stored_path(&job)
+        .ok_or("the file is missing from the queue")?;
     let bytes = std::fs::read(&path).map_err(|e| format!("cannot read the queued file: {e}"))?;
     if crate::dry_run::is_binary_gcode(&bytes) {
         return Err("This is a binary G-code file (.bgcode). A dry run needs plain G-code: slice it as .gcode to dry-run it.".into());
     }
-    let text = crate::dry_run::transform(&String::from_utf8_lossy(&bytes), &crate::dry_run::Recipe::default())?;
+    let text = crate::dry_run::transform(
+        &String::from_utf8_lossy(&bytes),
+        &crate::dry_run::Recipe::default(),
+    )?;
     let name = crate::commands::dry_run_name(&queue::safe_name(&job.file_name));
     driver::open(&p.cfg)?
         .upload(&name, text.as_bytes(), false)
         .map_err(|e| format!("the dry run could not be sent to {}: {e}", p.entry.name))?;
-    p.controls.run(&json!({"id":"print_start","confirm":true,"filename":name}))?;
+    p.controls
+        .run(&json!({"id":"print_start","confirm":true,"filename":name}))?;
     Ok(json!({"started":true,"dry_run":true,"job":job.id,"file":name}))
 }
 
@@ -417,7 +430,8 @@ pub fn overview(farm: &Farm, q: &Queue) -> Result<Value> {
 ///   farm state `heating` is a preheat, or a print still at 0 % while its heaters climb (polish WO-02), so a printer
 ///   that stops from there has laid nothing on its plate (polish WO-04, 2026-10-18: the wall showed "plate needs clearing" on every printer that finished a preheat).
 fn job_ended(before: Option<&str>, now: &str) -> bool {
-    matches!(before, Some("printing" | "paused" | "heating")) && matches!(now, "finished" | "idle" | "error")
+    matches!(before, Some("printing" | "paused" | "heating"))
+        && matches!(now, "finished" | "idle" | "error")
 }
 fn plate_dirtied(before: Option<&str>, now: &str) -> bool {
     matches!(before, Some("printing" | "paused")) && matches!(now, "finished" | "idle" | "error")
@@ -425,14 +439,22 @@ fn plate_dirtied(before: Option<&str>, now: &str) -> bool {
 
 /// Apply one printer's change of state to the queue. Returns whether the plate was marked as needing clearing and
 /// whether a running job was closed out (a finished copy counts, anything else stops the job).
-fn settle(q: &Queue, id: &str, before: Option<&str>, state: &str, job_state: &str, file: &str) -> (bool, bool) {
+fn settle(
+    q: &Queue,
+    id: &str,
+    before: Option<&str>,
+    state: &str,
+    job_state: &str,
+    file: &str,
+) -> (bool, bool) {
     if !job_ended(before, state) {
         return (false, false);
     }
     // Finish-2 F02 (CORE One L, 2026-10-19): a cancelled dry run left the plate "needs clearing" and the farm counting one
     // printer that needs attention, though a dry run lays nothing down. Its file is named so (commands::dry_run_name).
     // A FlashForge stores the copy as `<name>__dry_run_.gcode` (its file names keep letters, digits, dot, dash and underscore).
-    let dirty = plate_dirtied(before, state) && !file.contains("(dry run)") && !file.contains("_dry_run_");
+    let dirty =
+        plate_dirtied(before, state) && !file.contains("(dry run)") && !file.contains("_dry_run_");
     if dirty {
         let mut flow = q.flow(id);
         flow.awaiting_clear = true;
@@ -497,10 +519,11 @@ pub fn spawn_watch(farm: &Arc<Farm>) {
                     }
                     // Something is waiting for this plate: say it needs clearing (the print's own end is its
                     // own alert, from the recorder).
-                    let waiting = dirty && farm.get(id).is_some_and(|pr| {
-                        q.jobs()
-                            .is_ok_and(|jobs| queue::next_for(&jobs, &profile(&pr)).is_some())
-                    });
+                    let waiting = dirty
+                        && farm.get(id).is_some_and(|pr| {
+                            q.jobs()
+                                .is_ok_and(|jobs| queue::next_for(&jobs, &profile(&pr)).is_some())
+                        });
                     if waiting {
                         crate::notify::event(
                             "plate_clear",
@@ -551,7 +574,10 @@ mod tests {
     /// is not marked; a job whose print ends is closed out and the plate is marked.
     #[test]
     fn a_job_closes_when_its_printer_stops_but_only_a_print_marks_the_plate() {
-        let dir = std::path::PathBuf::from(format!("/tmp/stella-queue-flow-test-{}", std::process::id()));
+        let dir = std::path::PathBuf::from(format!(
+            "/tmp/stella-queue-flow-test-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         let q = Queue::open(&dir).unwrap();
         let spool = |name: &str| {
@@ -562,24 +588,50 @@ mod tests {
         let warm = q.add_upload(&spool("warm.part"), "warm.gcode", 1).unwrap();
         q.set_running(warm.id, "fx").unwrap();
         // heating -> error with a running queue job: the job closes (stopped, with the printer's error), the plate is untouched
-        assert_eq!(settle(&q, "fx", Some("heating"), "error", "error", "part.gcode"), (false, true));
+        assert_eq!(
+            settle(&q, "fx", Some("heating"), "error", "error", "part.gcode"),
+            (false, true)
+        );
         let j = q.job(warm.id).unwrap().unwrap();
         assert_eq!(j.state, "stopped");
         assert_eq!(j.note.as_deref(), Some("The printer reported an error."));
-        assert!(!q.flow("fx").awaiting_clear, "a warm-up that failed left nothing on the plate");
+        assert!(
+            !q.flow("fx").awaiting_clear,
+            "a warm-up that failed left nothing on the plate"
+        );
         // heating -> idle with a running job (cancelled in the warm-up) closes it too
-        let cancelled = q.add_upload(&spool("cancel.part"), "cancel.gcode", 1).unwrap();
+        let cancelled = q
+            .add_upload(&spool("cancel.part"), "cancel.gcode", 1)
+            .unwrap();
         q.set_running(cancelled.id, "fx").unwrap();
-        assert_eq!(settle(&q, "fx", Some("heating"), "idle", "standby", "part.gcode"), (false, true));
+        assert_eq!(
+            settle(&q, "fx", Some("heating"), "idle", "standby", "part.gcode"),
+            (false, true)
+        );
         assert_eq!(q.job(cancelled.id).unwrap().unwrap().state, "stopped");
         assert!(!q.flow("fx").awaiting_clear);
         // a warm-up with no job in the queue (a plain preheat) changes nothing at all
-        assert_eq!(settle(&q, "fx", Some("heating"), "idle", "standby", "part.gcode"), (false, false));
+        assert_eq!(
+            settle(&q, "fx", Some("heating"), "idle", "standby", "part.gcode"),
+            (false, false)
+        );
         assert!(!q.flow("fx").awaiting_clear);
         // printing -> finished: the copy counts and the plate needs clearing
-        let print = q.add_upload(&spool("print.part"), "print.gcode", 1).unwrap();
+        let print = q
+            .add_upload(&spool("print.part"), "print.gcode", 1)
+            .unwrap();
         q.set_running(print.id, "fx").unwrap();
-        assert_eq!(settle(&q, "fx", Some("printing"), "finished", "complete", "part.gcode"), (true, true));
+        assert_eq!(
+            settle(
+                &q,
+                "fx",
+                Some("printing"),
+                "finished",
+                "complete",
+                "part.gcode"
+            ),
+            (true, true)
+        );
         assert_eq!(q.job(print.id).unwrap().unwrap().state, "done");
         let f = q.flow("fx");
         assert!(f.awaiting_clear && !f.released);
@@ -587,11 +639,44 @@ mod tests {
         let mut flow = q.flow("fx");
         flow.awaiting_clear = false;
         let _ = q.set_flow("fx", flow);
-        assert_eq!(settle(&q, "fx", Some("printing"), "finished", "cancelled", "twistbowl (dry run).gcode").0, false);
-        assert_eq!(settle(&q, "fx", Some("printing"), "finished", "cancelled", "nfc-cube-tpu__dry_run_.gcode").0, false, "the FlashForge copy");
+        assert_eq!(
+            settle(
+                &q,
+                "fx",
+                Some("printing"),
+                "finished",
+                "cancelled",
+                "twistbowl (dry run).gcode"
+            )
+            .0,
+            false
+        );
+        assert_eq!(
+            settle(
+                &q,
+                "fx",
+                Some("printing"),
+                "finished",
+                "cancelled",
+                "nfc-cube-tpu__dry_run_.gcode"
+            )
+            .0,
+            false,
+            "the FlashForge copy"
+        );
         assert!(!q.flow("fx").awaiting_clear);
         // a printer that is still working changes nothing
-        assert_eq!(settle(&q, "fx", Some("printing"), "printing", "printing", "part.gcode"), (false, false));
+        assert_eq!(
+            settle(
+                &q,
+                "fx",
+                Some("printing"),
+                "printing",
+                "printing",
+                "part.gcode"
+            ),
+            (false, false)
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
@@ -604,11 +689,28 @@ mod moved_tests {
     /// Finish-2 F02: the empty plate at Z 98.1, the check at Z 77.8 after a print: not compared, and it says why.
     #[test]
     fn a_printer_that_moved_since_the_empty_plate_is_not_compared() {
-        let why = moved_since_capture(&json!([156.8, 131.6, 98.1]), &[Some(242.0), Some(211.0), Some(77.8)]).unwrap();
-        assert!(why.contains("Z 98.1 then, 77.8 now") && why.contains("X 156.8 then"), "{why}");
+        let why = moved_since_capture(
+            &json!([156.8, 131.6, 98.1]),
+            &[Some(242.0), Some(211.0), Some(77.8)],
+        )
+        .unwrap();
+        assert!(
+            why.contains("Z 98.1 then, 77.8 now") && why.contains("X 156.8 then"),
+            "{why}"
+        );
         // within 2 mm, or an axis not reported (PrusaLink while moving), or an old reference with no pose: compared
-        assert!(moved_since_capture(&json!([156.8, 131.6, 98.1]), &[Some(157.5), Some(131.6), Some(98.0)]).is_none());
-        assert!(moved_since_capture(&json!([null, null, 98.1]), &[Some(10.0), None, Some(98.1)]).is_none());
-        assert!(moved_since_capture(&serde_json::Value::Null, &[Some(1.0), Some(2.0), Some(3.0)]).is_none());
+        assert!(moved_since_capture(
+            &json!([156.8, 131.6, 98.1]),
+            &[Some(157.5), Some(131.6), Some(98.0)]
+        )
+        .is_none());
+        assert!(
+            moved_since_capture(&json!([null, null, 98.1]), &[Some(10.0), None, Some(98.1)])
+                .is_none()
+        );
+        assert!(
+            moved_since_capture(&serde_json::Value::Null, &[Some(1.0), Some(2.0), Some(3.0)])
+                .is_none()
+        );
     }
 }

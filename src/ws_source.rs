@@ -97,6 +97,19 @@ pub fn subscribe_objects(cfg: &Config) -> Vec<String> {
     v
 }
 
+/// The subscription for this printer: what object discovery found on it, the same `telemetry::select` the
+/// poll path uses. 2026-10-27: every farm printer inherits the top-level `objects`, written for the Voron
+/// (`mcu EBBCan`, `quad_gantry_level`, `heater_fan hotend_fan`...), and the push path subscribed to exactly
+/// those, so the Adventurer 5M's own fans, MCU and sensors never arrived while discovery listed them as captured.
+/// When discovery fails this is the configured list, as before.
+fn discovered_objects(cfg: &Config) -> Vec<String> {
+    let mut m = crate::moonraker::Moonraker::new(cfg);
+    m.discover();
+    let mut c = cfg.clone();
+    c.objects = m.available().to_vec();
+    subscribe_objects(&c)
+}
+
 // Klipper status deltas are one object -> field map deep. Merge that layer only; a non-object
 // delta replaces the object wholesale.
 fn merge_delta(full: &mut Value, delta: &Value) {
@@ -210,7 +223,7 @@ fn run_connection(
     // Moonraker v0.10 takes the subscription as a plain dict param: {"objects": {name: fields}}.
     // A null value means every field of that object. Confirmed live against Stella 2026-09-17.
     let mut sub = serde_json::Map::new();
-    for name in subscribe_objects(cfg) {
+    for name in discovered_objects(cfg) {
         sub.insert(name, Value::Null);
     }
     client.send_text(
@@ -333,7 +346,11 @@ mod tests {
         ];
         assert_eq!(
             subscribe_objects(&cfg),
-            vec!["motion_report".to_string(), "tmc2209 stepper_z".to_string(), "display_status".to_string()]
+            vec![
+                "motion_report".to_string(),
+                "tmc2209 stepper_z".to_string(),
+                "display_status".to_string()
+            ]
         );
     }
     #[test]

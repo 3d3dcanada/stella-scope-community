@@ -612,7 +612,13 @@ impl Queue {
     }
 
     /// Save a captured empty plate. The region starts as the whole frame until the person marks it.
-    pub fn save_reference(&self, printer: &str, px: &[u8], jpeg: &[u8], pose: &Value) -> Result<()> {
+    pub fn save_reference(
+        &self,
+        printer: &str,
+        px: &[u8],
+        jpeg: &[u8],
+        pose: &Value,
+    ) -> Result<()> {
         self.db()
             .execute(
                 "INSERT INTO plate(printer_id,px,jpeg,region,sensitivity,captured_at,pose) VALUES(?1,?2,?3,'null',1.0,?4,?5)
@@ -917,7 +923,8 @@ mod tests {
                 },
             )
             .unwrap();
-            q.save_reference("core", &[1, 2, 3], b"jpeg", &Value::Null).unwrap();
+            q.save_reference("core", &[1, 2, 3], b"jpeg", &Value::Null)
+                .unwrap();
         }
         let q = Queue::open(&dir).unwrap();
         let ids: Vec<i64> = q.jobs().unwrap().iter().map(|j| j.id).collect();

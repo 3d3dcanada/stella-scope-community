@@ -1,4 +1,4 @@
-// Calibrate (2026-10-26: "you likely don't even have calibration, like pre-calibration setup stuff in there ... it could be built out far more").
+// Calibrate (the owner 2026-10-26: "you likely don't even have calibration, like pre-calibration setup stuff in there ... it could be built out far more").
 // One page per printer: the setup in the order that matters, each step run here with the printer's own commands, its figures read back from
 // what the printer answers, and kept (presets.calibrations) with the time it was done; then "before you print", a check of what a print relies on.
 // A Prusa runs its calibrations itself, from its own screen: its page lists them in order and keeps when each was done.
@@ -55,8 +55,9 @@ export function pageCalibrate(){const ctx=pageCtx();if(!ctx)return;
   const steps=klipper?STEPS:PRUSA,cards=new Map();
   for(const [i,s] of steps.entries()){const c=el('article','nx-cal-step');c.dataset.id=s.id;const num=el('span','nx-cal-n',String(i+1).padStart(2,'0')),txt=el('div','nx-cal-t'),st=el('div','nx-cal-st'),run=el('div','nx-cal-run');
    txt.append(el('b','',s.n),el('p','',s.sub));if(s.time)txt.append(el('small','',s.time));c.append(num,txt,st,run);list.append(c);cards.set(s.id,{c,st,run,s});}
+  const have=()=>cfg||ctx.tick?.()?.point?.sections||null;   // fix-0.6.2 WO-02 item 1: the sections the printer reports (a tick) stand in for /api/config/calibration, which controls-off answers with a 503
   const paint=()=>{const rec=cal();let done=0;
-   for(const {c,st,s} of cards.values()){const r=rec[s.id],skip=s.needs&&cfg&&!s.needs.some(k=>cfg[k]);c.toggleAttribute('data-done',!!r);c.toggleAttribute('data-skip',!!skip);if(r)done++;
+   for(const {c,st,s} of cards.values()){const r=rec[s.id],skip=s.needs&&have()&&!s.needs.some(k=>have()[k]);c.toggleAttribute('data-done',!!r);c.toggleAttribute('data-skip',!!skip);if(r)done++;
     st.replaceChildren();if(skip){st.append(el('span','nx-cal-tag','Not on this printer'));continue;}
     if(r){st.append(el('span','nx-cal-tag nx-cal-ok',ago(r.at)));const v=r.values||{},bits=Object.entries(v).filter(([,x])=>x!==null&&x!=='').slice(0,4).map(([k,x])=>`${k.replace(/_/g,' ')} ${typeof x==='number'?(Math.abs(x)<10?f3(x):Math.round(x*10)/10):x}`);if(bits.length)st.append(el('small','',bits.join(' · ')));}
     else st.append(el('span','nx-cal-tag','Not done yet'));}
@@ -73,10 +74,11 @@ export function pageCalibrate(){const ctx=pageCtx();if(!ctx)return;
    else{items.push(['First layer',rec.prusa_first_layer?ago(rec.prusa_first_layer.at):'',rec.prusa_first_layer?'ok':'warn','Run it on the printer, then mark it done below.']);}
    check.replaceChildren(...items.map(([n,v,tone,help])=>{const r=el('div','nx-cal-ci');r.dataset.tone=tone;r.append(icon(tone==='ok'?'i-check':'i-warn'),el('b','',n),el('span','',tone==='ok'?v:help));return r;}));
    if(klipper&&cfg?.save_config_pending){const sb=button({icon:'i-backup',label:'Save to the printer',kind:'primary',size:'row',cmd:'save_config',title:'SAVE_CONFIG',does:'Writes the waiting results into printer.cfg. Klipper restarts, which takes a few seconds.',onPress:async b=>{busy(b,true);await ctx.send('save_config',{});busy(b,false);setTimeout(loadCfg,6000);}});check.append(sb);}};
-  // ---- the first layer, prepared in one go (2026-10-26, "build those five"): heat for the loaded material, home, level, mesh, the plate's offset ----
+  // ---- the first layer, prepared in one go (the owner 2026-10-26, "build those five"): heat for the loaded material, home, level, mesh, the plate's offset ----
   const paintPrep=()=>{if(!klipper||prep.dataset.busy)return;const p=ctx.state.presets||{},mat=(p.materials||[]).find(m=>m.name===p.loaded?.name),plate=(p.sheets||[]).find(x=>x.name===p.sheet?.name);
    const steps=[['heat',mat?`Heat for ${mat.name}: nozzle ${mat.nozzle}°, bed ${mat.bed}°`:'Heat: record the filament first (Filament? at the top)',!!mat],['home','Home every axis',true],
-    ['qgl','Level the gantry',!cfg||cfg.quad_gantry_level],['mesh',`Probe the bed mesh${plate?` for ${plate.name}`:''}`,!cfg||cfg.bed_mesh],['plate',plate?`Set ${plate.name}'s Z offset (${plate.measured===false?'not set yet':f3(plate.z_offset)+' mm'})`:'Plate offset: record the plate first (Plate? at the top)',!!plate&&plate.measured!==false]];
+    // app-final WO-03: a bed on three Z motors (a Trident) levels with Z_TILT_ADJUST; its step is that, not a struck-out gantry level
+    ...(have()?.z_tilt?[['ztilt','Level the bed (Z tilt)',true]]:[['qgl','Level the gantry',!have()||have().quad_gantry_level]]),['mesh',`Probe the bed mesh${plate?` for ${plate.name}`:''}`,!have()||have().bed_mesh],['plate',plate?`Set ${plate.name}'s Z offset (${plate.measured===false?'not set yet':f3(plate.z_offset)+' mm'})`:'Plate offset: record the plate first (Plate? at the top)',!!plate&&plate.measured!==false]];
    const list=el('ol','nx-prep-list');for(const [k,t,on] of steps){const li=el('li','',t);li.dataset.k=k;if(!on)li.dataset.off='';list.append(li);}
    const go=button({icon:'i-play',label:'Prepare the first layer',kind:'primary',size:'row',title:'Prepare the first layer',does:'Runs the steps above in order, each shown before it is sent. Stops at the first one that is refused.',onPress:()=>runPrep(steps,list,go)});
    prep.replaceChildren(el('b','nx-prep-t','First layer, in one go'),list,go);};
@@ -84,7 +86,7 @@ export function pageCalibrate(){const ctx=pageCtx();if(!ctx)return;
    const mark=(k,st)=>{const li=list.querySelector(`[data-k="${k}"]`);if(li)li.dataset.st=st;};let ok=true;
    for(const [k,,on] of steps){if(!on){mark(k,'skip');continue;}mark(k,'now');let r=null;
     if(k==='heat'){r=await ctx.send('set_heater',{target:'heater_bed',value:mat.bed});if(r)r=await ctx.send('set_heater',{target:'extruder',value:mat.nozzle});if(r)ctx.applyMaterial?.(mat.name);}
-    else if(k==='home')r=await ctx.send('home',{});else if(k==='qgl')r=await ctx.send('qgl',{});else if(k==='mesh')r=await ctx.send('mesh',{});
+    else if(k==='home')r=await ctx.send('home',{});else if(k==='qgl')r=await ctx.send('qgl',{});else if(k==='ztilt')r=await ctx.send('macro',{target:'Z_TILT_ADJUST'});else if(k==='mesh')r=await ctx.send('mesh',{});
     else if(k==='plate'){const z=Number(ctx.state.snapshot?.point?.z_offset),d=Number.isFinite(z)?Math.round((plate.z_offset-z)*1000)/1000:null;r=d===null||Math.abs(d)<0.0005?true:Math.abs(d)>1?null:await ctx.send('z_offset',{value:d});}
     mark(k,r?'done':'failed');if(!r){ok=false;break;}}
    delete prep.dataset.busy;go.disabled=false;toast(ok?'The first layer is prepared. Start the print.':'Stopped: a step was refused or not sent.',ok?'ok':'alarm');if(ok)await save('first_layer_prep',{plate:plate?.name||'',material:mat?.name||''},'');paint();};

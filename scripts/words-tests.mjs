@@ -6,7 +6,7 @@
 import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 const web=path.join(path.dirname(fileURLToPath(import.meta.url)),'..','web');
-const NEXT=['farm.js','farm-wall.js','next.js','next-ui.js','next-core.js','next-pages.js','next-farm.js','next-fleet.js','next-queue.js','next-models.js','next-notify.js','next-switch.js','next-stage.js','next-alarm.js','next-control.js','next-getmodels.js','pair.js','model-pick.js','model-view.js','model-run.js'];
+const NEXT=['farm.js','farm-wall.js','next.js','next-ui.js','next-core.js','next-pages.js','next-farm.js','next-fleet.js','next-queue.js','next-models.js','next-notify.js','next-switch.js','next-stage.js','next-alarm.js','next-control.js','next-getmodels.js','next-tour.js','pair.js','model-pick.js','model-view.js','model-run.js'];
 // The wall, the queue, the alerts and the sheets every brand sees: no word of Klipper's engine here.
 const BRAND_FREE=['farm.js','farm-wall.js','next-queue.js','next-fleet.js','next-notify.js','next-switch.js','pair.js'];
 

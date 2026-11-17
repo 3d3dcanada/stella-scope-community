@@ -118,7 +118,10 @@ fn is_extrusion_only(line: &str) -> bool {
 /// the moves and heaters named above; the file's own structure, comments and macros are untouched.
 /// A Klipper start or end macro on this line: Some(true) start, Some(false) end.
 fn print_macro(line: &str) -> Option<bool> {
-    let head = line.split(|c: char| c.is_whitespace() || c == ';').next()?.to_ascii_uppercase();
+    let head = line
+        .split(|c: char| c.is_whitespace() || c == ';')
+        .next()?
+        .to_ascii_uppercase();
     match head.trim_start_matches('_') {
         "PRINT_START" | "START_PRINT" => Some(true),
         "PRINT_END" | "END_PRINT" => Some(false),
@@ -267,13 +270,29 @@ mod tests {
         let file = "PRINT_START BED=85 EXTRUDER=250\nG1 X10 Y10 Z0.2 E1\nPRINT_END\n";
         let off = transform(file, &Recipe::default()).unwrap();
         assert!(off.starts_with("G28\n"), "{off}");
-        assert!(!off.contains("\nPRINT_START") && !off.contains("\nPRINT_END"), "{off}");
-        assert!(!off.lines().any(|l| l.starts_with('M') && is_heater(l)), "no heat: {off}");
-        let on = transform(file, &Recipe { heat: true, ..Default::default() }).unwrap();
+        assert!(
+            !off.contains("\nPRINT_START") && !off.contains("\nPRINT_END"),
+            "{off}"
+        );
+        assert!(
+            !off.lines().any(|l| l.starts_with('M') && is_heater(l)),
+            "no heat: {off}"
+        );
+        let on = transform(
+            file,
+            &Recipe {
+                heat: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         for want in ["M140 S85", "M104 S250", "G28", "M190 S85", "M109 S250"] {
             assert!(on.lines().any(|l| l == want), "{want} in {on}");
         }
-        assert!(!on.lines().any(|l| l.starts_with("PRINT_START")), "the purge never runs");
+        assert!(
+            !on.lines().any(|l| l.starts_with("PRINT_START")),
+            "the purge never runs"
+        );
     }
 
     #[test]
@@ -398,7 +417,13 @@ mod tests {
         let out = transform(prusa(), &Recipe::default()).unwrap();
         assert!(out.contains("M862.1"), "prusa printer check kept");
         // finish-2 F02: no filament question on the printer for a file that extrudes nothing
-        assert!(!out.lines().any(|l| l.trim_start_matches(';').trim().starts_with("filament_type")), "filament type gone");
+        assert!(
+            !out.lines().any(|l| l
+                .trim_start_matches(';')
+                .trim()
+                .starts_with("filament_type")),
+            "filament type gone"
+        );
         assert!(out.contains("; dry run: filament_type = PETG dropped"));
         assert!(out.contains("G28"), "homing kept");
         assert!(out.contains("G29"), "levelling kept");

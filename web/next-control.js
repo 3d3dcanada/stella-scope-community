@@ -65,6 +65,17 @@ function segs(){let h='';const r0=88,r1=104,gap=2.2,each=SPAN/SEGS;
 // A press that is held (HOLD_MS) or dragged (MOVE_PX) is the KNOB. The knob is always drawn on the page itself, as a copy of the gauge at one fixed, sensible size (HELD_PC /
 // HELD_PHONE px), never as the gauge scaled up: its word and its live value are inside the knob and stay readable the whole time it is held, whatever size the gauge was.
 const HOLD_MS=220,MOVE_PX=6,HELD_PC=200,HELD_PHONE=250;
+// fix-0.6.2 WO-08 (the owner 2026-10-30: the knob, when held, "must not cover half of its own gauge"): where the held copy stands. Under a mouse it replaces the gauge in place, on the gauge's centre whenever the window lets it; under a finger it lifts
+// clear of the gauge, above it, or beside it where the window has no room above. `over` says the knob lies on the gauge, which is then hidden whole, so no half of it ever shows from under the knob (at 30% it did, wherever the window's edge pushed the knob off centre).
+// `z` is the page's own CSS zoom: a knob placed in unzoomed pixels stood a third of the way off its gauge in a page at 4/3 (the film's captures). Everything here is in window pixels; S is the knob's size in them.
+// The highest z-index among a gauge's ancestors ('auto' counts as none): the held knob stands two above it, at least at its own 41.
+export function topLayer(zs){let z=0;for(const v of zs){const n=parseInt(v,10);if(Number.isFinite(n))z=Math.max(z,n);}return z;}
+export function heldPlace({gx,gy,w,h,S,touch,W,H,pad=12,gap=8}){
+ const inX=v=>clamp(v,S/2+pad,W-S/2-pad),inY=v=>clamp(v,S/2+pad,H-S/2-pad);
+ const clear=(cx,cy)=>cx+S/2<=gx-w/2||cx-S/2>=gx+w/2||cy+S/2<=gy-h/2||cy-S/2>=gy+h/2;
+ let cx=inX(gx),cy=inY(touch?gy-Math.max(S*.82,h/2+S/2+gap):gy);
+ if(touch&&!clear(cx,cy)){const side=gx>W/2?gx-w/2-S/2-gap:gx+w/2+S/2+gap;cx=inX(side);cy=inY(gy);}
+ return {cx,cy,over:!clear(cx,cy)};}
 export function control(spec={}){install();
  const c={key:'',label:'',unit:'',min:0,max:100,value:0,now:null,step:1,turn:300,color:'var(--accent)',color2:'var(--accent-2)',onSet:null,...spec};
  c.value=snap(c,c.value);
@@ -79,7 +90,7 @@ export function control(spec={}){install();
  const views=[view(el)];views[0].lab.textContent=c.label;
  // U02 (2026-10-20): a page can say "no reading" (a printer that is off) and "locked" (the printer refuses this command); neither is a value, so the gauge shows a dash with no LEDs lit, and a locked one does not grow.
  let unknown=false,locked='';
- // 2026-10-25 ("feel really alive"): the first real reading sweeps the ring to full and back to it, as a car's cluster does when it switches on.
+ // the owner 2026-10-25 ("feel really alive"): the first real reading sweeps the ring to full and back to it, as a car's cluster does when it switches on.
  // Once per gauge per page, a little after the one before it; a person who asks for less motion gets the reading at once.
  let swept=false,sweeping=false;
  function sweep(){swept=true;if(matchMedia('(prefers-reduced-motion: reduce)').matches||!el.isConnected)return false;sweeping=true;const order=SWEEPS++,t0=performance.now()+order*90,D=1000;
@@ -110,20 +121,23 @@ export function control(spec={}){install();
  const nudge=dir=>{const v=bump(c,c.value,dir),stop=v===c.min||v===c.max;if(v!==c.value){mark();c.value=v;paint();click(stop);if(c.onChange)c.onChange(c.value,c);later();}};
  // ---- the knob: a copy of the gauge, drawn on the page at its own size, grown out of the gauge and sprung back into it ----
  const heldSize=()=>innerWidth<SMALL?Math.round(Math.min(innerWidth*.72,HELD_PHONE)):HELD_PC;
+ // app-final WO-02 (2026-11-01): the knob and the typed entry are drawn on the page body, so they must stand above whatever layer the gauge is in. An opened farm tile is
+ // its own layer at z 60, and the knob at its fixed 41 sat behind it: the gauge hid itself for the knob and the dial vanished while held. Above the gauge's highest layer.
+ const layerOf=()=>{const zs=[];for(let e=el.parentElement;e;e=e.parentElement)zs.push(getComputedStyle(e).zIndex);return topLayer(zs);};
  function grab(d){if(d.on)return;d.on=true;clearTimeout(d.timer);
-  const r=el.getBoundingClientRect(),S=heldSize(),pad=12,gx=r.left+r.width/2,gy=r.top+r.height/2;
-  // a finger would cover the knob where it is, so on a touch screen the knob rises above it; on a computer it opens where the gauge stands; both stay inside the window
-  const cx=clamp(gx,S/2+pad,innerWidth-S/2-pad),cy=clamp(d.touch?gy-S*.82:gy,S/2+pad,innerHeight-S/2-pad);
-  lift=el.cloneNode(true);lift.classList.remove('nxctl--cell','held');lift.classList.add('nxctl--lift');
+  const r=el.getBoundingClientRect(),S=heldSize(),z=parseFloat(getComputedStyle(document.documentElement).zoom)||1,gx=r.left+r.width/2,gy=r.top+r.height/2;
+  // a finger would cover the knob where it is, so on a touch screen the knob lifts clear of it; on a computer it opens where the gauge stands; both stay inside the window
+  const {cx,cy,over}=heldPlace({gx,gy,w:r.width,h:r.height,S:S*z,touch:d.touch,W:innerWidth,H:innerHeight});
+  lift=el.cloneNode(true);lift.classList.remove('nxctl--cell','held','under');lift.classList.add('nxctl--lift');
   for(const a of ['tabindex','role','data-tip-title','data-tip-does','aria-label','aria-valuenow','aria-valuetext','aria-valuemin','aria-valuemax'])lift.removeAttribute(a);lift.setAttribute('aria-hidden','true');
-  Object.assign(lift.style,{position:'fixed',left:cx-S/2+'px',top:cy-S/2+'px',width:S+'px',height:S+'px',margin:'0',zIndex:'41',pointerEvents:'none'});lift.style.setProperty('--nxctl-size',S+'px');
-  const k=Math.min(1,r.width/S),from=`translate(${gx-cx}px,${gy-cy}px) scale(${k})`;d.from=from;
+  const layer=layerOf();Object.assign(lift.style,{position:'fixed',left:cx/z-S/2+'px',top:cy/z-S/2+'px',width:S+'px',height:S+'px',margin:'0',zIndex:String(Math.max(41,layer+2)),pointerEvents:'none'});lift.style.setProperty('--nxctl-size',S+'px');
+  const k=Math.min(1,r.width/(S*z)),from=`translate(${(gx-cx)/z}px,${(gy-cy)/z}px) scale(${k})`;d.from=from;
   lift.style.transition='none';lift.style.transform=from;document.body.append(lift);views.push(view(lift));lift.getBoundingClientRect();
-  lift.style.transition='';lift.style.transform='none';lift.classList.add('live');el.classList.add('held');
-  const dim=document.getElementById('nxctl-dim');dim.style.setProperty('--x',cx+'px');dim.style.setProperty('--y',cy+'px');dim.classList.add('on');
+  lift.style.transition='';lift.style.transform='none';lift.classList.add('live');el.classList.add('held');el.classList.toggle('under',over);
+  const dim=document.getElementById('nxctl-dim');dim.style.setProperty('--x',cx/z+'px');dim.style.setProperty('--y',cy/z+'px');dim.style.zIndex=layer>=40?String(layer+1):'';dim.classList.add('on');
   d.cx=cx;d.cy=cy;d.last=null;d.acc=c.value;d.start=c.value;paint();click(true);}
  function release(cancelled){const d=el._d;el._d=null;if(!d||!d.on)return;if(!cancelled&&c.value!==d.start)commit();
-  const k=lift;lift=null;if(k){k.classList.remove('live');k.style.transform=d.from;setTimeout(()=>{k.remove();const i=views.findIndex(v=>v.r===k);if(i>0)views.splice(i,1);el.classList.remove('held');},420);}else el.classList.remove('held');
+  const k=lift;lift=null;if(k){k.classList.remove('live');k.style.transform=d.from;setTimeout(()=>{k.remove();const i=views.findIndex(v=>v.r===k);if(i>0)views.splice(i,1);el.classList.remove('held','under');},420);}else el.classList.remove('held','under');
   document.getElementById('nxctl-dim').classList.remove('on');click(true);}
  el.addEventListener('pointerdown',e=>{if(locked||c.readOnly||unknown||(e.pointerType==='mouse'&&e.button!==0))return;el.setPointerCapture(e.pointerId);
   const d=el._d={x:e.clientX,y:e.clientY,on:false,touch:e.pointerType!=='mouse',timer:0};d.timer=setTimeout(()=>{if(el._d===d)grab(d);},HOLD_MS);});
@@ -136,7 +150,7 @@ export function control(spec={}){install();
  el.addEventListener('pointerup',()=>{const d=el._d;if(!d)return;if(d.on)return release(false);clearTimeout(d.timer);el._d=null;tapped();});   // lifted before it was held or dragged: a tap
  el.addEventListener('pointercancel',()=>{const d=el._d;if(!d)return;clearTimeout(d.timer);release(true);el._d=null;});
  el.addEventListener('wheel',e=>{if(locked||c.readOnly||unknown)return;e.preventDefault();nudge(e.deltaY<0?1:-1);},{passive:false});
- // 2026-10-23: a right click on the number types it too (a click does already); the browser's own menu never opens over a gauge.
+ // the owner 2026-10-23: a right click on the number types it too (a click does already); the browser's own menu never opens over a gauge.
  el.addEventListener('contextmenu',e=>{e.preventDefault();const d=el._d;if(d){clearTimeout(d.timer);el._d=null;}openEntry();});
  el.addEventListener('keydown',e=>{const k=e.key;let d=0;if(c.readOnly&&k==='Enter'){e.preventDefault();if(c.onTap)c.onTap(c);return;}if(locked||c.readOnly||unknown)return;
   if(k==='Enter'){e.preventDefault();openEntry();return;}
@@ -170,9 +184,9 @@ export function control(spec={}){install();
   const cancelKey=key({label:'CANCEL',icon:'close',onPress:()=>close()}),setKey=key({label:'SET',icon:'check',onPress:()=>take()});setKey.el.dataset.kind='primary';
   keys.append(cancelKey.el,setKey.el);card.append(head,field,note,keys);
   // where it opens: over the gauge on a computer; high on a phone, above the on-screen keyboard
-  Object.assign(card.style,{position:'fixed',left:'0',top:'0',zIndex:'42',visibility:'hidden'});document.body.append(card);
+  Object.assign(card.style,{position:'fixed',left:'0',top:'0',zIndex:String(Math.max(42,layerOf()+2)),visibility:'hidden'});document.body.append(card);
   const h=card.getBoundingClientRect().height,gx=r.left+r.width/2,gy=r.top+r.height/2;
-  card.style.left=clamp(gx-W/2,12,innerWidth-W-12)+'px';card.style.top=(small?Math.max(12,Math.min(innerHeight*.22,innerHeight-h-12)):clamp(gy-h/2,12,innerHeight-h-12))+'px';card.style.visibility='';
+  {const z=parseFloat(getComputedStyle(document.documentElement).zoom)||1;card.style.left=clamp(gx-W/2,12,innerWidth-W-12)/z+'px';card.style.top=(small?Math.max(12,Math.min(innerHeight*.22,innerHeight-h-12)):clamp(gy-h/2,12,innerHeight-h-12))/z+'px';}card.style.visibility='';
   const dim=document.getElementById('nxctl-dim');dim.style.setProperty('--x',gx+'px');dim.style.setProperty('--y',gy+'px');dim.classList.add('on');
   document.addEventListener('pointerdown',away,true);document.addEventListener('keydown',esc,true);
   ui.grow(card,r);click(false);inp.focus();inp.select();}

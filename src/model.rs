@@ -139,7 +139,7 @@ pub fn motor(data: &Value, name: &str) -> Value {
 }
 
 /// Driver flags worth raising. On the TMC2209 the open-load bits (ola, olb) only mean something while
-/// the motor moves; at standstill (stst=1) they read 1 spuriously. 2026-09-28: Klipper reported
+/// the motor moves; at standstill (stst=1) they read 1 spuriously. the owner 2026-09-28: Klipper reported
 /// `drv_status {olb:1, stst:1, cs_actual:25}` with the printer ready and parked and Scope raised
 /// "stepper_x TMC2209 reports OLB" ("We can't have things like this popping up"). Every other flag is
 /// kept as it was. `standstill` unknown (no stst field) keeps the bits: nothing says they are false.
@@ -155,6 +155,37 @@ pub fn reportable_flags(flags: &Value, standstill: Option<bool>) -> Value {
     )
 }
 
+/// A fan found by its role, not by the Voron's names. 2026-10-27: the Adventurer 5M on Z-Mod calls its fans
+/// `fan_generic fanM106` (the part fan M106 drives), `heater_fan heat_fan` and `controller_fan driver_fan`, so
+/// the readouts stayed empty. The standard name wins when the printer reports it; otherwise the first object of
+/// that kind does. A generic fan only counts as the part fan when its name says M106 or part, so a chamber fan
+/// is never shown as the part fan.
+fn role_fan<'a>(d: &'a Value, standard: &str, prefix: &str, name_has: &[&str]) -> &'a Value {
+    let reported = |v: &Value| v.as_object().is_some_and(|o| !o.is_empty());
+    if reported(&d[standard]) {
+        return &d[standard];
+    }
+    d.as_object()
+        .and_then(|o| {
+            o.iter().find(|(k, v)| {
+                let lower = k.to_ascii_lowercase();
+                k.starts_with(prefix)
+                    && reported(v)
+                    && (name_has.is_empty() || name_has.iter().any(|n| lower.contains(n)))
+            })
+        })
+        .map_or(&d[standard], |(_, v)| v)
+}
+pub fn part_fan(d: &Value) -> &Value {
+    role_fan(d, "fan", "fan_generic ", &["m106", "part"])
+}
+pub fn hotend_fan(d: &Value) -> &Value {
+    role_fan(d, "heater_fan hotend_fan", "heater_fan ", &[])
+}
+pub fn controller_fan(d: &Value) -> &Value {
+    role_fan(d, "controller_fan controller_fan", "controller_fan ", &[])
+}
+
 pub fn point(ts: f64, data: &Value) -> Value {
     let mut motors = serde_json::Map::new();
     for (name, _) in MOTORS {
@@ -167,7 +198,7 @@ pub fn point(ts: f64, data: &Value) -> Value {
         "nozzle_target": data["extruder"]["target"].as_f64(),
         "bed": data["heater_bed"]["temperature"].as_f64(),
         "bed_target": data["heater_bed"]["target"].as_f64(),
-        "fan": data["fan"]["speed"].as_f64(), "motors": motors})
+        "fan": part_fan(data)["speed"].as_f64(), "motors": motors})
 }
 
 pub fn geometry(cfg: &crate::config::Config) -> Value {
@@ -245,7 +276,7 @@ mod driver_flag_tests {
     use super::{motor, reportable_flags};
     use serde_json::json;
 
-    /// The exact reading from our report of 2026-09-28: olb set, stst set, cs_actual 25.
+    /// The exact reading from the owner's report of 2026-09-28: olb set, stst set, cs_actual 25.
     #[test]
     fn open_load_at_standstill_is_not_reported_but_other_flags_and_motion_are() {
         let data = json!({"tmc2209 stepper_x":{"run_current":1.0,"hold_current":0.5,
@@ -309,7 +340,7 @@ mod printer_link_tests {
             )
         );
         // Connected, and Klipper reports it has stopped: not ready, in Klipper's own words. The
-        // startup message is the one in our recording (15 samples, 2026-09-16 to 09-22); the
+        // startup message is the one in the owner's recording (15 samples, 2026-09-16 to 09-22); the
         // shutdown one is Klipper's cause line plus its standard FIRMWARE_RESTART advice.
         let startup = json!({"state":"startup","state_message":"\nPrinter is not ready\nThe klippy host software is attempting to connect.  Please\nretry in a few moments.\n"});
         assert_eq!(
@@ -383,5 +414,45 @@ mod printer_link_tests {
             printer_link(true, None, &estop, true).1.as_deref(),
             Some("Klipper state: shutdown")
         );
+    }
+}
+
+#[cfg(test)]
+mod fan_role_tests {
+    use super::{controller_fan, hotend_fan, part_fan, point};
+    use serde_json::json;
+
+    /// 2026-10-27: the Adventurer 5M on Z-Mod, as its Moonraker reports it mid-print.
+    #[test]
+    fn ad5m_fans_are_found_by_role() {
+        let d = json!({
+            "fan_generic chamber_fan": {"speed": 0.0},
+            "fan_generic fanM106": {"speed": 0.7},
+            "heater_fan heat_fan": {"speed": 1.0},
+            "controller_fan driver_fan": {"speed": 0.5},
+        });
+        assert_eq!(
+            part_fan(&d)["speed"],
+            0.7,
+            "the chamber fan sorts first but is not the part fan"
+        );
+        assert_eq!(hotend_fan(&d)["speed"], 1.0);
+        assert_eq!(controller_fan(&d)["speed"], 0.5);
+        assert_eq!(point(1.0, &d)["fan"], 0.7);
+    }
+
+    #[test]
+    fn standard_names_win_and_missing_fans_stay_unknown() {
+        let voron = json!({"fan": {"speed": 0.3}, "fan_generic part_aux": {"speed": 0.9}, "heater_fan hotend_fan": {"speed": 1.0}});
+        assert_eq!(part_fan(&voron)["speed"], 0.3);
+        assert_eq!(hotend_fan(&voron)["speed"], 1.0);
+        // an empty standard object (subscribed but not on this printer) falls through, and nothing found stays null
+        let empty = json!({"fan": {}, "fan_generic chamber_fan": {"speed": 0.4}});
+        assert!(
+            part_fan(&empty)["speed"].is_null(),
+            "a chamber fan is never the part fan"
+        );
+        assert!(controller_fan(&empty)["speed"].is_null());
+        assert!(point(1.0, &empty)["fan"].is_null());
     }
 }

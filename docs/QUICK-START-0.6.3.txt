@@ -1,0 +1,92 @@
+STELLA SCOPE 0.6.3: QUICK START
+
+Stella Scope watches your 3D printers, one or a whole farm. It works with
+Klipper printers (Voron, Ender 3 with Klipper and others), Prusa printers
+(PrusaLink) and FlashForge printers (Adventurer 5M and 5M Pro). There is no
+account and no cloud: nothing leaves your computer.
+
+
+1. INSTALL
+
+Linux (64-bit Debian, Ubuntu and friends). In a terminal, in the folder that
+holds the file:
+
+    sudo apt install ./stella-scope_0.6.3_amd64.deb
+
+Windows 10 and 11: run stella-scope_0.6.3_x64-setup.exe and follow the
+installer. The installer is not code-signed yet, so Windows SmartScreen may
+say "Windows protected your PC". Press More info, check the file name is the
+one you downloaded, then Run anyway. You can check its SHA-256 against
+SHA256SUMS first.
+
+Android (the phone app): open stella_0.6.3_arm64.apk on your phone and allow
+installs from that source when Android asks. The phone app pairs with Stella
+Scope on your computer; see step 6.
+
+
+2. FIRST START
+
+Open Stella Scope. The first screen says Welcome and has one button, Open
+Stella Scope. Press it. No printer is added and nothing on your network is
+asked.
+
+A short walkthrough shows you around the first time. Skip it if you like; it
+is always under More, Walkthrough.
+
+
+3. NO PRINTER NEARBY? TRY THE DEMO FARM
+
+Press Try the demo farm. It adds nine simulated printers running sample
+prints. Nothing real is touched. Remove them later under More, Printers.
+
+
+4. ADD YOUR PRINTER
+
+Your printer and this computer must be on the same network.
+Press Add a printer. It takes four steps and only reads from the printer
+until the last one.
+
+  1. Find your printer. Press Search my network, or type the printer's
+     address yourself.
+  2. Connect. Type what your brand needs (below) and press Test connection.
+     Nothing is saved yet.
+  3. Name it and give it a colour.
+  4. Pick its 3D model, or skip it.
+
+What each brand needs:
+
+  Klipper (Voron, Ender 3 with Klipper and others)
+    The printer's Moonraker address, such as http://192.168.1.50:7125
+    An API key only if Moonraker asks for one.
+
+  Prusa (CORE One, CORE One L, MK4, MINI, XL)
+    The printer's address, such as http://192.168.1.60
+    The user name (usually maker) and the password. Both are in the
+    printer's own settings, under PrusaLink.
+
+  FlashForge (Adventurer 5M and 5M Pro)
+    Turn LAN mode on at the printer's screen first.
+    The check code shown there. Capital and small letters matter.
+
+There is no printer limit.
+
+
+5. THE 3D MODEL
+
+No 3D model comes in the download, so it stays small. Press Get the 3D model
+on a printer's tile and only that printer's model is downloaded.
+
+
+6. YOUR PHONE
+
+Open a printer, press Pair phone, and scan the code with the Stella app on
+Android. After that you can watch and control the printer from anywhere, over
+an encrypted link.
+
+
+7. HELP
+
+The full guide is inside the program: More, Help.
+If a printer does not answer, see Troubleshooting there.
+Tell us anything, good or bad: More, Feedback. Nothing is sent until you
+press Send.

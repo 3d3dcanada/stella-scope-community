@@ -250,17 +250,31 @@ fn next_ui_u01_control_kit_is_served() {
     }
 }
 
-/// 2026-09-24: style A knob (default) and B bar shared one control; speed and flow clicked into detents with 100% at the top; the choice was a setting.
-/// U02 (2026-10-20: a number is one piece, the LED gauge that becomes a knob when held) replaced both styles and the setting. The old dial stays exported for
+/// the owner 2026-09-24: style A knob (default) and B bar shared one control; speed and flow clicked into detents with 100% at the top; the choice was a setting.
+/// U02 (2026-10-20, the owner: a number is one piece, the LED gauge that becomes a knob when held) replaced both styles and the setting. The old dial stays exported for
 /// the pages that still use it (next-ui.js); the printer page uses the kit, each gauge with its own step from the kit's CONTROLS table; nothing offers a knob/bar choice.
 #[test]
 fn next_controls_knob_and_bar() {
     let text = |p: &str| String::from_utf8(crate::api::asset("GET", p).unwrap().body).unwrap();
-    let (ui, js, kit) = (text("/next-ui.js"), text("/next.js"), text("/next-control.js"));
+    let (ui, js, kit) = (
+        text("/next-ui.js"),
+        text("/next.js"),
+        text("/next-control.js"),
+    );
     assert!(ui.contains("export function control({style='knob'"));
-    assert!(js.contains("NXC.find(c=>c.key===k)"), "every gauge takes its steps from the kit's table");
-    assert!(kit.contains("key:'speed',label:'SPEED',unit:'%',min:10,max:200,step:5") && kit.contains("key:'flow',label:'FLOW',unit:'%',min:50,max:150,step:1"));
-    assert!(!js.contains("localStorage.setItem('nx-inst',v)") && !js.contains("section('Instrument style'"), "no knob/bar choice any more");
+    assert!(
+        js.contains("NXC.find(c=>c.key===k)"),
+        "every gauge takes its steps from the kit's table"
+    );
+    assert!(
+        kit.contains("key:'speed',label:'SPEED',unit:'%',min:10,max:200,step:5")
+            && kit.contains("key:'flow',label:'FLOW',unit:'%',min:50,max:150,step:1")
+    );
+    assert!(
+        !js.contains("localStorage.setItem('nx-inst',v)")
+            && !js.contains("section('Instrument style'"),
+        "no knob/bar choice any more"
+    );
 }
 
 /// NEXT review 2026-09-24, round three (the owner): part panels instead of a toast, the bed's mesh as a
@@ -278,11 +292,11 @@ fn next_review_round_three_is_served() {
         text("/hud-scene.js"),
     );
     for (file, marker, what) in [
-        // U02 (2026-10-20): one click on the machine grows it to fill the screen, so the click no longer picks a part; a part's panel opens from the Parts page.
+        // U02 (2026-10-20, the owner): one click on the machine grows it to fill the screen, so the click no longer picks a part; a part's panel opens from the Parts page.
         (
             &js,
             "scene=createScene($('nx-scene'),id=>openPart(id),",
-            "2026-10-24: a click on a part opens that part",
+            "the owner 2026-10-24: a click on a part opens that part",
         ),
         (
             &js,
@@ -294,8 +308,12 @@ fn next_review_round_three_is_served() {
             "btn?.hasAttribute('data-showing')",
             "a second press closes what the dock opened",
         ),
-        // 2026-10-23: the GAUGES key is gone; the gauges always stand on the machine.
-        (&js, "let gaugesFolded=false;", "the gauges are never folded away"),
+        // the owner 2026-10-23: the GAUGES key is gone; the gauges always stand on the machine.
+        (
+            &js,
+            "let gaugesFolded=false;",
+            "the gauges are never folded away",
+        ),
         (&js, "'nx-reticle'", "Z beside the nozzle"),
         (&js, "'sheet:level'", "rail opens the NEXT levelling page"),
         (&js, "openFile(path)", "a file row opens its details"),
@@ -464,7 +482,7 @@ fn next_review_round_six_is_served() {
     }
 }
 
-/// Round seven (2026-09-24): NEXT opens at "/", Z babystep, the filament wizard, print history,
+/// Round seven (the owner 2026-09-24): NEXT opens at "/", Z babystep, the filament wizard, print history,
 /// maintenance, input shaper and belts, and the camera passed through as a real stream.
 #[test]
 fn next_round_seven_is_served() {
@@ -477,7 +495,7 @@ fn next_round_seven_is_served() {
     for (file, marker, what) in [
         (&pages, "export function babystep(", "Z babystep"),
         (&pages, "export function pageFilament(", "filament wizard"),
-        (&pages, "Hot. Push the", "a load asks before it feeds filament (an unload runs by itself once hot, 2026-09-25)"),
+        (&pages, "Hot. Push the", "a load asks before it feeds filament (an unload runs by itself once hot, the owner 2026-09-25)"),
         (&pages, "export function pageHistory(", "print history"),
         (&pages, "export function pageMaintenance(", "maintenance reminders"),
         (&pages, "export function pageShaper(", "input shaper"),
@@ -491,7 +509,7 @@ fn next_round_seven_is_served() {
     }
 }
 
-/// Round nine/ten (2026-09-25): compact bars stand upright and stack exactly like the knobs,
+/// Round nine/ten (the owner 2026-09-25): compact bars stand upright and stack exactly like the knobs,
 /// dock choices open as radials, and the phone has its own page on the rail.
 #[test]
 fn next_round_nine_is_served() {
@@ -526,7 +544,10 @@ fn next_round_nine_is_served() {
 #[test]
 fn next_ui_u02_printer_page_is_on_the_kit() {
     let text = |p: &str| String::from_utf8(crate::api::asset("GET", p).unwrap().body).unwrap();
-    assert_eq!(crate::api::asset("GET", "/next-stage.js").unwrap().code, 200);
+    assert_eq!(
+        crate::api::asset("GET", "/next-stage.js").unwrap().code,
+        200
+    );
     let (html, js, css, stage, kit, kit_css) = (
         text("/next"),
         text("/next.js"),
@@ -550,10 +571,10 @@ fn next_ui_u02_printer_page_is_on_the_kit() {
         (&js, "const fanOf=f=>stale||!f||f.speed===null||f.speed===undefined?{value:null}:", "a printer that is off shows no fan speed"),
         (&js, "function renderBar(", "the keys are the kit's square keys in the one bar"),
         (&js, "function foldGauges(", "the gauges fold into the bar"),
-        (&js, "the GAUGES key is gone", "no Gauges key (2026-10-23)"),
+        (&js, "the GAUGES key is gone", "no Gauges key (the owner 2026-10-23)"),
         (&js, "ui.back=nxkey({label:", "Back to the farm is a key"),
         (&js, "location.href='/farm'", "and it goes to the farm"),
-        (&js, "scene=createScene($('nx-scene'),id=>openPart(id),", "2026-10-24: a click on a part opens that part; a click on empty space does nothing"),
+        (&js, "scene=createScene($('nx-scene'),id=>openPart(id),", "the owner 2026-10-24: a click on a part opens that part; a click on empty space does nothing"),
         (&js, "initStage({scene:()=>scene", "the stage's click, zoom and reset are wired"),
         (&js, "function show3d(){", "the 3D machine on every device"),
         (&js, "id='nx-bgcam'", "Camera fills the whole background"),
@@ -578,10 +599,13 @@ fn next_ui_u02_printer_page_is_on_the_kit() {
     }
     // nothing of the old arrangement is left: no pager, no corner arrows, no knob/bar switch
     assert!(!html.contains("nx-pager"), "the phone pager is gone");
-    assert!(!js.contains("nx-flip") && !js.contains("setInstStyle"), "no corner arrows, no knob/bar switch");
+    assert!(
+        !js.contains("nx-flip") && !js.contains("setInstStyle"),
+        "no corner arrows, no knob/bar switch"
+    );
     // the pill for the position lives in the bar, not as a second glass capsule
     assert!(!js.contains("pos.classList.add('nx-glass')"));
-    // and no little arrow in the corner of a key that opens something (2026-10-20): the pressed key says what is open
+    // and no little arrow in the corner of a key that opens something (the owner 2026-10-20): the pressed key says what is open
     assert!(!js.contains("el('i','nx-caret')"));
 }
 
@@ -618,8 +642,17 @@ fn next_ui_u03_load_header_and_readings_are_fixed_at_the_root() {
 #[test]
 fn next_ui_u06_the_printers_pages_are_on_the_kit() {
     let text = |p: &str| String::from_utf8(crate::api::asset("GET", p).unwrap().body).unwrap();
-    assert_eq!(crate::api::asset("GET", "/next-pages.css").unwrap().mime, "text/css; charset=utf-8");
-    let (html, pages, css, js, kit) = (text("/next"), text("/next-pages.js"), text("/next-pages.css"), text("/next.js"), text("/next-control.js"));
+    assert_eq!(
+        crate::api::asset("GET", "/next-pages.css").unwrap().mime,
+        "text/css; charset=utf-8"
+    );
+    let (html, pages, css, js, kit) = (
+        text("/next"),
+        text("/next-pages.js"),
+        text("/next-pages.css"),
+        text("/next.js"),
+        text("/next-control.js"),
+    );
     for (file, marker, what) in [
         (&html, "href=\"/next-pages.css\"", "the pages' stylesheet is on the page"),
         (&pages, "import {control as kctl,key as nkey,CONTROLS as KC,click as kclick} from './next-control.js'", "the pages import the kit, not their own dial"),
@@ -647,7 +680,7 @@ fn next_ui_u06_the_printers_pages_are_on_the_kit() {
         (&js, "u06(body);const list", "Macros are in the page language"),
         (&js, "u06(body);const log=el('div','nx-console')", "and the Console"),
         (&css, ".nx-u06 .nx-btn{", "the page's buttons are square keys with a depth edge"),
-        (&css, ".nx-u06 .nx-btn:active", "a press eats the key's depth (corners: look A, 2026-10-23, in next-look.css)"),
+        (&css, ".nx-u06 .nx-btn:active", "a press eats the key's depth (corners: look A, the owner 2026-10-23, in next-look.css)"),
         (&css, ".nx-u06 .nx-stat-v{", "a number that is read is an LED figure"),
         (&css, ".nx-u06 .nx-seg button", "tabs and choices are separate square keys"),
         (&css, ".nx-u06 .nx-filring::before", "the filament ring is LED chiclets"),
@@ -658,9 +691,20 @@ fn next_ui_u06_the_printers_pages_are_on_the_kit() {
         assert!(file.contains(marker), "{what}: {marker} not served");
     }
     // nothing of the old arrangement is left: no old knob or fan ring in the pages, no corner arrows, no pills on a state
-    assert!(!pages.contains("control({style:'knob'") && !pages.contains("fanRing(") && !pages.contains("stepper("), "the old dials are gone from the pages");
-    assert!(!pages.contains("nx-lv-arrow"), "no corner arrow on a gantry corner");
-    assert!(!pages.contains("roundRect"), "no rounded labels drawn on the mesh");
+    assert!(
+        !pages.contains("control({style:'knob'")
+            && !pages.contains("fanRing(")
+            && !pages.contains("stepper("),
+        "the old dials are gone from the pages"
+    );
+    assert!(
+        !pages.contains("nx-lv-arrow"),
+        "no corner arrow on a gantry corner"
+    );
+    assert!(
+        !pages.contains("roundRect"),
+        "no rounded labels drawn on the mesh"
+    );
     assert!(!css.contains("999px"), "no pill");
 }
 
@@ -673,7 +717,14 @@ fn next_ui_u05_u07_nothing_pops_up_and_the_alarm_takes_the_screen() {
     for p in ["/next-frame.css", "/next-alarm.js"] {
         assert_eq!(crate::api::asset("GET", p).unwrap().code, 200, "{p}");
     }
-    let (ui, kit, frame, alarm, fleet, core) = (text("/next-ui.js"), text("/next-control.js"), text("/next-frame.css"), text("/next-alarm.js"), text("/next-fleet.js"), text("/next-core.js"));
+    let (ui, kit, frame, alarm, fleet, core) = (
+        text("/next-ui.js"),
+        text("/next-control.js"),
+        text("/next-frame.css"),
+        text("/next-alarm.js"),
+        text("/next-fleet.js"),
+        text("/next-core.js"),
+    );
     let (farm_html, next_html, js_page) = (text("/farm"), text("/next"), text("/next.js"));
     for (file, marker, what) in [
         (&farm_html, "href=\"/next-frame.css\"", "the farm page loads the frame"),
@@ -718,30 +769,86 @@ fn next_ui_u05_u07_nothing_pops_up_and_the_alarm_takes_the_screen() {
         assert!(file.contains(marker), "{what}: {marker} not served");
     }
     // the old slide-in is gone with its closed-state offset
-    assert!(!ui.contains("setTimeout(()=>{if(!host.dataset.open)host.hidden=true;},260)"), "a sheet no longer waits 260 ms and disappears");
+    assert!(
+        !ui.contains("setTimeout(()=>{if(!host.dataset.open)host.hidden=true;},260)"),
+        "a sheet no longer waits 260 ms and disappears"
+    );
     // nothing else in the alarm sends a command, and nothing is stopped without being asked
-    assert!(!alarm.contains("cancel") && !alarm.contains("emergency"), "the alarm never cancels or stops anything");
+    assert!(
+        !alarm.contains("cancel") && !alarm.contains("emergency"),
+        "the alarm never cancels or stops anything"
+    );
 }
 
-/// 2026-10-22 (Stella): CANCEL in the paused bar did nothing and said nothing; Klipper got PAUSE and never CANCEL_PRINT. A key that has to be held says so from the first touch
+/// the owner 2026-10-22 (Stella): CANCEL in the paused bar did nothing and said nothing; Klipper got PAUSE and never CANCEL_PRINT. A key that has to be held says so from the first touch
 /// (a line and a filling ring), says "not sent" when the hand lets go early, and a completed hold is itself the confirmation: it goes with confirm:true, without a review dialog,
 /// and the HUD says "Print cancelled, heaters off" only when the printer's own state reads cancelled with both heater targets at 0.
 #[test]
 fn next_hold_keys_say_what_holding_does_and_a_cancel_is_confirmed_by_the_printer() {
     let text = |p: &str| String::from_utf8(crate::api::asset("GET", p).expect(p).body).unwrap();
-    let (gesture, core, ui, js, css) = (text("/next-gesture.js"), text("/next-core.js"), text("/next-ui.js"), text("/next.js"), text("/next.css"));
+    let (gesture, core, ui, js, css) = (
+        text("/next-gesture.js"),
+        text("/next-core.js"),
+        text("/next-ui.js"),
+        text("/next.js"),
+        text("/next.css"),
+    );
     for (file, marker, what) in [
-        (&gesture, "onStart?.();frame=requestAnimationFrame(tick)", "a hold says when it starts"),
-        (&core, "export const HOLD_NOT_SENT='Not sent. Hold the key until the ring is full.'", "an early release says nothing was sent"),
-        (&core, "cancel:'Hold to cancel the print'", "the line above the cancel key"),
-        (&core, "motors_off:'Hold to switch the motors off'", "and above motors off"),
-        (&core, "words:'Print cancelled, heaters off'", "the printer's own state confirms the cancel"),
-        (&ui, "export function holdLine(near,text,tone='',ms=0)", "one line above a held key"),
-        (&ui, "onStart:()=>holdLine(b,holdWords(cmd,title||label))", "every hold key made by button() says what holding does"),
-        (&ui, "onCancel:()=>holdLine(b,HOLD_NOT_SENT,'warn',3500)", "and says not sent on an early release"),
-        (&js, "onStart:()=>holdLine(b,holdWords(s.cmd||s.key,s.title||s.label))", "the bar's hold keys too (cancel, motors off)"),
-        (&js, "execute(id,{},true,slot.title||slot.label)", "a completed hold sends with confirm:true and no second review"),
-        (&js, "cancelVerdict(state.readings,", "the HUD reads the printer's state before it says cancelled"),
+        (
+            &gesture,
+            "onStart?.();frame=requestAnimationFrame(tick)",
+            "a hold says when it starts",
+        ),
+        (
+            &core,
+            "export const HOLD_NOT_SENT='Not sent. Hold the key until the ring is full.'",
+            "an early release says nothing was sent",
+        ),
+        (
+            &core,
+            "cancel:'Hold to cancel the print'",
+            "the line above the cancel key",
+        ),
+        (
+            &core,
+            "motors_off:'Hold to switch the motors off'",
+            "and above motors off",
+        ),
+        (
+            &core,
+            "words:'Print cancelled, heaters off'",
+            "the printer's own state confirms the cancel",
+        ),
+        (
+            &ui,
+            "export function holdLine(near,text,tone='',ms=0)",
+            "one line above a held key",
+        ),
+        (
+            &ui,
+            "onStart:()=>holdLine(b,holdWords(cmd,title||label))",
+            "every hold key made by button() says what holding does",
+        ),
+        (
+            &ui,
+            "onCancel:()=>holdLine(b,HOLD_NOT_SENT,'warn',3500)",
+            "and says not sent on an early release",
+        ),
+        (
+            &js,
+            "onStart:()=>holdLine(b,holdWords(s.cmd||s.key,s.title||s.label))",
+            "the bar's hold keys too (cancel, motors off)",
+        ),
+        (
+            &js,
+            "execute(id,{},true,slot.title||slot.label)",
+            "a completed hold sends with confirm:true and no second review",
+        ),
+        (
+            &js,
+            "cancelVerdict(state.readings,",
+            "the HUD reads the printer's state before it says cancelled",
+        ),
         (&css, ".nx-holdline{", "the line is styled"),
     ] {
         assert!(file.contains(marker), "{what}: {marker} not served");
@@ -755,7 +862,12 @@ fn next_hold_keys_say_what_holding_does_and_a_cancel_is_confirmed_by_the_printer
 #[test]
 fn next_filament_asks_first_waits_then_cools_and_shakes() {
     let text = |p: &str| String::from_utf8(crate::api::asset("GET", p).expect(p).body).unwrap();
-    let (pages, core, js, css) = (text("/next-pages.js"), text("/next-core.js"), text("/next.js"), text("/next.css"));
+    let (pages, core, js, css) = (
+        text("/next-pages.js"),
+        text("/next-core.js"),
+        text("/next.js"),
+        text("/next.css"),
+    );
     for (file, marker, what) in [
         (&pages, "export function filPicker(kind,{auto=false}={})", "Load and Unload ask first"),
         (&pages, "let pick=load?(mats.some(m=>m.name===fil.mat)?fil.mat:null):(mats.some(m=>m.name===inName)?inName:null);", "an unload starts on what is in the extruder; a load has to be picked"),
@@ -789,14 +901,23 @@ fn next_filament_asks_first_waits_then_cools_and_shakes() {
     }
 }
 
-/// Look A (2026-10-23): the glass cockpit is one stylesheet loaded last on the printer page and the farm wall. It keeps the 10-20 layout (the sidebar,
+/// Look A (the owner, 2026-10-23): the glass cockpit is one stylesheet loaded last on the printer page and the farm wall. It keeps the 10-20 layout (the sidebar,
 /// the gauges on the machine, the dock) and changes the surface: the sidebar names its pages under their icons, each gauge stands on a solid holographic disc,
 /// the panels are the same glass, the GAUGES key is gone and a right click on a gauge types its value.
 #[test]
 fn look_a_glass_cockpit_is_loaded_everywhere_and_keeps_the_layout() {
     let text = |p: &str| String::from_utf8(crate::api::asset("GET", p).expect(p).body).unwrap();
-    assert_eq!(crate::api::asset("GET", "/next-look.css").unwrap().mime, "text/css; charset=utf-8");
-    let (look, farm_html, next_html, kit, js) = (text("/next-look.css"), text("/farm"), text("/next"), text("/next-control.js"), text("/next.js"));
+    assert_eq!(
+        crate::api::asset("GET", "/next-look.css").unwrap().mime,
+        "text/css; charset=utf-8"
+    );
+    let (look, farm_html, next_html, kit, js) = (
+        text("/next-look.css"),
+        text("/farm"),
+        text("/next"),
+        text("/next-control.js"),
+        text("/next.js"),
+    );
     for (file, marker, what) in [
         (&next_html, "<link rel=\"stylesheet\" href=\"/next-frame.css\">\n<link rel=\"stylesheet\" href=\"/next-look.css\">", "the printer page loads the look last"),
         (&farm_html, "<link rel=\"stylesheet\" href=\"/farm.css\">\n<link rel=\"stylesheet\" href=\"/next-look.css\">", "the farm wall loads the look last"),
@@ -809,6 +930,134 @@ fn look_a_glass_cockpit_is_loaded_everywhere_and_keeps_the_layout() {
     ] {
         assert!(file.contains(marker), "{what}: missing {marker}");
     }
-    assert!(!js.contains("nxkey({label:'GAUGES'"), "the GAUGES key is gone");
-    assert!(!next_html.contains("next-shell.css"), "the rejected rebuild's shell is not loaded");
+    assert!(
+        !js.contains("nxkey({label:'GAUGES'"),
+        "the GAUGES key is gone"
+    );
+    assert!(
+        !next_html.contains("next-shell.css"),
+        "the rejected rebuild's shell is not loaded"
+    );
+}
+
+/// fix-0.6.2 WO-01 and WO-02 (2026-10-29): the HUD wiring of the AD5M fixes is in the bytes it serves. The data side is tested where it is built
+/// (workspace, signals, driver); these markers keep the page from losing the other half.
+#[test]
+fn the_machine_fit_and_klipper_data_fixes_are_wired_into_the_served_hud() {
+    let get = |p: &str| String::from_utf8(crate::api::asset("GET", p).unwrap().body).unwrap();
+    let (next, core, pages, calib, health, hud) = (
+        get("/next.js"),
+        get("/next-core.js"),
+        get("/next-pages.js"),
+        get("/next-calibrate.js"),
+        get("/next-health.js"),
+        get("/hud-core.js"),
+    );
+    for (file, marker, what) in [
+        (
+            &core,
+            "layerZ:number(point?.layer_z)",
+            "the bottom bar's Z is the layer Z",
+        ),
+        (
+            &next,
+            "const lz=v=>finite(state.readings?.layerZ)??v",
+            "paintPos shows the layer Z",
+        ),
+        (
+            &core,
+            "sections:point?.sections||null",
+            "the readings carry the printer's config sections",
+        ),
+        (
+            &next,
+            "noCamera:!has('camera')",
+            "no camera key on a printer without a webcam",
+        ),
+        (
+            &next,
+            "hide($('nx-camtoggle'),!has('camera'))",
+            "no camera button either",
+        ),
+        (
+            &next,
+            "has('camera')?cameras():[]",
+            "no camera call when the printer has none",
+        ),
+        (
+            &next,
+            "function fitMachine()",
+            "the words follow the machine",
+        ),
+        (
+            &next,
+            "'BOARD FAN'",
+            "a one-Z printer's controller fan is the board fan",
+        ),
+        (&next, "There is no 3D model for ", "the no-model message"),
+        (
+            &pages,
+            "qgl=sec?.quad_gantry_level!==false",
+            "the gantry only where there is a quad_gantry_level",
+        ),
+        (
+            &pages,
+            "SCREWS_TILT_CALCULATE",
+            "the levelling macros the printer has",
+        ),
+        (
+            &pages,
+            "Bed load cell (weight)",
+            "the load cell is named for what it is",
+        ),
+        (
+            &calib,
+            "ctx.tick?.()?.point?.sections",
+            "Calibrate follows the reported sections when controls are off",
+        ),
+        (
+            &health,
+            "'current setting'",
+            "Health shows a driver's set current when it reports no load",
+        ),
+        (
+            &health,
+            "shaper_freq_",
+            "Health's X and Y cards take the configured input shaper",
+        ),
+        (
+            &hud,
+            "(weight|load)",
+            "the load cell's reading has no degree sign",
+        ),
+    ] {
+        assert!(file.contains(marker), "{what}: {marker} not served");
+    }
+}
+
+/// fix-0.6.2 WO-05 to WO-08 (the owner 2026-10-30): what the page must carry for the gauges, the opened tile, the knob and the belts. Layout is proved by the screens in the evidence folders; this keeps the rules from being lost.
+#[test]
+fn the_gauge_stacks_the_opened_tile_the_knob_and_the_belts_are_in_the_served_bytes() {
+    let text = |p: &str| String::from_utf8(crate::api::asset("GET", p).unwrap().body).unwrap();
+    let (pro, kit, kitcss, js, view, follow) = (
+        text("/next-pro.css"),
+        text("/next-control.js"),
+        text("/next-control.css"),
+        text("/next.js"),
+        text("/model-view.js"),
+        text("/model-follow.js"),
+    );
+    for (body, what, why) in [
+        (&pro, "#nx-right .nxctl{--nxctl-size:var(--rr)!important}", "the right stack's rings are sized by how many stand in it"),
+        (&pro, ".nx-stagecard .nx-md-tools{right:calc(24px + var(--safe-r) + var(--rr) + 14px)!important}", "the cube and the model key stand to the left of the stack"),
+        (&pro, "body[data-layout=phone] .nx-fans{display:flex!important;flex-direction:column", "the phone's fans are a stack on the right edge"),
+        (&pro, ".fm-tile[data-open]{top:50%;bottom:auto;left:0;right:0;translate:0 -50%;", "the opened tile is sized to what is in it, in WebKitGTK too"),
+        (&js, "const fanHere=k=>", "a fan gauge stands when the printer has that fan"),
+        (&kit, "export function heldPlace(", "the held knob's place is one tested rule"),
+        (&kitcss, ".nxctl.held.under{opacity:0}", "a knob on its gauge replaces it"),
+        (&view, "moveFlex(g)", "the belts move with the pose"),
+        (&follow, "export function beltWeights(", "the belts' rule is one pure function"),
+    ] {
+        assert!(body.contains(what), "{why}: {what}");
+    }
 }

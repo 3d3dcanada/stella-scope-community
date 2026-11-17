@@ -7,7 +7,7 @@
  const m=/^\/p\/([a-z0-9-]{1,32})(?:\/|$)/.exec(location.pathname),id=m?m[1]:null;
  window.__stellaPrinter=id;
  if(!id)return;
- const GLOBAL=/^\/api\/(printers|printer-models|pair|notify|capabilities|eye\/switch|licence|alerts|analytics|spools|farm|slicer|version|queue(?!\/start))(\/|\?|$)/;
+ const GLOBAL=/^\/api\/(printers|printer-models|pair|notify|capabilities|eye\/switch|licence|alerts|analytics|spools|farm|slicer|version|tour|queue(?!\/start))(\/|\?|$)/;
  const scope=u=>typeof u==='string'&&u.startsWith('/api/')&&!u.startsWith('/api/p/')&&!GLOBAL.test(u)?'/api/p/'+id+u.slice(4):u;
  window.stellaScope=scope;
  const nativeFetch=window.fetch.bind(window);

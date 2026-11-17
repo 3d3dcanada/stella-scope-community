@@ -87,7 +87,11 @@ fn file_body(
     if let Some(body) = file_cache::get(&key) {
         return Some(Ok(body));
     }
-    Some(driver.file_bytes(filename, MAX_GCODE_BYTES).inspect(|body| file_cache::put(key, body.clone())))
+    Some(
+        driver
+            .file_bytes(filename, MAX_GCODE_BYTES)
+            .inspect(|body| file_cache::put(key, body.clone())),
+    )
 }
 
 /// The last print files read from printers (see `handle`): three, kept 30 minutes.
@@ -102,7 +106,9 @@ mod file_cache {
     pub fn get(key: &str) -> Option<Vec<u8>> {
         let mut c = CACHE.lock().ok()?;
         c.retain(|(_, at, _)| at.elapsed() < KEEP);
-        c.iter().find(|(k, _, _)| k == key).map(|(_, _, b)| b.clone())
+        c.iter()
+            .find(|(k, _, _)| k == key)
+            .map(|(_, _, b)| b.clone())
     }
     pub fn put(key: String, bytes: Vec<u8>) {
         let Ok(mut c) = CACHE.lock() else { return };
@@ -223,7 +229,10 @@ mod thumb_cache {
         let map = g.get_or_insert_with(HashMap::new);
         if map.len() >= MAX {
             map.retain(|_, (at, _)| at.elapsed() < KEEP);
-            let oldest = map.iter().min_by_key(|(_, (at, _))| *at).map(|(k, _)| k.clone());
+            let oldest = map
+                .iter()
+                .min_by_key(|(_, (at, _))| *at)
+                .map(|(k, _)| k.clone());
             if let (true, Some(k)) = (map.len() >= MAX, oldest) {
                 map.remove(&k);
             }
@@ -339,8 +348,11 @@ mod tests {
     fn refuses_path_separators_and_traversal_without_calling_moonraker() {
         for name in [
             "..%2Fprinter.cfg",
-            "sub%2Fpart.gcode",
             "..%5Cprinter.cfg",
+            "%2Fetc%2Fx.gcode",
+            "a%2F%2Fb.gcode",
+            "a%5Cb.gcode",
+            "sub%2F..%2Fx.gcode",
             "a..b.gcode",
             "",
         ] {
@@ -456,6 +468,87 @@ mod tests {
         );
     }
 
+    // fix-0.6.2 WO-01 item 1 (2026-10-29): Orca's upload to a Z-Mod AD5M lands in `3mf_print/`. The name with a folder and a space is accepted
+    // (the real job name from the 10-28 run), the picture is fetched from that folder's `.thumbs/`, and the toolpath proxy asks for the same path.
+    const SUBFOLDER_JOB: &str = "3mf_print/Luca R30 paddle(01)_PETG_0.2_1h48m.gcode";
+    #[test]
+    fn a_file_in_a_subfolder_has_its_thumbnail_in_that_folders_thumbs() {
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        png.extend_from_slice(b"subfolder-thumbnail");
+        let (url, worker) = fake_raw(vec![
+            (
+                "application/json",
+                json!({"result":{"thumbnails":[{"width":300,"height":300,"relative_path":".thumbs/Luca R30 paddle(01)-300x300.png"}]}})
+                    .to_string()
+                    .into_bytes(),
+            ),
+            ("image/png", png.clone()),
+        ]);
+        let target = format!(
+            "/api/print/thumbnail?filename={}",
+            crate::moonraker::encode(SUBFOLDER_JOB)
+        );
+        let response = thumbnail_handle("GET", &target, &cfg(url));
+        let requests = worker.join().unwrap();
+        assert_eq!(response.code, 200);
+        assert_eq!(response.body, png);
+        assert!(
+            requests[0].starts_with("GET /server/files/metadata?filename=3mf_print%2FLuca%20R30%20paddle%2801%29_PETG_0.2_1h48m.gcode "),
+            "metadata request was {:?}",
+            requests[0].lines().next()
+        );
+        assert!(
+            requests[1].starts_with("GET /server/files/gcodes/3mf_print/.thumbs/Luca%20R30%20paddle%2801%29-300x300.png "),
+            "thumbnail request was {:?}",
+            requests[1].lines().next()
+        );
+    }
+
+    #[test]
+    fn a_file_in_a_subfolder_is_proxied_by_its_path() {
+        let gcode = ";LAYER_CHANGE\n;Z:0.2\nG1 X10 Y10 E1\n".to_owned();
+        let (url, worker) = fake(vec![
+            (
+                "application/json",
+                json!({"result":{"size":gcode.len()}}).to_string(),
+            ),
+            ("text/plain", gcode.clone()),
+        ]);
+        let target = format!(
+            "/api/print/gcode?filename={}",
+            crate::moonraker::encode(SUBFOLDER_JOB)
+        );
+        let response = handle("GET", &target, &cfg(url));
+        let requests = worker.join().unwrap();
+        assert_eq!(response.code, 200);
+        assert_eq!(response.body, gcode.as_bytes());
+        assert!(
+            requests[1].starts_with("GET /server/files/gcodes/3mf_print/Luca%20R30%20paddle%2801%29_PETG_0.2_1h48m.gcode "),
+            "file request was {:?}",
+            requests[1].lines().next()
+        );
+    }
+
+    #[test]
+    fn the_name_check_takes_a_relative_path_and_refuses_the_rest() {
+        assert!(check_gcode_name(SUBFOLDER_JOB).is_ok());
+        assert!(check_gcode_name("cube.gcode").is_ok());
+        for bad in [
+            "../x.gcode",
+            "/etc/x",
+            "a//b.gcode",
+            "a\\b.gcode",
+            "a/",
+            "a/../b.gcode",
+            "a/b\n.gcode",
+            "a/\0.gcode",
+            "a.gcode?x=1",
+            "",
+        ] {
+            assert!(check_gcode_name(bad).is_err(), "{bad:?} must be refused");
+        }
+    }
+
     // Finish-2 F07 (2026-10-19): the picture of a dry run is the original file's, asked for by the original's name; a copy has none of its own.
     #[test]
     fn a_dry_run_copy_shows_the_originals_picture() {
@@ -499,7 +592,11 @@ mod tests {
         assert_eq!(response.code, 204, "nothing to show is not an error");
         assert!(response.body.is_empty());
         assert_eq!(requests.len(), 1);
-        assert!(requests[0].starts_with("GET /server/files/metadata?filename=Bare.gcode "), "{:?}", requests[0].lines().next());
+        assert!(
+            requests[0].starts_with("GET /server/files/metadata?filename=Bare.gcode "),
+            "{:?}",
+            requests[0].lines().next()
+        );
     }
 
     #[test]
@@ -590,15 +687,23 @@ pub fn file_handle(method: &str, target: &str, cfg: &Config) -> Response {
     let mut layers: Option<(u32, f64)> = None;
     let (tail, head, settings_state) = if cfg.driver == "moonraker" {
         (
-            Moonraker::new(cfg).gcode_tail(filename, 65536).unwrap_or_default(),
+            Moonraker::new(cfg)
+                .gcode_tail(filename, 65536)
+                .unwrap_or_default(),
             String::new(),
             "read",
         )
     } else if filename.to_ascii_lowercase().ends_with(".bgcode") {
         (String::new(), String::new(), "binary")
-    } else if let Some(size) = metadata["size"].as_f64().filter(|s| *s > 0.0 && *s <= MAX_GCODE_BYTES as f64) {
+    } else if let Some(size) = metadata["size"]
+        .as_f64()
+        .filter(|s| *s > 0.0 && *s <= MAX_GCODE_BYTES as f64)
+    {
         let ask = q.get("settings").is_some_and(|v| v.as_str() == "1");
-        match open(cfg).ok().and_then(|d| file_body(cfg, &*d, filename, size as usize, ask)) {
+        match open(cfg)
+            .ok()
+            .and_then(|d| file_body(cfg, &*d, filename, size as usize, ask))
+        {
             Some(Ok(body)) if body.starts_with(b"GCDE") => (String::new(), String::new(), "binary"),
             Some(Ok(body)) => {
                 layers = layer_facts(&body);
@@ -651,22 +756,42 @@ pub fn layer_facts(body: &[u8]) -> Option<(u32, f64)> {
 
 /// What a PrusaSlicer or OrcaSlicer text file says about itself, for a printer that cannot say it (PrusaLink sends none of it for a plain
 /// `.gcode`): the slicer from the first lines, the estimate, the filament and the layer height from the end. Missing stays missing.
-pub fn file_facts(head: &str, tail: &str, settings: &serde_json::Map<String, serde_json::Value>) -> serde_json::Map<String, serde_json::Value> {
+pub fn file_facts(
+    head: &str,
+    tail: &str,
+    settings: &serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Map<String, serde_json::Value> {
     let mut out = serde_json::Map::new();
-    if let Some(rest) = head.lines().find_map(|l| l.trim().strip_prefix("; generated by ")) {
+    if let Some(rest) = head
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("; generated by "))
+    {
         let mut words = rest.split_whitespace();
         if let Some(name) = words.next() {
             out.insert("slicer".into(), json!(name));
-            if let Some(v) = words.next().filter(|v| v.chars().next().is_some_and(|c| c.is_ascii_digit())) {
+            if let Some(v) = words
+                .next()
+                .filter(|v| v.chars().next().is_some_and(|c| c.is_ascii_digit()))
+            {
                 out.insert("slicer_version".into(), json!(v));
             }
         }
     }
-    let value = |key: &str| tail.lines().find_map(|l| l.trim().strip_prefix(';').and_then(|r| r.split_once('=')).filter(|(k, _)| k.trim().eq_ignore_ascii_case(key)).map(|(_, v)| v.trim().to_owned()));
+    let value = |key: &str| {
+        tail.lines().find_map(|l| {
+            l.trim()
+                .strip_prefix(';')
+                .and_then(|r| r.split_once('='))
+                .filter(|(k, _)| k.trim().eq_ignore_ascii_case(key))
+                .map(|(_, v)| v.trim().to_owned())
+        })
+    };
     if let Some(t) = value("estimated printing time (normal mode)") {
         let mut s = 0.0;
         for part in t.split_whitespace() {
-            let Some(at) = part.find(|c: char| c.is_ascii_alphabetic()) else { continue };
+            let Some(at) = part.find(|c: char| c.is_ascii_alphabetic()) else {
+                continue;
+            };
             let n: f64 = part[..at].parse().unwrap_or(0.0);
             s += n * match &part[at..] {
                 "d" => 86400.0,
@@ -679,24 +804,55 @@ pub fn file_facts(head: &str, tail: &str, settings: &serde_json::Map<String, ser
             out.insert("estimated_time".into(), json!(s));
         }
     }
-    let number = |text: Option<String>| text.and_then(|t| t.split([',', ';']).next().and_then(|n| n.trim().parse::<f64>().ok()));
+    let number = |text: Option<String>| {
+        text.and_then(|t| {
+            t.split([',', ';'])
+                .next()
+                .and_then(|n| n.trim().parse::<f64>().ok())
+        })
+    };
     if let Some(mm) = number(value("filament used [mm]")) {
         out.insert("filament_total".into(), json!(mm));
     }
-    if let Some(g) = number(value("total filament used [g]").or_else(|| value("filament used [g]"))) {
+    if let Some(g) = number(value("total filament used [g]").or_else(|| value("filament used [g]")))
+    {
         out.insert("filament_weight_total".into(), json!(g));
     }
-    for (from, to) in [("layer_height", "layer_height"), ("first_layer_height", "first_layer_height"), ("nozzle_diameter", "nozzle_diameter")] {
-        if let Some(n) = number(settings.get(from).and_then(|v| v.as_str()).map(str::to_owned).or_else(|| value(from))) {
+    for (from, to) in [
+        ("layer_height", "layer_height"),
+        ("first_layer_height", "first_layer_height"),
+        ("nozzle_diameter", "nozzle_diameter"),
+    ] {
+        if let Some(n) = number(
+            settings
+                .get(from)
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+                .or_else(|| value(from)),
+        ) {
             out.insert(to.into(), json!(n));
         }
     }
-    for (from, to) in [("first_layer_temperature", "first_layer_extr_temp"), ("first_layer_bed_temperature", "first_layer_bed_temp")] {
-        if let Some(n) = number(settings.get(from).and_then(|v| v.as_str()).map(str::to_owned).or_else(|| value(from))) {
+    for (from, to) in [
+        ("first_layer_temperature", "first_layer_extr_temp"),
+        ("first_layer_bed_temperature", "first_layer_bed_temp"),
+    ] {
+        if let Some(n) = number(
+            settings
+                .get(from)
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+                .or_else(|| value(from)),
+        ) {
             out.insert(to.into(), json!(n));
         }
     }
-    if let Some(t) = settings.get("filament_type").and_then(|v| v.as_str()).map(|s| s.split(';').next().unwrap_or("").to_owned()).filter(|s| !s.is_empty()) {
+    if let Some(t) = settings
+        .get("filament_type")
+        .and_then(|v| v.as_str())
+        .map(|s| s.split(';').next().unwrap_or("").to_owned())
+        .filter(|s| !s.is_empty())
+    {
         out.insert("filament_type".into(), json!(t));
     }
     out
@@ -785,10 +941,14 @@ mod file_detail_tests {
     }
 
     fn sliced_text() -> Vec<u8> {
-        let mut t = String::from("; generated by PrusaSlicer 2.9.6 on 2026-10-17 at 14:02:00 UTC\n");
+        let mut t =
+            String::from("; generated by PrusaSlicer 2.9.6 on 2026-10-17 at 14:02:00 UTC\n");
         for i in 0..6000 {
             if i % 2000 == 0 {
-                t.push_str(&format!(";LAYER_CHANGE\n;Z:{:.1}\n", 0.2 + 0.2 * (i / 2000) as f64));
+                t.push_str(&format!(
+                    ";LAYER_CHANGE\n;Z:{:.1}\n",
+                    0.2 + 0.2 * (i / 2000) as f64
+                ));
             }
             t.push_str(&format!("G1 X{} Y{} E0.1\n", i % 100, i % 90));
         }
@@ -801,13 +961,26 @@ mod file_detail_tests {
             driver: "prusalink".into(),
             moonraker_url: p.url(),
             printer_id: "t-details".into(),
-            secret: crate::config::Secret([("user".to_owned(), "maker".to_owned()), ("password".to_owned(), "secret".to_owned())].into()),
+            secret: crate::config::Secret(
+                [
+                    ("user".to_owned(), "maker".to_owned()),
+                    ("password".to_owned(), "secret".to_owned()),
+                ]
+                .into(),
+            ),
             ..crate::config::Config::default()
         }
     }
 
     fn details(cfg: &crate::config::Config, name: &str, settings: bool) -> serde_json::Value {
-        let r = super::file_handle("GET", &format!("/api/print/file?filename={name}{}", if settings { "&settings=1" } else { "" }), cfg);
+        let r = super::file_handle(
+            "GET",
+            &format!(
+                "/api/print/file?filename={name}{}",
+                if settings { "&settings=1" } else { "" }
+            ),
+            cfg,
+        );
         assert_eq!(r.code, 200, "{}", String::from_utf8_lossy(&r.body));
         serde_json::from_slice(&r.body).unwrap()
     }
@@ -816,7 +989,8 @@ mod file_detail_tests {
     /// and the layer height, although PrusaSlicer writes all of it into the file. The printer says nothing about a plain .gcode (the real one answered no
     /// `meta` at all), so it is read from the file, when the person asks: looking at a file must not make the printer send it.
     #[test]
-    fn a_prusalink_files_details_are_read_from_the_file_when_asked_and_the_file_is_not_fetched_unasked() {
+    fn a_prusalink_files_details_are_read_from_the_file_when_asked_and_the_file_is_not_fetched_unasked(
+    ) {
         let p = crate::fakes::FakePrusaLink::start(0, "maker", "secret");
         let bytes = sliced_text();
         {
@@ -825,23 +999,66 @@ mod file_detail_tests {
             s.contents.insert("bowl.gcode".into(), bytes.clone());
         }
         let cfg = prusalink_cfg(&p);
-        let asked_for_the_file = || p.log().iter().filter(|e| e["path"].as_str().is_some_and(|x| x.starts_with("/usb/"))).count();
+        let asked_for_the_file = || {
+            p.log()
+                .iter()
+                .filter(|e| e["path"].as_str().is_some_and(|x| x.starts_with("/usb/")))
+                .count()
+        };
         let v = details(&cfg, "bowl.gcode", false);
         assert_eq!(v["settings_state"], "not_read", "{v}");
         assert!(v["settings"].as_object().unwrap().is_empty());
-        assert_eq!(v["metadata"]["size"], bytes.len(), "the size is the printer's own");
-        assert_eq!(asked_for_the_file(), 0, "the printer was not asked to send the file");
+        assert_eq!(
+            v["metadata"]["size"],
+            bytes.len(),
+            "the size is the printer's own"
+        );
+        assert_eq!(
+            asked_for_the_file(),
+            0,
+            "the printer was not asked to send the file"
+        );
         let v = details(&cfg, "bowl.gcode", true);
         assert_eq!(v["settings_state"], "read", "{v}");
         assert_eq!(v["settings"]["layer_height"], "0.25");
-        assert_eq!(v["settings"]["printer_settings_id"], "Prusa CORE One L HF 0.4 nozzle");
+        assert_eq!(
+            v["settings"]["printer_settings_id"],
+            "Prusa CORE One L HF 0.4 nozzle"
+        );
         let m = &v["metadata"];
-        assert_eq!((m["slicer"].as_str(), m["slicer_version"].as_str()), (Some("PrusaSlicer"), Some("2.9.6")), "{m}");
+        assert_eq!(
+            (m["slicer"].as_str(), m["slicer_version"].as_str()),
+            (Some("PrusaSlicer"), Some("2.9.6")),
+            "{m}"
+        );
         assert_eq!(m["estimated_time"].as_f64(), Some(6380.0), "1h 46m 20s");
-        assert_eq!((m["filament_total"].as_f64(), m["filament_weight_total"].as_f64()), (Some(5316.21), Some(15.9)));
-        assert_eq!((m["layer_height"].as_f64(), m["nozzle_diameter"].as_f64(), m["filament_type"].as_str()), (Some(0.25), Some(0.4), Some("PETG")));
-        assert_eq!((m["layer_count"].as_u64(), m["object_height"].as_f64()), (Some(3), Some(0.6)), "the layers and the height are counted in the file: {m}");
-        assert_eq!((m["first_layer_extr_temp"].as_f64(), m["first_layer_bed_temp"].as_f64()), (Some(250.0), Some(85.0)));
+        assert_eq!(
+            (
+                m["filament_total"].as_f64(),
+                m["filament_weight_total"].as_f64()
+            ),
+            (Some(5316.21), Some(15.9))
+        );
+        assert_eq!(
+            (
+                m["layer_height"].as_f64(),
+                m["nozzle_diameter"].as_f64(),
+                m["filament_type"].as_str()
+            ),
+            (Some(0.25), Some(0.4), Some("PETG"))
+        );
+        assert_eq!(
+            (m["layer_count"].as_u64(), m["object_height"].as_f64()),
+            (Some(3), Some(0.6)),
+            "the layers and the height are counted in the file: {m}"
+        );
+        assert_eq!(
+            (
+                m["first_layer_extr_temp"].as_f64(),
+                m["first_layer_bed_temp"].as_f64()
+            ),
+            (Some(250.0), Some(85.0))
+        );
         assert_eq!(asked_for_the_file(), 1, "one copy");
         // The copy is kept: looking again costs the printer nothing, and still shows the settings.
         let again = details(&cfg, "bowl.gcode", false);
@@ -853,10 +1070,17 @@ mod file_detail_tests {
     #[test]
     fn a_binary_gcode_file_is_never_fetched_for_its_settings() {
         let p = crate::fakes::FakePrusaLink::start(0, "maker", "secret");
-        p.state.lock().unwrap().files.push(("cube.bgcode".into(), 5000, 1.0));
+        p.state
+            .lock()
+            .unwrap()
+            .files
+            .push(("cube.bgcode".into(), 5000, 1.0));
         let v = details(&prusalink_cfg(&p), "cube.bgcode", true);
         assert_eq!(v["settings_state"], "binary", "{v}");
-        assert!(!p.log().iter().any(|e| e["path"].as_str().is_some_and(|x| x.starts_with("/usb/"))));
+        assert!(!p
+            .log()
+            .iter()
+            .any(|e| e["path"].as_str().is_some_and(|x| x.starts_with("/usb/"))));
     }
 }
 
@@ -897,9 +1121,24 @@ pub fn history_handle(
                             "filament_used":s.filament_used,"metadata":{}})
                     })
                     .collect();
-                Response::json(200, json!({"source":"prints this recorder saw","jobs":jobs,"totals":null}))
+                // app-final WO-03 (2026-11-01): the totals of every print this recorder saw, as Moonraker's history gives them. They were
+                // null on every printer that is not Klipper, so the Maintenance page had no print hours and no job ever came due.
+                let all = db
+                    .print_sessions(0.0, f64::MAX, 1_000_000)
+                    .unwrap_or_default();
+                let time: f64 = all.iter().filter_map(|s| s.duration_s).sum();
+                let filament: f64 = all.iter().filter_map(|s| s.filament_used).sum();
+                let longest = all.iter().filter_map(|s| s.duration_s).fold(0.0, f64::max);
+                Response::json(
+                    200,
+                    json!({"source":"prints this recorder saw","jobs":jobs,"totals":{"total_jobs":all.len(),"total_time":time,
+                        "total_print_time":time,"total_filament_used":filament,"longest_job":longest,"longest_print":longest}}),
+                )
             }
-            Err(e) => Response::json(502, json!({"error":format!("the recording could not be read: {e}")})),
+            Err(e) => Response::json(
+                502,
+                json!({"error":format!("the recording could not be read: {e}")}),
+            ),
         };
     }
     let moonraker = Moonraker::new(cfg);
@@ -958,7 +1197,7 @@ pub fn history_handle(
     }
 }
 
-/// `GET /api/print/mesh-profiles`: the meshes Klipper has saved (2026-09-25: the bed panel only
+/// `GET /api/print/mesh-profiles`: the meshes Klipper has saved (the owner 2026-09-25: the bed panel only
 /// showed the newest adaptive mesh, a small rectangle over the last print, never the full saved one).
 pub fn mesh_profiles_handle(method: &str, cfg: &Config, ask_printer: bool) -> Response {
     if method != "GET" {

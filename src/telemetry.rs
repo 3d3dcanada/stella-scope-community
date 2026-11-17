@@ -100,6 +100,11 @@ pub fn select(
             ));
         }
     }
+    // fix-0.6.2 WO-01 item 2 (2026-10-29): the layer Z comes from gcode_move, so every printer that reports it is asked for it,
+    // whatever its configured `objects` list says (a farm printer inherits a list written for another machine).
+    if available.contains("gcode_move") && seen.insert("gcode_move".to_owned()) {
+        selected.push("gcode_move".to_owned());
+    }
     let mut added = 0;
     let mut omitted = Vec::new();
     for name in &available {
@@ -160,6 +165,26 @@ mod tests {
         );
         assert_eq!(v.len(), 3);
         assert_eq!(m["omitted"][0]["object"], "gcode_macro PRIVATE");
+    }
+    #[test]
+    fn gcode_move_is_always_asked_for_when_the_printer_has_it() {
+        let names = vec![json!("extruder"), json!("gcode_move")];
+        let (v, _, _) = select(&["extruder".into()], &names, &Options::default());
+        assert_eq!(v, vec!["extruder".to_string(), "gcode_move".to_string()]);
+        // once, when the configured list already names it
+        let (v, _, _) = select(
+            &["gcode_move".into(), "extruder".into()],
+            &names,
+            &Options::default(),
+        );
+        assert_eq!(v.iter().filter(|o| *o == "gcode_move").count(), 1);
+        // not invented on a printer without it
+        let (v, _, _) = select(
+            &["extruder".into()],
+            &[json!("extruder")],
+            &Options::default(),
+        );
+        assert_eq!(v, vec!["extruder".to_string()]);
     }
     #[test]
     fn explicit_macros_are_not_silently_removed() {

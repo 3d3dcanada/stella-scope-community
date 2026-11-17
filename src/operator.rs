@@ -98,17 +98,25 @@ impl Operator {
                 .map_err(db_error)?;
             transaction.commit().map_err(db_error)?;
         }
-        // rc9 (2026-10-23): a store made by an older version holds the empty lists it was seeded with. Once, each list
+        // rc9 (the owner 2026-10-23): a store made by an older version holds the empty lists it was seeded with. Once, each list
         // that is still empty is given the standard one; a list anyone filled is never touched, and a list emptied after
         // this is kept empty.
         let filled: bool = connection
-            .query_row("SELECT 1 FROM presets WHERE kind='standard_lists'", [], |_| Ok(true))
+            .query_row(
+                "SELECT 1 FROM presets WHERE kind='standard_lists'",
+                [],
+                |_| Ok(true),
+            )
             .optional()
             .map_err(db_error)?
             .is_some();
         if !filled {
             let transaction = connection.unchecked_transaction().map_err(db_error)?;
-            for (kind, standard) in [("materials", standard_materials()), ("sheets", standard_sheets()), ("maintenance", standard_maintenance())] {
+            for (kind, standard) in [
+                ("materials", standard_materials()),
+                ("sheets", standard_sheets()),
+                ("maintenance", standard_maintenance()),
+            ] {
                 transaction
                     .execute(
                         "UPDATE presets SET payload=?2 WHERE kind=?1 AND payload='[]'",
@@ -117,7 +125,10 @@ impl Operator {
                     .map_err(db_error)?;
             }
             transaction
-                .execute("INSERT INTO presets(kind,payload) VALUES('standard_lists','1')", [])
+                .execute(
+                    "INSERT INTO presets(kind,payload) VALUES('standard_lists','1')",
+                    [],
+                )
                 .map_err(db_error)?;
             transaction.commit().map_err(db_error)?;
         }
@@ -210,10 +221,10 @@ impl Operator {
     }
 }
 
-/// The standard lists a fresh installation starts with (2026-10-23: "Fresh install should have everything done properly.
+/// The standard lists a fresh installation starts with (the owner 2026-10-23: "Fresh install should have everything done properly.
 /// All things listed, you should be able to choose what to add, what to take away."). Every entry is editable and removable;
 /// `GET /api/presets/standard` serves the same lists so an editor can add back anything taken away. Temperatures are common
-/// starting points from the materials' own ranges, for the person to tune. No PA-CF (our standing rule).
+/// starting points from the materials' own ranges, for the person to tune. No PA-CF (the owner's standing rule).
 pub fn standard_materials() -> Value {
     json!([
         {"name":"PLA","nozzle":210,"bed":60},
@@ -262,7 +273,11 @@ pub fn standard_maintenance() -> Value {
         ("Check the cables and cable chains for wear", 300),
         ("Replace the nozzle", 500),
     ];
-    Value::Array(jobs.iter().map(|(n, h)| json!({"name":n,"every_h":h,"last_h":null,"last_at":null,"note":null})).collect())
+    Value::Array(
+        jobs.iter()
+            .map(|(n, h)| json!({"name":n,"every_h":h,"last_h":null,"last_at":null,"note":null}))
+            .collect(),
+    )
 }
 fn seed_materials() -> Value {
     standard_materials()
@@ -270,7 +285,7 @@ fn seed_materials() -> Value {
 
 /// Preserve the old the owner-specific migration for existing stores that still have the exact first seed.
 fn ken_materials() -> Value {
-    // Beds are our purple Conweb plate standard (2026-09-28): PETG 55 first layer, PLA 40. The 80/60
+    // Beds are the owner's purple Conweb plate standard (2026-09-28): PETG 55 first layer, PLA 40. The 80/60
     // this seed carried before is what he had to correct by hand through PUT /api/presets.
     json!([
         {"name":"PLA","nozzle":218,"bed":40},
@@ -309,10 +324,10 @@ fn seed() -> [(&'static str, Value); 10] {
         // fitted, so this is the operator's record; empty until he adds one.
         ("sheets", standard_sheets()),
         ("sheet", Value::Null),
-        // Maintenance reminders (2026-09-24): each task, how many print hours apart, and the
+        // Maintenance reminders (the owner 2026-09-24): each task, how many print hours apart, and the
         // print-hour count and date it was last done. Empty until he adopts a schedule.
         ("maintenance", standard_maintenance()),
-        // 2026-09-25 ("a mesh history ... this one's a new build plate"): each time a plate is
+        // the owner 2026-09-25 ("a mesh history ... this one's a new build plate"): each time a plate is
         // marked as on the bed, oldest first, so a recorded mesh can say which plate it was taken on.
         ("sheet_log", json!([])),
         // Calibration records (2026-10-26): what each calibration found and when, by its id (pid_nozzle, z_offset, pressure_advance...).
@@ -581,13 +596,20 @@ fn validate(incoming: &Value) -> Result<Vec<(&'static str, Value)>> {
     // Calibration records travel alone and are kept as stored when absent. Each is the time it was done, its figures (numbers or short
     // words) and a note; nothing else is stored, and a record that is not that shape is refused.
     if let Some(cal) = object.get("calibrations") {
-        let cal = cal.as_object().ok_or("presets.calibrations must be an object")?;
+        let cal = cal
+            .as_object()
+            .ok_or("presets.calibrations must be an object")?;
         if cal.len() > 40 {
             return Err("at most 40 calibration records".into());
         }
         let mut checked = serde_json::Map::new();
         for (id, rec) in cal {
-            if id.is_empty() || id.len() > 40 || !id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_') {
+            if id.is_empty()
+                || id.len() > 40
+                || !id
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+            {
                 return Err(format!("{id} is not a calibration name"));
             }
             let at = rec["at"]
@@ -596,13 +618,17 @@ fn validate(incoming: &Value) -> Result<Vec<(&'static str, Value)>> {
                 .ok_or_else(|| format!("calibration {id} needs the time it was done"))?;
             let mut values = serde_json::Map::new();
             if let Some(v) = rec.get("values") {
-                let v = v.as_object().ok_or_else(|| format!("calibration {id}: values must be an object"))?;
+                let v = v
+                    .as_object()
+                    .ok_or_else(|| format!("calibration {id}: values must be an object"))?;
                 if v.len() > 16 {
                     return Err(format!("calibration {id}: at most 16 values"));
                 }
                 for (k, x) in v {
                     if k.is_empty() || k.len() > 32 {
-                        return Err(format!("calibration {id}: a value name of 1 to 32 characters"));
+                        return Err(format!(
+                            "calibration {id}: a value name of 1 to 32 characters"
+                        ));
                     }
                     let ok = match x {
                         Value::Number(n) => n.as_f64().is_some_and(f64::is_finite),
@@ -611,12 +637,16 @@ fn validate(incoming: &Value) -> Result<Vec<(&'static str, Value)>> {
                         _ => false,
                     };
                     if !ok {
-                        return Err(format!("calibration {id}: {k} must be a number or a short word"));
+                        return Err(format!(
+                            "calibration {id}: {k} must be a number or a short word"
+                        ));
                     }
                     values.insert(k.clone(), x.clone());
                 }
             }
-            let note = rec["note"].as_str().map(|n| n.chars().take(300).collect::<String>());
+            let note = rec["note"]
+                .as_str()
+                .map(|n| n.chars().take(300).collect::<String>());
             checked.insert(id.clone(), json!({"at":at,"values":values,"note":note}));
         }
         out.push(("calibrations", Value::Object(checked)));
@@ -628,7 +658,9 @@ fn validate(incoming: &Value) -> Result<Vec<(&'static str, Value)>> {
 mod material_profile_tests {
     #[test]
     fn a_material_carries_its_profile_and_bad_values_are_refused() {
-        let p = |m: serde_json::Value| super::validate(&serde_json::json!({"materials":[m],"steps":[1],"fan":[0]}));
+        let p = |m: serde_json::Value| {
+            super::validate(&serde_json::json!({"materials":[m],"steps":[1],"fan":[0]}))
+        };
         let out = p(serde_json::json!({"name":"PETG","nozzle":245,"bed":80,"price_kg":32.5,"density":1.27,"pa":0.045,"flow":0.97,"fan":40})).unwrap();
         let (_, mats) = out.iter().find(|(k, _)| *k == "materials").unwrap();
         assert_eq!(mats[0]["pa"], 0.045);
@@ -636,7 +668,11 @@ mod material_profile_tests {
         let plain = p(serde_json::json!({"name":"PLA","nozzle":210,"bed":60})).unwrap();
         let (_, mats) = plain.iter().find(|(k, _)| *k == "materials").unwrap();
         assert!(mats[0].get("pa").is_none(), "an absent value stays absent");
-        for bad in [serde_json::json!({"name":"X","nozzle":200,"bed":60,"pa":2}), serde_json::json!({"name":"X","nozzle":200,"bed":60,"density":9}), serde_json::json!({"name":"X","nozzle":200,"bed":60,"flow":"high"})] {
+        for bad in [
+            serde_json::json!({"name":"X","nozzle":200,"bed":60,"pa":2}),
+            serde_json::json!({"name":"X","nozzle":200,"bed":60,"density":9}),
+            serde_json::json!({"name":"X","nozzle":200,"bed":60,"flow":"high"}),
+        ] {
             assert!(p(bad.clone()).is_err(), "{bad}");
         }
     }
@@ -652,7 +688,13 @@ mod calibration_record_tests {
         let out = super::validate(&with).unwrap();
         let (_, c) = out.iter().find(|(k, _)| *k == "calibrations").unwrap();
         assert_eq!(c["pid_nozzle"]["values"]["kp"], 22.8);
-        assert!(super::validate(&base).unwrap().iter().all(|(k, _)| *k != "calibrations"), "absent means kept as stored");
+        assert!(
+            super::validate(&base)
+                .unwrap()
+                .iter()
+                .all(|(k, _)| *k != "calibrations"),
+            "absent means kept as stored"
+        );
         for bad in [
             serde_json::json!({"Bad Name":{"at":1.0}}),
             serde_json::json!({"pid_nozzle":{"values":{}}}),
@@ -714,14 +756,18 @@ mod tests {
         );
         (Operator::new(&database), database)
     }
-    /// rc9 WO-01 (2026-10-23: "Fresh install should have everything"): a new store starts with the standard lists; an
+    /// rc9 WO-01 (the owner 2026-10-23: "Fresh install should have everything"): a new store starts with the standard lists; an
     /// older store's still-empty lists are filled once; a list filled by the person is kept; a list emptied later stays empty.
     #[test]
     fn a_fresh_store_has_every_standard_list_and_an_old_empty_one_is_filled_once() {
         let (op, database) = operator("standard-lists");
         let p = op.presets().unwrap();
         assert_eq!(p["materials"].as_array().unwrap().len(), 20);
-        assert!(!p["materials"].as_array().unwrap().iter().any(|m| m["name"] == "PA-CF"));
+        assert!(!p["materials"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["name"] == "PA-CF"));
         assert_eq!(p["sheets"].as_array().unwrap().len(), 5);
         assert_eq!(p["sheets"][0]["measured"], false);
         assert_eq!(p["maintenance"].as_array().unwrap().len(), 9);
@@ -768,7 +814,7 @@ mod tests {
         assert_eq!(
             seeded["materials"],
             standard_materials(),
-            "a fresh install starts with the standard list (2026-10-23)"
+            "a fresh install starts with the standard list (the owner 2026-10-23)"
         );
         assert_eq!(seeded["steps"], json!([0.1, 1, 10, 50]));
         assert_eq!(seeded["fan"], json!([0, 25, 50, 75, 100]));
@@ -868,7 +914,7 @@ mod tests {
         }
     }
 
-    /// WO-20 (2026-09-23): our live store held the first seed untouched (read off it read-only on
+    /// WO-20 (2026-09-23): the owner's live store held the first seed untouched (read off it read-only on
     /// 2026-09-23). It moves once: PLA and PETG to his measured profiles in place, ABS, ASA and TPU
     /// exactly as they were. An edited store never moves, a loaded material stays loaded, and once
     /// moved, even saving the old five back is kept as saved.

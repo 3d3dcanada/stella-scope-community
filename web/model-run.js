@@ -135,7 +135,7 @@ export function runModel(view, { prefix, tile = false, budget = tile ? 60000 : 6
    run.pose = !!(follow.spec && follow.cal);
    run.live = st.position_source === 'live';
    const position = [p.x, p.y, p.z].every((v) => typeof v === 'number') ? [p.x, p.y, p.z] : null;
-   follow.report({ position, z: typeof p.z === 'number' ? p.z : null, source: st.position_source, byte: j.file_position, progress: j.progress, state: j.state, tool: st.pose?.tool ?? null, ageS: st.tick_age_s }, now);
+   follow.report({ position, z: typeof p.z === 'number' ? p.z : null, source: st.position_source, byte: j.file_position, progress: j.progress, state: j.state, tool: st.pose?.tool ?? null, ageS: st.tick_age_s, ts: st.position_ts }, now);
    // The print on the plate: read the file once per job (and again when the printer starts another).
    if (j.file && j.file !== run.file && st.print_frame && !run.loading) {
     run.loading = true; run.error = null;

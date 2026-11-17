@@ -1,11 +1,17 @@
-//! The farm licence (farm board WO-09). Stella Scope is free for up to five printers. Beyond that a farm
-//! licence is asked for, on trust: nothing is disabled, nothing phones home, there is no account. A
-//! licence is a short piece of text that a person pastes in and that is checked here, offline, against
-//! a public key compiled into the program.
+//! The farm licence (farm board WO-09). Stella Scope is free for up to five printers. release-2026-11-14 (the owner: "Nobody
+//! should be able to add more than five printers"): the limit is hard. Without a licence that covers it, a sixth real
+//! printer is refused on every path (src/farm.rs `add_one` and `Farm::start`); demo printers never count. Nothing phones
+//! home and there is no account: a licence is a short piece of text that a person pastes in and that is checked here,
+//! offline, against a public key compiled into the program. There is no trial (a trial runs on the computer's clock,
+//! which its owner can turn back).
 //!
 //! Format, one line: `SFL1.<payload>.<signature>`, both parts base64url without padding. The payload is
 //! JSON, `{"name":"...","printers":N,"issued":"YYYY-MM-DD"}`, and the signature is Ed25519 over the
 //! payload's exact bytes. Changing one character of the name or the count breaks the signature.
+//! release-2026-11-14 (the owner, on Fable's advice): the payload may also carry `id`, `email`, `type` ("farm",
+//! the default, or "trial") and `expiry`. A trial is a signed key emailed by 3D3D that ends on its date;
+//! "unlimited" is a count of UNLIMITED. The end date is checked against the latest time the service has
+//! ever seen (src/farm.rs `licence_now`), so turning the clock back does not extend it.
 //!
 //! The private key is never in this repository: `tools/farm-licence.rs` makes and uses it from a path
 //! outside any git work tree, named by an environment variable.
@@ -18,8 +24,11 @@ type Result<T> = std::result::Result<T, String>;
 /// Printers that need no licence and are never nagged about.
 pub const FREE_PRINTERS: usize = 5;
 
-/// One trial, per farm, 30 days from the day the sixth printer is added.
-pub const TRIAL_SECONDS: f64 = 30.0 * 86400.0;
+/// Where to ask for a farm licence, in every refusal.
+pub const ASK: &str = "info@3d3d.ca";
+
+/// The printer count of an unlimited licence.
+pub const UNLIMITED: u32 = 100_000;
 
 /// The public key licences are checked against (Ed25519, 32 bytes), made by `farm-licence keygen` on
 /// 2026-10-12. Its private half is in `~/.config/stella-scope/farm-licence.key` on the build machine,
@@ -44,7 +53,10 @@ const fn test_key(hex: &str) -> [u8; 32] {
         }
     }
     let b = hex.as_bytes();
-    assert!(b.len() == 64, "STELLA_TEST_LICENCE_PUBKEY must be 64 hex digits");
+    assert!(
+        b.len() == 64,
+        "STELLA_TEST_LICENCE_PUBKEY must be 64 hex digits"
+    );
     let mut out = [0_u8; 32];
     let mut i = 0;
     while i < 32 {
@@ -59,6 +71,14 @@ pub struct Licence {
     pub name: String,
     pub printers: u32,
     pub issued: String,
+    /// `YYYY-MM-DD` when the licence ends; none for a perpetual one (the normal case).
+    pub expiry: Option<String>,
+    /// "farm" or "trial".
+    pub kind: String,
+    pub id: String,
+    pub email: String,
+    /// The computer code the licence was issued for (the owner 2026-11-14: one licence, one computer); empty in an older licence.
+    pub machine: String,
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -92,6 +112,10 @@ pub fn b64_decode(s: &str) -> Result<Vec<u8>> {
             out.push((acc >> bits) as u8);
             acc &= (1 << bits) - 1;
         }
+    }
+    // red team #11: leftover bits must be zero, so one licence has exactly one spelling
+    if acc != 0 {
+        return Err("the licence has a character that does not belong in it".into());
     }
     Ok(out)
 }
@@ -131,10 +155,32 @@ pub fn verify_with(text: &str, key: &[u8; 32]) -> Result<Licence> {
         .filter(|&p| (1..=100_000).contains(&p))
         .ok_or("The licence does not say how many printers it covers.")? as u32;
     let issued = v["issued"].as_str().unwrap_or("").to_owned();
+    let expiry = v["expiry"].as_str().map(str::to_owned);
+    let kind = if v["type"] == "trial" {
+        "trial"
+    } else {
+        "farm"
+    }
+    .to_owned();
+    if kind == "trial" && expiry.is_none() {
+        return Err("This trial licence has no end date, so it is not accepted.".into());
+    }
+    let text = |k: &str| {
+        v[k].as_str()
+            .unwrap_or("")
+            .chars()
+            .take(120)
+            .collect::<String>()
+    };
     Ok(Licence {
         name,
         printers,
         issued,
+        expiry,
+        kind,
+        id: text("id"),
+        email: text("email"),
+        machine: text("machine"),
     })
 }
 
@@ -154,7 +200,6 @@ pub fn issue(
     issued: &str,
     expiry: Option<&str>,
 ) -> String {
-    use ed25519_dalek::{Signer, SigningKey};
     let mut payload = json!({"name":name,"printers":printers,"issued":issued});
     if let Some(e) = expiry {
         payload
@@ -162,6 +207,13 @@ pub fn issue(
             .unwrap()
             .insert("expiry".to_owned(), json!(e));
     }
+    issue_with(seed, &payload)
+}
+
+/// Sign any payload (the tool's trial and unlimited keys carry `id`, `email` and `type` too).
+#[allow(dead_code)]
+pub fn issue_with(seed: &[u8; 32], payload: &Value) -> String {
+    use ed25519_dalek::{Signer, SigningKey};
     let payload = payload.to_string();
     let sig = SigningKey::from_bytes(seed).sign(payload.as_bytes());
     format!(
@@ -178,103 +230,141 @@ pub fn public_key_of(seed: &[u8; 32]) -> [u8; 32] {
         .to_bytes()
 }
 
-/// Where a farm of `count` printers stands, for the pages: whether a licence is wanted, whether a
-/// trial is running, whether the saved licence covers the farm, and whether printers beyond the free
-/// five are locked. `now` and `trial_started` are epoch seconds so tests can inject the clock.
-pub fn status_with_clock(
+/// Today as `YYYY-MM-DD` (UTC) from epoch seconds, for a licence's expiry.
+pub fn ymd(now: f64) -> String {
+    let days = (now / 86400.0).floor() as i64;
+    // civil-from-days (Howard Hinnant), proleptic Gregorian
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// A saved licence that checks out and has not ended, or why not.
+pub fn valid(saved: Option<&str>, key: &[u8; 32], now: f64) -> (Option<Licence>, Option<String>) {
+    valid_on(saved, key, now, None)
+}
+
+/// `valid`, and on this computer: with `machine` given, a licence issued for another computer code, or for none, is refused.
+pub fn valid_on(
+    saved: Option<&str>,
+    key: &[u8; 32],
+    now: f64,
+    machine: Option<&str>,
+) -> (Option<Licence>, Option<String>) {
+    if let (Some(m), Some(Ok(l))) = (machine, saved.map(|t| verify_with(t, key))) {
+        if l.machine.is_empty() {
+            return (None, Some(format!("This licence is not tied to a computer. Write to {ASK} with this computer's code, {m}, for one that is.")));
+        }
+        if !l.machine.eq_ignore_ascii_case(m) {
+            return (None, Some(format!("This licence is for another computer (code {}). This computer's code is {m}. To move it, write to {ASK}.", l.machine)));
+        }
+    }
+    match saved.map(|t| verify_with(t, key)) {
+        Some(Ok(l)) if l.expiry.as_deref().is_some_and(|e| e < ymd(now).as_str()) => {
+            let e = l.expiry.clone().unwrap_or_default();
+            (
+                None,
+                Some(format!("The farm licence for {} ended on {e}.", l.name)),
+            )
+        }
+        Some(Ok(l)) => (Some(l), None),
+        Some(Err(e)) => (None, Some(e)),
+        None => (None, None),
+    }
+}
+
+/// How many real printers this service may run. Open source (AGPL-3.0) from 0.6.3: no limit.
+// ponytail: the licence-key code below is kept dormant (tests and old keys still parse); delete it when nobody holds a key.
+pub fn allowed(_licence: Option<&Licence>) -> usize {
+    UNLIMITED as usize
+}
+
+/// The words a person reads when a printer is refused: the limit, how to get more, and that nothing was lost.
+pub fn refusal(allowed: usize) -> String {
+    if allowed == FREE_PRINTERS {
+        format!("Stella Scope is free for up to {FREE_PRINTERS} printers, and this farm has {FREE_PRINTERS}. To run more, get a farm licence: write to {ASK}. Nothing was changed; your printers and recordings are as they were.")
+    } else {
+        format!("Your farm licence covers {allowed} printers, and this farm has {allowed}. For a licence that covers more, write to {ASK}. Nothing was changed; your printers and recordings are as they were.")
+    }
+}
+
+/// Where a farm of `count` real printers stands, for the pages. `count` may be over what is allowed only when the settings
+/// file names more printers than that (written by hand, or restored from another farm): those beyond it are not started.
+pub fn status_with_clock(saved: Option<&str>, count: usize, key: &[u8; 32], now: f64) -> Value {
+    status_on(saved, count, key, now, None)
+}
+
+/// The status on this computer: the licence must be for `machine`, and the code is in the answer for the page to show.
+pub fn status_on(
     saved: Option<&str>,
     count: usize,
     key: &[u8; 32],
     now: f64,
-    trial_started: Option<f64>,
+    machine: Option<&str>,
 ) -> Value {
-    let parsed = saved.map(|t| verify_with(t, key));
-    let (licence, problem) = match parsed {
-        Some(Ok(l)) => (Some(l), None),
-        Some(Err(e)) => (None, Some(e)),
-        None => (None, None),
-    };
-    let covered = licence
-        .as_ref()
-        .is_some_and(|l| l.printers as usize >= count);
-    let free = count <= FREE_PRINTERS;
-    let trial_active =
-        trial_started.is_some_and(|started| now >= started && now < started + TRIAL_SECONDS);
-    let trial_expired = trial_started.is_some_and(|started| now >= started + TRIAL_SECONDS);
-    let (state, wanted, locked, trial, note) = if free {
+    let (licence, problem) = valid_on(saved, key, now, machine);
+    let allowed = allowed(licence.as_ref());
+    let over = count > allowed;
+    let (state, note) = if count <= FREE_PRINTERS && licence.is_none() {
         (
             "free",
-            false,
-            false,
-            false,
-            format!("Free up to {FREE_PRINTERS} printers. This farm has {count}."),
+            format!("Open source, no printer limit. This farm has {count}."),
         )
-    } else if covered {
-        (
-            "licensed",
-            false,
-            false,
-            false,
-            format!("Licensed to cover {count} printers."),
-        )
-    } else if licence.is_some() {
-        (
-            "too_few",
-            true,
-            false,
-            false,
-            format!(
-                "The licence covers {} printers; this farm has {count}.",
-                licence.as_ref().map_or(0, |l| l.printers)
+    } else if !over {
+        let l = licence.as_ref();
+        let up_to = if allowed >= UNLIMITED as usize {
+            "any number of".to_owned()
+        } else {
+            format!("up to {allowed}")
+        };
+        match l.filter(|l| l.kind == "trial") {
+            Some(t) => (
+                "licensed",
+                format!(
+                    "Trial licence for {}: {up_to} printers until {}. This farm has {count}.",
+                    t.name,
+                    t.expiry.as_deref().unwrap_or("")
+                ),
             ),
-        )
-    } else if trial_active {
-        let days_left = ((trial_started.unwrap_or(0.0) + TRIAL_SECONDS - now) / 86400.0).max(0.0);
-        ("trial", false, false, true, format!("Trial running: {days_left:.0} day(s) left before a farm licence is required beyond {FREE_PRINTERS} printers."))
-    } else if trial_expired {
-        (
-            "locked",
-            true,
-            true,
-            false,
-            "The trial has ended. A farm licence turns printers beyond the free five back on."
-                .to_owned(),
-        )
+            None => (
+                "licensed",
+                format!(
+                    "Licensed to {} for {up_to} printers. This farm has {count}.",
+                    l.map_or("", |l| l.name.as_str())
+                ),
+            ),
+        }
+    } else if licence.is_some() {
+        ("too_few", format!("The licence covers {allowed} printers; the settings name {count}. The first {allowed} run; the others wait until a licence covers them. Write to {ASK}."))
     } else {
-        ("wanted", true, false, false, format!("This farm has {count} printers: a farm licence is asked for beyond {FREE_PRINTERS}. Nothing is switched off while the trial runs."))
-    };
-    let (trial_expires, trial_days_left) = match trial_started {
-        Some(started) => (
-            Some(started + TRIAL_SECONDS),
-            if trial_active {
-                Some(((started + TRIAL_SECONDS - now) / 86400.0).max(0.0))
-            } else {
-                None
-            },
-        ),
-        None => (None, None),
+        ("over", format!("Stella Scope is free for up to {FREE_PRINTERS} printers; the settings name {count}. The first {FREE_PRINTERS} run; the others wait for a farm licence. Write to {ASK}."))
     };
     json!({
-        "printers":count,"free_printers":FREE_PRINTERS,"state":state,
-        "wanted":wanted,"locked":locked,"trial":trial,
-        "licence":licence.as_ref().map(|l| json!({"name":l.name,"printers":l.printers,"issued":l.issued})),
+        "printers":count,"free_printers":FREE_PRINTERS,"allowed":allowed,"state":state,
+        "wanted":over,"locked":over,"trial":false,"full":count >= allowed,
+        "licence":licence.as_ref().map(|l| json!({"name":l.name,"printers":l.printers,"issued":l.issued,"expiry":l.expiry,"type":l.kind,"id":l.id,"machine":l.machine})),
         "problem":problem,
         "note":note,
-        "trial_started":trial_started,
-        "trial_expires":trial_expires,
-        "trial_days_left":trial_days_left,
+        "ask":ASK,
+        "machine":machine,
     })
 }
 
-/// Where a farm of `count` printers stands, using the system clock and no trial. The pre-WO-04
-/// behaviour: free to five, otherwise a licence is wanted. Tests only; the program passes its own clock.
+/// Where a farm of `count` printers stands, using the system clock. Tests only; the program passes its own clock.
 #[cfg(test)]
 pub fn status(saved: Option<&str>, count: usize, key: &[u8; 32]) -> Value {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
-    status_with_clock(saved, count, key, now, None)
+    status_with_clock(saved, count, key, now)
 }
 
 #[cfg(test)]
@@ -354,121 +444,4 @@ mod tests {
         assert!(verify(&text).unwrap_err().contains("does not check out"));
     }
 
-    #[test]
-    fn five_printers_are_free_the_sixth_is_asked_about_and_nothing_stops() {
-        let key = public_key_of(&SEED);
-        let s = |saved: Option<&str>, n| status(saved, n, &key);
-        assert_eq!(s(None, 1)["state"], "free");
-        assert_eq!(s(None, 5)["state"], "free");
-        assert_eq!(s(None, 5)["wanted"], false, "no licence and no nag at five");
-        assert_eq!(s(None, 6)["state"], "wanted");
-        assert_eq!(s(None, 6)["wanted"], true);
-        let l8 = issue(&SEED, "Shop", 8, "2026-10-12", None);
-        assert_eq!(s(Some(&l8), 6)["state"], "licensed");
-        assert_eq!(s(Some(&l8), 8)["state"], "licensed");
-        let nine = s(Some(&l8), 9);
-        assert_eq!(
-            (nine["state"].clone(), nine["wanted"].clone()),
-            (json!("too_few"), json!(true))
-        );
-        assert!(nine["note"]
-            .as_str()
-            .unwrap()
-            .contains("covers 8 printers; this farm has 9"));
-        let bad = s(Some("SFL1.AAAA.BBBB"), 7);
-        assert_eq!(bad["state"], "wanted");
-        assert!(bad["problem"].is_string());
-        assert_eq!(
-            s(Some(&l8), 3)["state"],
-            "free",
-            "a licence under the free count changes nothing"
-        );
-    }
-
-    #[test]
-    fn trial_runs_for_thirty_days_then_locks() {
-        let key = public_key_of(&SEED);
-        let started = 1_000_000_000.0;
-        let expires = started + TRIAL_SECONDS;
-        let s = |saved, n, now| status_with_clock(saved, n, &key, now, Some(started));
-        // Sixth printer added: trial starts now, active for 30 days.
-        assert_eq!(s(None, 6, started)["state"], "trial");
-        assert_eq!(s(None, 6, started)["trial"], true);
-        assert_eq!(s(None, 6, started)["locked"], false);
-        let days_left = s(None, 6, started)["trial_days_left"].as_f64().unwrap();
-        assert!((days_left - 30.0).abs() < 0.01, "days_left {days_left}");
-        assert_eq!(
-            s(None, 6, started)["trial_expires"].as_f64().unwrap(),
-            expires
-        );
-        // One day in: still trial, 29 days left.
-        assert_eq!(s(None, 6, started + 86400.0)["state"], "trial");
-        let d = s(None, 6, started + 86400.0)["trial_days_left"]
-            .as_f64()
-            .unwrap();
-        assert!((d - 29.0).abs() < 0.01, "days_left {d}");
-        // On the expiry instant: locked.
-        assert_eq!(s(None, 6, expires)["state"], "locked");
-        assert_eq!(s(None, 6, expires)["locked"], true);
-        assert_eq!(s(None, 6, expires)["trial"], false);
-        // Past expiry: locked.
-        assert_eq!(s(None, 6, expires + 1.0)["state"], "locked");
-        // Before the trial started: wanted (trial not running yet).
-        assert_eq!(s(None, 6, started - 1.0)["state"], "wanted");
-        // A valid licence covers the farm during and after the trial.
-        let l8 = issue(&SEED, "Shop", 8, "2026-10-12", None);
-        assert_eq!(s(Some(&l8), 8, expires + 100.0)["state"], "licensed");
-        assert_eq!(s(Some(&l8), 8, expires + 100.0)["locked"], false);
-        // Five printers stay free even when a trial has been started and expired.
-        assert_eq!(s(None, 5, expires + 100.0)["state"], "free");
-        assert_eq!(s(None, 5, expires + 100.0)["locked"], false);
-    }
-
-    #[test]
-    fn five_printers_never_locked_without_a_trial() {
-        let key = public_key_of(&SEED);
-        let now = 1_000_000_000.0;
-        let s = |n| status_with_clock(None, n, &key, now, None);
-        assert_eq!(s(1)["state"], "free");
-        assert_eq!(s(5)["state"], "free");
-        assert_eq!(s(5)["locked"], false);
-        assert_eq!(s(5)["wanted"], false);
-    }
-
-    #[test]
-    fn a_tampered_licence_is_refused_and_an_existing_one_still_verifies() {
-        let key = public_key_of(&SEED);
-        let text = issue(&SEED, "Shop", 8, "2026-10-12", None);
-        let mut t = text.clone().into_bytes();
-        let i = t.len() / 3;
-        t[i] = if t[i] == b'A' { b'B' } else { b'A' };
-        let now = 1_000_000_000.0;
-        let bad = status_with_clock(Some(&String::from_utf8_lossy(&t)), 8, &key, now, None);
-        assert_eq!(bad["state"], "wanted");
-        assert!(bad["problem"].is_string());
-        let good = status_with_clock(Some(&text), 8, &key, now, None);
-        assert_eq!(good["state"], "licensed");
-    }
-
-    #[test]
-    fn an_expiry_dated_licence_verifies_and_tampering_expiry_breaks_it() {
-        let key = public_key_of(&SEED);
-        let text = issue(&SEED, "Shop", 8, "2026-10-12", Some("2027-01-01"));
-        // It verifies against the right key.
-        let good = status_with_clock(Some(&text), 8, &key, 1_000_000_000.0, None);
-        assert_eq!(good["state"], "licensed");
-        // Tampering anywhere in the payload (including the expiry) breaks the signature.
-        let mut t = text.clone().into_bytes();
-        let i = t.len() / 3;
-        t[i] = if t[i] == b'A' { b'B' } else { b'A' };
-        let bad = status_with_clock(
-            Some(&String::from_utf8_lossy(&t)),
-            8,
-            &key,
-            1_000_000_000.0,
-            None,
-        );
-        assert_eq!(bad["state"], "wanted");
-        assert!(bad["problem"].is_string());
-    }
 }

@@ -1,4 +1,4 @@
-//! Feedback to 3D3D from inside the app (2026-10-27: "We're supposed to have feedback in all of our apps anyway, so people can give us
+//! Feedback to 3D3D from inside the app (the owner 2026-10-27: "We're supposed to have feedback in all of our apps anyway, so people can give us
 //! feedback"). Only when the person presses Send: what they typed, the app's version and system, and, if they leave the box ticked, how many
 //! printers of which kind. No recording, no file name, no address of anything. It goes to 3d3d.ca's intake, where every enquiry lands, as
 //! one multipart field the way the site's own forms send it, and the reply is the reference number the site gives.
@@ -9,9 +9,14 @@ const FEEDBACK_URL: &str = "https://3d3d.ca/api/intake";
 const MESSAGE_MIN: usize = 10;
 const MESSAGE_MAX: usize = 3000;
 
-/// The intake address, or `STELLA_FEEDBACK_URL` (tests point it at a local server).
+/// The intake address. Tests point it at a local server with `STELLA_FEEDBACK_URL`; a release build ignores that variable
+/// (red team #18: anything that set it could send people's messages elsewhere).
 fn url() -> String {
-    std::env::var("STELLA_FEEDBACK_URL").unwrap_or_else(|_| FEEDBACK_URL.to_owned())
+    #[cfg(test)]
+    if let Ok(u) = std::env::var("STELLA_FEEDBACK_URL") {
+        return u;
+    }
+    FEEDBACK_URL.to_owned()
 }
 
 /// What is sent, built from the page's request: checked here, so nothing malformed ever leaves the computer.
@@ -41,7 +46,7 @@ pub fn payload(v: &Value, printers: &[String]) -> Result<Value, String> {
         "name": name,
         "email": email,
     });
-    if v["include_setup"].as_bool().unwrap_or(true) {
+    if v["include_setup"].as_bool().unwrap_or(false) {
         answers["setup"] = json!(setup_line(printers));
     }
     Ok(json!({"journey":"app-feedback","journeyName":"Stella Scope feedback","answers":answers}))

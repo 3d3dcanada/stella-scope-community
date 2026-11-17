@@ -20,6 +20,8 @@ export function fromTick(tick){
   homedAxes:axes,homed:{x:axes.includes('x'),y:axes.includes('y'),z:axes.includes('z')},
   job:{state:string(job?.state).toLowerCase(),name:string(job?.name),time_left:number(job?.time_left),message:string(job?.message),progress:progress===null?null:clamp(progress,0,1),duration:number(job?.duration),filament:number(job?.filament_used)},
   position:{x:number(point?.position?.[0]),y:number(point?.position?.[1]),z:number(point?.position?.[2])},
+  sections:point?.sections||null,   // fix-0.6.2 WO-02: which parts the printer's config has (null until it is known)
+  layerZ:number(point?.layer_z),   // fix-0.6.2 WO-01 item 2: gcode_move.gcode_position[2], the Z the G-code asked for (the bottom bar's Z)
   velocity:number(point?.velocity),maxVelocity:number(point?.max_velocity),maxAccel:number(point?.max_accel),
   zOffset:number(point?.z_offset),qgl:typeof point?.qgl_applied==='boolean'?point.qgl_applied:null,
   speedFactor:number(point?.speed_factor),extrudeFactor:number(point?.extrude_factor),extruderVelocity:number(point?.extruder_velocity),
@@ -52,16 +54,16 @@ export function deriveMode({link,live,readings,homing=true}={}){
 }
 
 // The table is the complete display order; the final slot is always More. Flags: P primary, D danger,
-// H hold to confirm, C kept on a compact dock before the others (2026-09-28: Load and Unload belong
+// H hold to confirm, C kept on a compact dock before the others (the owner 2026-09-28: Load and Unload belong
 // on the bottom bar, so on a phone they displace Level and Move into More rather than Heat and Home).
 const ROWS={
- // 2026-10-25: a printer that is off showed four dead keys spread apart. It offers what still works: its camera, the prints it recorded, the alerts and its settings.
+ // the owner 2026-10-25: a printer that is off showed four dead keys spread apart. It offers what still works: its camera, the prints it recorded, the alerts and its settings.
  off:[['camera','i-camera','CAMERA',null,'sheet:camera',1],['history','i-rewind','HISTORY',null,'sheet:history',1],['alerts','i-warn','ALERTS',null,'sheet:alerts',1],['printers','i-printers','PRINTER',null,'sheet:printers',1],['more','i-more','MORE',null,'radial:more',1]],
  klipper:[['fw_restart','i-fw-restart','FIRMWARE RESTART','firmware_restart','send:firmware_restart',1,'P'],['klipper_restart','i-restart','KLIPPER RESTART','klipper_restart','send:klipper_restart',1],['console','i-console','CONSOLE','console','sheet:console',2],['more','i-more','MORE',null,'radial:more',3]],
  replay:[['rec_back','i-step-back','BACK',null,'rec:back',1],['rec_play','i-play','PLAY',null,'rec:play',1,'P'],['rec_fwd','i-step-fwd','FORWARD',null,'rec:fwd',1],['recording','i-rewind','RECORDING',null,'sheet:recording',2],['more','i-more','MORE',null,'radial:more',3]],
  rewound:[['go_live','i-live','GO LIVE',null,'rec:live',1,'P'],['rec_back','i-step-back','BACK',null,'rec:back',2],['rec_play','i-play','PLAY',null,'rec:play',2],['rec_fwd','i-step-fwd','FORWARD',null,'rec:fwd',2],['recording','i-rewind','RECORDING',null,'sheet:recording',3],['more','i-more','MORE',null,'radial:more',4]],
  unhomed:[['home','i-home','HOME','home','menu:home',1,'PC'],['level','i-level','LEVEL','qgl','menu:level',1],['move','i-move','MOVE','jog','sheet:move',2],['heat','i-heat','HEAT','set_heater','sheet:heat',2,'C'],['cool','i-cool','COOL','set_heater','cool',2],['load','i-filament-load','LOAD','filament_load','filament:load',3,'C'],['unload','i-filament-unload','UNLOAD','filament_unload','filament:unload',3,'C'],['files','i-print','PRINT',null,'sheet:files',4],['macros','i-macro','MACROS','macro','sheet:macros',4],['stop','i-stop-square','STOP','set_heater','stop',5,'H'],['more','i-more','MORE',null,'radial:more',5]],
- // 2026-10-23: a ready printer leads with what it is for: PRINT first and lit, then heat and filament, then motion.
+ // the owner 2026-10-23: a ready printer leads with what it is for: PRINT first and lit, then heat and filament, then motion.
  idle:[['files','i-print','PRINT',null,'sheet:files',1,'P'],['heat','i-heat','HEAT','set_heater','sheet:heat',2,'C'],['cool','i-cool','COOL','set_heater','cool',2],['load','i-filament-load','LOAD','filament_load','filament:load',3,'C'],['unload','i-filament-unload','UNLOAD','filament_unload','filament:unload',3],['home','i-home','HOME','home','menu:home',2,'C'],['level','i-level','LEVEL','qgl','menu:level',2],['move','i-move','MOVE','jog','sheet:move',2],['macros','i-macro','MACROS','macro','sheet:macros',4],['console','i-console','CONSOLE','console','sheet:console',4],['stop','i-stop-square','STOP','set_heater','stop',5,'H'],['more','i-more','MORE',null,'radial:more',5]],
  printing:[['pause','i-pause','PAUSE','pause','send:pause',1,'P'],['speed','i-speed','SPEED','speed_factor','sheet:speed',2],['flow','i-flow','FLOW','extrude_factor','sheet:flow',2],['fan','i-fan','FAN','set_fan','sheet:fan',2],['exclude','i-exclude','EXCLUDE','exclude_object','sheet:exclude',3],['job','i-print','THE PRINT',null,'sheet:print',3],['camera','i-camera','CAMERA',null,'sheet:camera',3],['cancel','i-cancel','CANCEL','cancel','send:cancel',4,'DH'],['more','i-more','MORE',null,'radial:more',5]],
  paused:[['resume','i-play','RESUME','resume','send:resume',1,'P'],['move','i-move','MOVE','jog','sheet:move',2],['heat','i-heat','HEAT','set_heater','sheet:heat',2],['exclude','i-exclude','EXCLUDE','exclude_object','sheet:exclude',3],['job','i-print','THE PRINT',null,'sheet:print',3],['camera','i-camera','CAMERA',null,'sheet:camera',3],['cancel','i-cancel','CANCEL','cancel','send:cancel',4,'DH'],['more','i-more','MORE',null,'radial:more',5]],
@@ -73,11 +75,12 @@ const ROWS={
 export function dockFor(mode,options={}){
  if(mode==='service'||mode==='checking')return [];
  const compact=options.compact??false,maxSlots=options.maxSlots??(compact?5:8),supports=options.supports??(()=>true);
- const rows=(ROWS[mode==='finished'&&!options.jobName?'idle':mode]||[]).filter(r=>!r[3]||supports(r[3]));
-// 2026-10-25 audit: a printer that takes few commands (a Prusa through PrusaLink: no heat, no motion) had a bar of PRINT and MORE. A short bar is
+// fix-0.6.2 WO-01 item 3 (the owner 2026-10-29): a printer whose Moonraker lists no webcam has no CAMERA key, in the bar or as filler
+ const rows=(ROWS[mode==='finished'&&!options.jobName?'idle':mode]||[]).filter(r=>(!r[3]||supports(r[3]))&&!(options.noCamera&&r[0]==='camera'));
+// the owner 2026-10-25 audit: a printer that takes few commands (a Prusa through PrusaLink: no heat, no motion) had a bar of PRINT and MORE. A short bar is
  // filled with what every printer has: its camera, its history and the alerts.
  const FILL=[['camera','i-camera','CAMERA',null,'sheet:camera',6],['history','i-rewind','HISTORY',null,'sheet:history',6],['alerts','i-warn','ALERTS',null,'sheet:alerts',6]];
- if(!['replay','rewound','klipper'].includes(mode))for(const r of FILL){if(rows.length>=6)break;if(!rows.some(x=>x[0]===r[0]))rows.splice(rows.findIndex(x=>x[0]==='more')<0?rows.length:rows.findIndex(x=>x[0]==='more'),0,r);}
+ if(!['replay','rewound','klipper'].includes(mode))for(const r of FILL){if(rows.length>=6)break;if(options.noCamera&&r[0]==='camera')continue;if(!rows.some(x=>x[0]===r[0]))rows.splice(rows.findIndex(x=>x[0]==='more')<0?rows.length:rows.findIndex(x=>x[0]==='more'),0,r);}
  const slots=rows.map(([key,icon,label,cmd,action,group,flags=''])=>({key,icon,label,cmd,action,primary:flags.includes('P'),danger:flags.includes('D'),hold:flags.includes('H'),keep:flags.includes('C'),group,visible:true}));
  if(slots.length<=maxSlots)return slots;
  const kept=new Set(slots.filter(s=>s.key==='more'||s.primary||s.danger||(compact&&s.keep)).map(s=>s.key));
@@ -109,11 +112,11 @@ export function moreMenu(mode,dock){
  // Deduplicate before the cut (NEXT review 2026-09-24): an overflowed slot that is also a base item
  // must not take two of the eight places.
  const seen=new Set();
- // the wheel pages round, so More is no longer cut at eight (2026-10-24, wheels); twelve keeps it to two pages
+ // the wheel pages round, so More is no longer cut at eight (the owner 2026-10-24, wheels); twelve keeps it to two pages
  return [...overflow,...base].filter(s=>!visible.has(s.key)&&!seen.has(s.key)&&seen.add(s.key)).slice(0,12);
 }
 
-// Over temperature is a trend, not a number (2026-10-22: lowering the nozzle target from 250 to 45 raised "Nozzle over temperature" while the heater was simply cooling).
+// Over temperature is a trend, not a number (the owner 2026-10-22: lowering the nozzle target from 250 to 45 raised "Nozzle over temperature" while the heater was simply cooling).
 // The absolute limit (nozzle 285, bed 115) is an instant alarm. "Above its target" (more than 15 over) is only an alarm when the temperature is rising, or has not dropped for
 // 30 s; a heater that is falling toward a lowered target is cooling, never in danger. The trend is the last 30 s of readings (heatTrend), fed by the page through trackHeat.
 export const HEAT_HOLD_S=30;
@@ -192,13 +195,13 @@ const SERVICE_REASON='Stella Scope service is not running: this page cannot reac
 export const plainState=text=>String(text??'').replace('SERVICE OFF','STELLA SCOPE OFF').replace(SERVICE_REASON,'Stella Scope is not answering: this page cannot reach it, so nothing new arrives and no control can be used. The page tries again by itself and carries on as soon as it answers.');
 export const sinceText=(link,live=true)=>live&&['off','service'].includes(link?.state)&&link?.since?link.since+' ago':'';
 export function fileTitle(name){
- // 2026-10-23 (a live ring print): Orca and PrusaSlicer append "_0.2mm_PETG_Generic Klipper Printer_30m32s"; the title is the part, not the slicer's stamp.
+ // the owner 2026-10-23 (a live ring print): Orca and PrusaSlicer append "_0.2mm_PETG_Generic Klipper Printer_30m32s"; the title is the part, not the slicer's stamp.
  return string(name).split(/[\\/]/).pop().replace(/\.(gcode\.3mf|bgcode|gcode|3mf)$/i,'').replace(/_\d+(?:\.\d+)?mm_.+?_(?=\d)(?:\d+d)?(?:\d+h)?(?:\d+m)?(?:\d+s)?$/i,'').replaceAll('_',' ').trim();
 }
 export function jobModel(readings){
  const job=readings?.job||{},duration=number(job.duration),progress=number(job.progress);
  // warming: printing by state, but no print time yet. Klipper counts print_duration from the first extrusion, so this is the
- // start macro heating, soaking, homing and levelling (2026-10-23: it read "layer 1 of 25 · 1%" through a ten minute soak).
+ // start macro heating, soaking, homing and levelling (the owner 2026-10-23: it read "layer 1 of 25 · 1%" through a ten minute soak).
  return {active:['printing','paused'].includes(job.state),warming:job.state==='printing'&&duration!==null&&duration<1,title:fileTitle(job.name),progress,elapsed:duration,
   // finish-2 F02: the printer's own time left first (PrusaLink states it); worked out from progress it counted heating as printing
   remaining:number(job.time_left)!==null?Math.round(number(job.time_left)):progress!==null&&progress>0.01&&duration!==null?Math.round(duration/progress-duration):null,state:string(job.state)};
@@ -211,7 +214,7 @@ export function flowModel(readings,loadedName,measuredMax){
  return {value,max,name,frac,tone:frac===null?'unknown':frac>1?'over':frac>=0.85?'high':'normal'};
 }
 
-// Dock sub-menus (NEXT review 2026-09-24: "Is HOME clickable? Does it have more things?"). A slot
+// Dock sub-menus (NEXT review 2026-09-24, the owner: "Is HOME clickable? Does it have more things?"). A slot
 // whose action is menu:<key> opens these items above it; each item goes through the same command path.
 // `script` items are sent as console lines (reviewed once); `cmd` items use their own command id.
 export const SUB_MENUS={
@@ -226,7 +229,7 @@ export const SUB_MENUS={
   {key:'probe_query',icon:'i-probe',label:'Check probe',cmd:'probe_query',action:'send:probe_query',does:'Asks whether the BLTouch probe is triggered right now.'}]
 };
 
-// Homing frame (2026-09-24: "the printhead janked big time when I pressed Home"). While Klipper
+// Homing frame (the owner 2026-09-24: "the printhead janked big time when I pressed Home"). While Klipper
 // homes an axis it force-sets that axis to endstop - 1.5 x travel (X and Y: -175) or endstop + 1.5 x
 // travel (Z: about 464) and reports positions in that frame until the endstop triggers, so G28 read
 // as X -169 then 350, Y -161 ... 14 ... 154 then 344, Z 464 ... 440 then 2 (recording 1790275734).
@@ -241,7 +244,7 @@ export function homingFrame(){const st=[null,null,null],un=[null,null,null];let 
    const from=Number.isFinite(start?.[i])?start[i]:Number.isFinite(out?.[i])?out[i]:null;
    // An unhomed axis has no absolute position (Klipper calls it 0), but its moves are still real:
    // the Z hop before G28 raises the gantry 10 mm from wherever it hangs. So it is drawn from where
-   // it was last seen, moving by what Klipper reports (2026-09-24: Z sat at the bottom, then
+   // it was last seen, moving by what Klipper reports (the owner 2026-09-24: Z sat at the bottom, then
    // stepped up to the probe height).
    if(typeof homed==='string'&&!homed.includes('xyz'[i])){st[i]=null;if(!un[i])un[i]={anchor:from??v,ref:v};return Math.max(lo,Math.min(hi,un[i].anchor+(v-un[i].ref)));}
    if(un[i]){un[i]=null;if(from!==null&&v>=lo-1&&v<=hi+1&&Math.abs(v-from)>1)rebased+='xyz'[i];}
@@ -256,7 +259,7 @@ export function homingFrame(){const st=[null,null,null],un=[null,null,null];let 
   out=res;res.rebased=rebased;return res;};}
 
 // Driver flags worth a popup. On the TMC2209 the open-load bits (ola, olb) only mean something while
-// the motor moves; at standstill (stst=1) they read 1 spuriously. 2026-09-28: "stepper_x TMC2209
+// the motor moves; at standstill (stst=1) they read 1 spuriously. the owner 2026-09-28: "stepper_x TMC2209
 // reports OLB" with the printer ready and parked, and "We can't have things like this popping up".
 // So ola/olb count only for a motor that is not at standstill while the machine is moving; every other
 // flag is kept as it was. Mirrors model::reportable_flags in the service.
@@ -268,7 +271,7 @@ export function driverFlags(motor,moving=false){
  return flags.filter(f=>f!=='ola'&&f!=='olb');
 }
 
-// Filament job. The macros move 50 mm (load: purge) and 100 mm (unload: retract) on our printer
+// Filament job. The macros move 50 mm (load: purge) and 100 mm (unload: retract) on the owner's printer
 // (LOAD_MM / UNLOAD_MM in commands.rs, from Stella's own macros), so progress is the filament seen
 // moving against that. The step list is data so the page can build it once and only flip states.
 // Filament board 2026-10-22 (the owner): the job now says every step it is on. A load: heat, push it in, feed, cool (the heater goes off at once), shake (a quick flick of the head to
@@ -323,7 +326,7 @@ export function noPrinterYet(printers){
  return list.length===0||(!list.some(p=>p?.driver==='demo')&&list.every(p=>p?.state==='offline'&&(p.tick_age_s===null||p.tick_age_s===undefined)));
 }
 
-// The command bar's list. Polish WO-06 (2026-10-18): typing "files" and pressing Enter sent that word to a
+// The command bar's list. Polish WO-06 (2026-10-18, the owner): typing "files" and pressing Enter sent that word to a
 // demo printer as G-code. The bar now only offers what the printer or the app already knows: actions, your history,
 // the printer's own commands and your macros. Text that matches none of them is never offered as a line to send;
 // typed G-code belongs in the Console, so the list points there (or says nothing matches, on a printer with no
@@ -423,7 +426,7 @@ export function printerWords(klipper){
   ?{position:'Where the head is, in mm.',estop:'Stops the printer at once. No review. Heaters and motors cut out; start the printer again afterwards.',fans:'Speeds are what the printer was told to run.'}
   :{position:'Where Klipper was told to put the head, in mm, smoothed between readings. A green axis letter means that axis is homed.',estop:'Stops Klipper at once. No review. Heaters and motors cut out; the printer then needs a firmware restart.',fans:'Speeds are what Klipper was told to run, not a measured speed.'};}
 
-// UI board U07 (2026-10-20): the failure alarm takes the screen. What it says and where it draws its boxes, with nothing from the page in it so it is node-tested.
+// UI board U07 (2026-10-20, the owner): the failure alarm takes the screen. What it says and where it draws its boxes, with nothing from the page in it so it is node-tested.
 // The failure watch (stella-eye) sends corners (x1 y1 x2 y2). They are 0 to 1 of the picture; a model that gives the 416 px grid it was fed (any corner past 1.5) is scaled down.
 // Not verified against a real detection (no model on the machine this was built on): a box that comes out the wrong way round is swapped, one with no area is dropped.
 export function alarmBoxes(detail){
@@ -438,7 +441,7 @@ export function alarmWords(e,printer){
   ?{kicker:'FAILURE WATCH',title:`${name}: this print may have failed`,body:`The failure watch sees what looks like spaghetti or loose plastic${sure}. ${still}`}
   :{kicker:'FAILURE WATCH',title:`${name}: something looks wrong with this print`,body:`The failure watch sees something odd${sure}. ${still}`};}
 
-// A key that has to be held (2026-10-22: CANCEL did nothing on a tap and said nothing). From the first touch a line says what holding does; letting go early says it was not sent.
+// A key that has to be held (the owner 2026-10-22: CANCEL did nothing on a tap and said nothing). From the first touch a line says what holding does; letting go early says it was not sent.
 export const HOLD_NOT_SENT='Not sent. Hold the key until the ring is full.';
 export function holdWords(key,label=''){const known={cancel:'Hold to cancel the print',motors_off:'Hold to switch the motors off'};return known[key]||`Hold to ${String(label||'confirm').toLowerCase()}`;}
 // The HUD says a print is cancelled only when the printer says so: print_stats.state reads cancelled and both heater targets read 0. `waited` is the seconds since the cancel was sent.

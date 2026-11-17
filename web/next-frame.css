@@ -1,4 +1,4 @@
-/* UI board U05 (2026-10-20: "nothing pops up", square keys, lit glass, no pills): the frame every sheet and dialog opens in.
+/* UI board U05 (2026-10-20, the owner: "nothing pops up", square keys, lit glass, no pills): the frame every sheet and dialog opens in.
    A sheet or dialog is not slid or faded in: next-ui.js grows it out of the key that opened it (a uniform scale about that key on the kit's spring,
    --nxctl-spring in next-control.css) and folds it back into it. Here: the resting state of that frame, the dim that gathers under a dialog, and the
    panel's keys in the kit's language (square corners, a depth edge under them that a press eats). Loaded after next.css and next-control.css. */

@@ -1,4 +1,4 @@
-//! NEXT review 2026-09-24: "Stella does have a camera ... in Mainsail it's very, very slow."
+//! NEXT review 2026-09-24, the owner: "Stella does have a camera ... in Mainsail it's very, very slow."
 //!
 //! Mainsail's default "MJPEG-Streamer (adaptive)" mode does not stream at all: it fetches one
 //! snapshot, waits for it to draw, then asks for the next, so every frame pays a full round trip.
@@ -108,6 +108,11 @@ fn printer_host(cfg: &Config) -> Result<String> {
 /// Anything pointing at another host is refused: the proxy never becomes a way out.
 pub fn resolve(cfg: &Config, url: &str) -> Result<(u16, String)> {
     let host = printer_host(cfg)?;
+    // release-2026-11-14 (red team #9): the address comes from the printer's own answer; a control character or a space would split
+    // the request the service writes to the camera.
+    if url.chars().any(|ch| ch.is_control() || ch == ' ') {
+        return Err("camera URL has characters a web address cannot have; refused".into());
+    }
     if url.starts_with('/') {
         return Ok((80, url.to_owned()));
     }
@@ -136,10 +141,25 @@ pub fn resolve(cfg: &Config, url: &str) -> Result<(u16, String)> {
 }
 
 /// A driver camera as the hub reads it: an RTSP address through ffmpeg, or MJPEG over HTTP.
+/// A driver's camera as a hub source: a demo printer's is drawn here, every other is read from its address.
+fn driver_source(
+    cfg: &Config,
+    c: &crate::driver::CameraSource,
+) -> Result<crate::camera_hub::Source> {
+    if c.kind == "demo" {
+        return Ok(crate::camera_hub::Source::Demo(cfg.clone()));
+    }
+    hub_source(c)
+}
+
 fn hub_source(c: &crate::driver::CameraSource) -> Result<crate::camera_hub::Source> {
     use crate::camera_hub::Source;
     if c.kind == "rtsp" {
         return Ok(Source::Rtsp(c.url.clone()));
+    }
+    // release-2026-11-14 (red team #9): no control character or space may reach the request line written to the camera.
+    if c.url.chars().any(|ch| ch.is_control() || ch == ' ') {
+        return Err("camera URL has characters a web address cannot have; refused".into());
     }
     let rest = c
         .url
@@ -178,7 +198,7 @@ pub fn list(cfg: &Config) -> Result<Value> {
         let cams = crate::driver::open(cfg)?.cameras()?;
         let rows: Vec<Value> = cams
             .iter()
-            .map(|c| json!({"name":c.name,"service":c.kind,"target_fps":6,"target_fps_idle":1,"stream_url":Value::Null,
+            .map(|c| json!({"name":c.name,"service":c.kind,"target_fps":if c.kind == "demo" { 3 } else { 6 },"target_fps_idle":1,"stream_url":Value::Null,
                 "snapshot_url":Value::Null,"flip_horizontal":false,"flip_vertical":false,"rotation":0,"aspect_ratio":"16:9"}))
             .collect();
         return Ok(json!({"cameras":rows,
@@ -370,7 +390,7 @@ fn pipe_driver(mut client: TcpStream, cfg: &Config, name: Option<&str>, snapshot
             "this printer has no camera set up; add its address in the printer's settings",
         );
     };
-    let source = match hub_source(cam) {
+    let source = match driver_source(cfg, cam) {
         Ok(s) => s,
         Err(e) => return fail(&mut client, 400, &e),
     };
@@ -383,10 +403,17 @@ pub fn still(cfg: &Config) -> Result<Vec<u8>> {
     use crate::camera_hub::Source;
     let source = if cfg.driver != "moonraker" {
         let cams = crate::driver::open(cfg)?.cameras()?;
-        hub_source(cams.first().ok_or("this printer has no camera set up")?)?
+        driver_source(
+            cfg,
+            cams.first().ok_or("this printer has no camera set up")?,
+        )?
     } else {
         let cams = list(cfg)?;
-        let cam = cams["cameras"].as_array().and_then(|a| a.first()).cloned().ok_or("this printer has no camera")?;
+        let cam = cams["cameras"]
+            .as_array()
+            .and_then(|a| a.first())
+            .cloned()
+            .ok_or("this printer has no camera")?;
         let host = printer_host(cfg)?;
         match cam["snapshot_url"].as_str().filter(|u| !u.is_empty()) {
             Some(u) => {
@@ -470,7 +497,7 @@ fn serve_hub(mut client: TcpStream, source: crate::camera_hub::Source, snapshot:
 
 #[cfg(test)]
 mod tests {
-    /// our KX-Bridge reports its webcam as http://0.0.0.0:7125/...: that is the printer's own address, and
+    /// the owner's KX-Bridge reports its webcam as http://0.0.0.0:7125/...: that is the printer's own address, and
     /// only that; another host is still refused.
     #[test]
     fn a_bridge_that_reports_its_camera_as_0_0_0_0_is_read_as_the_printer_itself() {

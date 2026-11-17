@@ -1,4 +1,4 @@
-//! Alerts: WhatsApp through CallMeBot (2026-09-25: "Use CallMeBot") and, off by default, ntfy.
+//! Alerts: WhatsApp through CallMeBot (the owner 2026-09-25: "Use CallMeBot") and, off by default, ntfy.
 //!
 //! The settings live in `<database>.notify.json` beside the recording (mode 600), set from the app,
 //! never in the repository or the config JSON: the phone number and CallMeBot key, which events to

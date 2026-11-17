@@ -9,6 +9,8 @@
  position:relative;width:var(--nxctl-size);height:var(--nxctl-size);touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;
  transition:opacity .25s;transform-origin:50% 50%}
 .nxctl.held{opacity:.3}
+/* fix-0.6.2 WO-08 (the owner 2026-10-30): a knob that stands on its gauge replaces it: nothing of the gauge shows from under the knob */
+.nxctl.held.under{opacity:0}
 .nxctl--lift{z-index:41;cursor:grabbing;opacity:1!important;transition:transform .5s var(--nxctl-spring);--nxctl-size:200px}
 .nxctl svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 /* the LED segments: off ones are dark glass, lit ones glow in the control's colour; the one at the value is brightest */

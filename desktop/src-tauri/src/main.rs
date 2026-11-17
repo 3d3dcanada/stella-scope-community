@@ -1,4 +1,4 @@
-//! Stella Scope for the computer next to the printer (2026-09-25: "builds for Windows, Mac,
+//! Stella Scope for the computer next to the printer (the owner 2026-09-25: "builds for Windows, Mac,
 //! Linux, very easy to install"). The first time, one button writes Stella Scope's settings with no printer and starts
 //! the recorder (which starts the phone link and, when switched on, the failure watch); printers of every brand are
 //! added in Stella Scope itself. After that it opens straight into Stella Scope.
@@ -67,7 +67,7 @@ fn setup_state(app: tauri::AppHandle) -> Result<Value, String> {
 
 /// Finish-2 F10 (2026-10-19): the first run writes settings that name no printer and starts Stella Scope, whose own
 /// Add a printer takes every brand and searches the network only when asked. The old first run scanned the whole /24
-/// for anything answering on 7125 by itself, which on our network includes a printer bridge that must never be asked.
+/// for anything answering on 7125 by itself, which on the owner's network includes a printer bridge that must never be asked.
 fn first_settings(port: u16, database: &str) -> Value {
     json!({"port":port,"database":database,"controls_enabled":true,"lan_port":port + 2,"remote_link":true,"failure_watch":false})
 }
@@ -109,7 +109,7 @@ async fn start(app: tauri::AppHandle, recorder: State<'_, Recorder>) -> Result<S
         .spawn()
         .map_err(|e| format!("cannot start {}: {e}", bin.display()))?;
     *recorder.0.lock().unwrap() = Some(child);
-    // A year of recordings can take a while to open on a cold disk (19 s seen on our 900 MB
+    // A year of recordings can take a while to open on a cold disk (19 s seen on the owner's 900 MB
     // database, 2026-09-26), so this waits a full minute before calling it a failure.
     for _ in 0..240 {
         std::thread::sleep(Duration::from_millis(250));
@@ -125,7 +125,7 @@ async fn start(app: tauri::AppHandle, recorder: State<'_, Recorder>) -> Result<S
 }
 
 /// Finish-2 F10 (2026-10-19): the window comes back at the size it was closed at, and never larger than the screen it
-/// opens on (our screens are 1920x1080 and a 768x1366 portrait one, where the old fixed 1440x900 did not fit).
+/// opens on (the owner's screens are 1920x1080 and a 768x1366 portrait one, where the old fixed 1440x900 did not fit).
 fn window_size(saved: Option<(f64, f64)>, screen: (f64, f64)) -> (f64, f64) {
     let (w, h) = saved.filter(|(w, h)| w.is_finite() && h.is_finite()).unwrap_or((1440.0, 900.0));
     (w.min(screen.0 - 40.0).max(360.0), h.min(screen.1 - 80.0).max(480.0))
@@ -182,7 +182,7 @@ fn main() {
             let saved = window_file(app.handle()).and_then(|p| std::fs::read_to_string(p).ok())
                 .and_then(|t| serde_json::from_str::<Value>(&t).ok())
                 .and_then(|v| Some((v["width"].as_f64()?, v["height"].as_f64()?)));
-            // 2026-10-20: the window opened on the screen at the left edge of the desktop (his small side screen, switched off), not
+            // the owner 2026-10-20: the window opened on the screen at the left edge of the desktop (his small side screen, switched off), not
             // his main one. It opens in the middle of the primary screen, sized to it.
             if let Ok(Some(m)) = window.primary_monitor().or_else(|_| window.current_monitor()) {
                 let scale = m.scale_factor();

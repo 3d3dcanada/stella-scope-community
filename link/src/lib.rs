@@ -1,4 +1,4 @@
-//! Stella Scope anywhere (2026-09-25: "access it on their phone anywhere as long as their
+//! Stella Scope anywhere (the owner 2026-09-25: "access it on their phone anywhere as long as their
 //! computer and their printer is on ... safely and securely").
 //!
 //! One idea: a TCP pipe over iroh. The desktop runs [`serve`]: an iroh endpoint with a key kept on
@@ -139,7 +139,7 @@ pub async fn serve(key: SecretKey, forward: SocketAddr, allow: Option<PathBuf>, 
     serve_endpoint(ep, forward, allow, on_status).await
 }
 
-/// Who may hold a connection (2026-09-27: "all four slots aren't always full ... binding it to
+/// Who may hold a connection (the owner 2026-09-27: "all four slots aren't always full ... binding it to
 /// one phone"). Stella Scope writes `{"peers":[<phone link ids>],"pairing_until":<unix s>}`: a paired
 /// phone always gets in; any other phone only while the desktop shows a pairing code, and then at
 /// most [`MAX_UNPAIRED`] at once. Everyone else is closed right after the handshake, so knowing a

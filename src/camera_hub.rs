@@ -234,6 +234,8 @@ pub enum Source {
         port: u16,
         path: String,
     },
+    /// A demo printer's camera, drawn in this process (src/demo_camera.rs), `SNAPSHOT_FPS` a second.
+    Demo(crate::config::Config),
 }
 
 impl Source {
@@ -243,12 +245,13 @@ impl Source {
             Source::Mjpeg { host, port, path } | Source::Snapshots { host, port, path } => {
                 format!("http://{host}:{port}{path}")
             }
+            Source::Demo(cfg) => format!("demo:{}|{}", cfg.database, cfg.printer_id),
         }
     }
 }
 
 /// Finish-2 F05 (2026-10-19): Stella's C920 sends its full-rate MJPEG stream, about 340 kB a frame, and that one stream
-/// alone starved the CORE One L's PrusaLink on our 2.4 GHz Wi-Fi (status reads timed out at 4 s; the farm showed the CORE
+/// alone starved the CORE One L's PrusaLink on the owner's 2.4 GHz Wi-Fi (status reads timed out at 4 s; the farm showed the CORE
 /// One L going offline and back six times a minute with the Cameras sheet open). A camera that has a snapshot address is
 /// read one still at a time instead, the next asked only when the last has arrived, at most this many a second: a slow
 /// link slows the pictures, never the printers. ponytail: fixed rate; a per-camera setting if a farm wants smoother video.
@@ -257,7 +260,11 @@ pub const SNAPSHOT_FPS: f64 = 3.0;
 fn run_snapshots(host: String, port: u16, path: String, shared: Arc<Shared>) {
     use std::io::Write;
     use std::net::{TcpStream, ToSocketAddrs};
-    let Some(addr) = (host.as_str(), port).to_socket_addrs().ok().and_then(|mut a| a.next()) else {
+    let Some(addr) = (host.as_str(), port)
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut a| a.next())
+    else {
         return shared.fail("the camera's address does not resolve".into());
     };
     let mut failures = 0;
@@ -268,8 +275,11 @@ fn run_snapshots(host: String, port: u16, path: String, shared: Arc<Shared>) {
             let mut up = TcpStream::connect_timeout(&addr, Duration::from_secs(3))
                 .map_err(|e| format!("camera not answering: {e}"))?;
             let _ = up.set_read_timeout(Some(Duration::from_secs(10)));
-            write!(up, "GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n")
-                .map_err(|_| "camera refused the request".to_owned())?;
+            write!(
+                up,
+                "GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+            )
+            .map_err(|_| "camera refused the request".to_owned())?;
             let mut body = Vec::new();
             // A camera may end the connection with a reset once the picture is out; a whole picture is kept either way.
             let read = (&mut up).take(4 * 1024 * 1024).read_to_end(&mut body);
@@ -305,6 +315,31 @@ fn run_snapshots(host: String, port: u16, path: String, shared: Arc<Shared>) {
     }
 }
 
+fn run_demo(cfg: crate::config::Config, shared: Arc<Shared>) {
+    let mut idle_since: Option<Instant> = None;
+    loop {
+        let started = Instant::now();
+        match crate::demo::camera_jpeg(&cfg) {
+            Ok(f) => {
+                if shared.publish(Arc::new(f)) {
+                    idle_since = None;
+                } else {
+                    idle_since.get_or_insert_with(Instant::now);
+                }
+            }
+            Err(e) => return shared.fail(e),
+        }
+        if idle_since.is_some_and(|t| t.elapsed() > Duration::from_secs(5)) {
+            return;
+        }
+        if let Some(rest) =
+            Duration::from_secs_f64(1.0 / SNAPSHOT_FPS).checked_sub(started.elapsed())
+        {
+            thread::sleep(rest);
+        }
+    }
+}
+
 /// Subscribe to a camera, starting its upstream if nobody else has. The receiver gets whole JPEG frames
 /// (newest first on a slow link: at most two wait).
 pub fn subscribe(source: Source) -> Result<Receiver<Msg>> {
@@ -312,6 +347,7 @@ pub fn subscribe(source: Source) -> Result<Receiver<Msg>> {
         Source::Rtsp(u) => run_ffmpeg(u, shared),
         Source::Mjpeg { host, port, path } => run_http(host, port, path, shared),
         Source::Snapshots { host, port, path } => run_snapshots(host, port, path, shared),
+        Source::Demo(cfg) => run_demo(cfg, shared),
     })
 }
 
@@ -547,11 +583,20 @@ mod tests {
                     }
                 }
                 let body = jpeg(7);
-                let _ = write!(s, "HTTP/1.0 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n", body.len());
+                let _ = write!(
+                    s,
+                    "HTTP/1.0 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
+                    body.len()
+                );
                 let _ = s.write_all(&body);
             }
         });
-        let rx = subscribe(Source::Snapshots { host: "127.0.0.1".into(), port, path: "/?action=snapshot".into() }).unwrap();
+        let rx = subscribe(Source::Snapshots {
+            host: "127.0.0.1".into(),
+            port,
+            path: "/?action=snapshot".into(),
+        })
+        .unwrap();
         let start = Instant::now();
         let mut frames = 0;
         while start.elapsed() < Duration::from_secs(3) {
@@ -566,7 +611,13 @@ mod tests {
         }
         let n = asked.load(Ordering::SeqCst);
         // a loaded machine (the whole suite in parallel) slows the pictures; the cap is what must hold
-        assert!(frames >= 1 && n >= 2, "{frames} pictures, asked {n} times in 3 s");
-        assert!(n <= (3.0 * SNAPSHOT_FPS) as usize + 1, "the camera was asked {n} times in 3 s");
+        assert!(
+            frames >= 1 && n >= 2,
+            "{frames} pictures, asked {n} times in 3 s"
+        );
+        assert!(
+            n <= (3.0 * SNAPSHOT_FPS) as usize + 1,
+            "the camera was asked {n} times in 3 s"
+        );
     }
 }

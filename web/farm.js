@@ -3,11 +3,11 @@
 // 3D model when real CAD is bound to it, and a ring with the numbers when there is neither, so a printer with no camera and no model
 // is still a finished-looking tile. Nothing here sends anything to a printer except the quick actions, and those go through the
 // same /api/p/<id>/commands as the HUD.
-// Polish WO-04 (2026-10-18: "The wall where your printers are should be something you can scroll. Very friendly, PC or phone."):
+// Polish WO-04 (2026-10-18, the owner: "The wall where your printers are should be something you can scroll. Very friendly, PC or phone."):
 // the wall wraps to the window from 1 to 100 printers and scrolls (the header stays on top), (tiles came in three sizes remembered
 // on this device until U04 took the sizes away: see below), the wall sorts (needs attention first), filters and searches, and only tiles on screen hold a live 3D view, never
 // more than a fixed budget (farm-wall.js). The rest keep a still of their last frame.
-// U04 (2026-10-20): one tile size, no S/M/L. A tile is a card to scan (the machine or camera, the nozzle, the bed and the progress as small LED gauges from
+// U04 (2026-10-20, the owner): one tile size, no S/M/L. A tile is a card to scan (the machine or camera, the nozzle, the bed and the progress as small LED gauges from
 // the control kit); a press grows it in place to the room of four tiles (the others flow around it, a spring) with the machine or camera bigger, the job, the
 // heat gauges as live controls and the actions as square keys; a press again, or on another tile, settles it back. The header is square keys and LED figures.
 import {el,icon,loadSprite,initTips,button,busy,toast,openModal,openSheet,closeSheet,tip,openRadial,segmented,lookPanel} from './next-ui.js';
@@ -21,6 +21,7 @@ import {sheetAlerts} from './next-notify.js';
 import {startPops,camerasView,sheetSpools,sheetAnalytics,sheetBackup,sheetSlicer} from './next-fleet.js';
 import {lookOf,modelLine,WORD,CHIP,ICON,sortPrinters,inFilter,matchesQuery,filterOptions,counts,actionsFor,SORTS,budget3d,plan3d,headerKey,ringWord,bigWord,spoolLine,tvLayout,heatOf} from './farm-wall.js';
 import {modelsBanner,modelStatus,tileModelPanel,demoLicenceLine,sheetAbout} from './next-getmodels.js';
+import {startTour,maybeTour} from './next-tour.js';
 
 const $=id=>document.getElementById(id);
 const SVG='http://www.w3.org/2000/svg',C=2*Math.PI*44;
@@ -37,7 +38,7 @@ const phone=()=>innerWidth<=600;
 const coarse=()=>matchMedia('(pointer: coarse)').matches;
 const store=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v);}catch{}return null;};
 const params=new URLSearchParams(location.search),tv=params.get('tv')==='1';
-// The view: what to show and how. The sort is remembered on this device (2026-10-18); a filter or a search is not,
+// The view: what to show and how. The sort is remembered on this device (the owner, 2026-10-18); a filter or a search is not,
 // so coming back never finds half the wall hidden. (U04: the tile size is gone, there is one.)
 const view={sort:SORTS.some(s=>s[0]===store('fm-sort'))?store('fm-sort'):'attention',filter:'all',q:''};
 let openId=null;   // the tile that is grown (at most one)
@@ -159,12 +160,12 @@ function build(p){
  const power=sq('power','Power','Power','The smart plug this printer is on: its power draw, and switching it on or off after you confirm.',()=>confirmPower(t.p));
  const clear=sq('check','Plate cleared','Plate cleared','Says the plate is empty. The camera checks it first, then the next file can start.',()=>plateCleared({id:t.p.id,name:t.p.name},{after:refresh}),'primary');
  const next=sq('play','Start next','Start the next file','Sends the next queued file that fits this printer and starts it, after the plate check.',()=>startNext({id:t.p.id,name:t.p.name},{after:refresh}),'primary');
- // 2026-10-24: the card has a quick HEAT (your materials on a wheel) and COOL, and its colour is yours to choose.
+ // the owner 2026-10-24: the card has a quick HEAT (your materials on a wheel) and COOL, and its colour is yours to choose.
  const heatK=sq('heat','Heat','Heat','Your materials on a wheel: pick one and both heaters go to its temperatures.',()=>quickHeat(t.p,heatK.el)),coolK=sq('cool','Cool','Cool','Both heaters off on this printer.',async()=>{if(await sendHeat(t.p,'extruder',0))await sendHeat(t.p,'heater_bed',0);});
  for(const [k,a] of [[open,'open'],[pause,'pause'],[resume,'resume'],[stop,'stop'],[power,'power'],[clear,'clear'],[next,'next'],[heatK,'heat'],[coolK,'cool']])k.el.dataset.act=a;
  power.el.hidden=clear.el.hidden=next.el.hidden=true;
  act.append(clear.el,next.el,heatK.el,coolK.el,pause.el,resume.el,stop.el,power.el,open.el);
- // 2026-10-24: "These panels should be rather customizable." Its colour (kept on the printer), what the tile shows and whether it stands first
+ // the owner 2026-10-24: "These panels should be rather customizable." Its colour (kept on the printer), what the tile shows and whether it stands first
  // (kept on this device: another screen may want its own wall).
  const look=el('div','fm-look'),pr=prefOf(p.id);
  const pin=el('button','fm-pin');pin.type='button';const paintPin=()=>{const on=!!prefOf(t.p.id).pin;pin.setAttribute('aria-pressed',String(on));pin.replaceChildren(icon('i-pin'),el('span','',on?'First on the wall':'Pin it first'));};paintPin();
@@ -312,7 +313,7 @@ function stills(){
   if(t.hasCam&&!t.live)still(t);}
  allocate();}
 
-// ---- the 3D machine on a tile (WO-13, our video opener; budget WO-04 2026-10-18) -----------------
+// ---- the 3D machine on a tile (WO-13, the owner's video opener; budget WO-04 2026-10-18) -----------------
 // A printer with real CAD bound to it shows the machine itself, moving with the printer, beside the camera picture. No model means
 // no made-up stand-in (the owner: real CAD or none). Each live tile owns one GL context and redraws only on a pose change; poses refresh
 // every 800 ms per live tile. Which tiles are live is decided in one place (manage3d, with the pure plan3d): a tile on screen gets a
@@ -342,9 +343,10 @@ function manage3d(){
  const shown=new Set(order),all=[...order.map(id=>tiles.get(id)),...[...tiles.values()].filter(t=>!shown.has(t.p.id))].filter(Boolean);
  const items=all.map(t=>{let want=false;
   if(hasModel(t)&&!t.root.hidden&&!['camera','job'].includes(t.root.dataset.show)){   // a tile set to show its camera or its job draws no machine (D16)
-   if(t.visible){const wait=t.inAt+SETTLE_MS-now;if(wait<=0)want=true;else again=Math.min(again,wait);}
+   if(t.p.id===openId)want=true;
+   else if(t.visible){const wait=t.inAt+SETTLE_MS-now;if(wait<=0)want=true;else again=Math.min(again,wait);}
    else if(t.v3!=='none'){const left=t.outAt+graceOf(t)-now;if(left>0){want=true;again=Math.min(again,left);}}}
-  return {id:t.p.id,want,visible:t.visible&&want,state:t.v3};});
+  return {id:t.p.id,want,visible:t.visible&&want,state:t.v3,open:t.p.id===openId};});
  const plan=plan3d(items,budget3d(innerWidth,coarse()));
  for(const id of plan.stop)stop3d(tiles.get(id));
  let slots=hush>0?0:Math.max(0,PARALLEL-all.filter(t=>t.v3==='loading').length);
@@ -479,8 +481,8 @@ function summary(list){
  // The mark leads to the first printer's own page, which on a phone is the way out of the farm.
  const first=list.find(p=>p.default)||list[0],home=document.querySelector('.fm-id');if(first&&home)home.setAttribute('href','/p/'+first.id);}
 
-// A small, dismissible note once the farm is past the free printers and has no licence. Nothing is
-// disabled by it, and "Not now" quiets it for a week.
+// A small, dismissible note when the settings name more printers than may run (written by hand or restored from another farm):
+// the first ones run, the others wait for a licence. "Not now" quiets it for a week.
 let licenceSeen='';
 async function licenceNote(){
  const host=$('fm-licence'),st=await licenceState();
@@ -488,11 +490,10 @@ async function licenceNote(){
  const key=show?`${st.printers}|${st.state}|${st.note}`:'';
  if(key===licenceSeen)return;licenceSeen=key;
  host.hidden=!show;host.replaceChildren();if(!show)return;
- const over=st.printers-st.free_printers;
- host.append(el('p','fm-licence-text',st.state==='too_few'?`${st.note} A farm licence for more printers keeps this work going.`:`${st.printers} printers, ${over} over the ${st.free_printers} that are free. A farm licence keeps this work going.`));
+ host.append(el('p','fm-licence-text',st.note));
  const row=el('div','fm-licence-act');
  row.append(button({icon:'i-check',label:'Enter licence',size:'row',title:'Enter licence',does:'Paste a farm licence. It is checked on this computer.',onPress:()=>licenceEntry({onDone:()=>{licenceSeen='';refresh();}})}),
-  button({icon:'i-close',label:'Not now',size:'row',kind:'ghost',title:'Not now',does:'Hides this note for a week. Nothing is switched off.',onPress:()=>{dismissLicence();licenceSeen='';licenceNote();}}));
+  button({icon:'i-close',label:'Not now',size:'row',kind:'ghost',title:'Not now',does:'Hides this note for a week.',onPress:()=>{dismissLicence();licenceSeen='';licenceNote();}}));
  host.append(row);}
 
 // The demo farm's card: nine simulated printers (finish-2 F09: the Prusa MK3S+ joined the eight) in one press, for someone with no printer to look at yet.
@@ -501,9 +502,9 @@ function demoCard(grid,show){
  if(!show){c?.remove();return;}
  grid.dataset.fill='0';   // the card is one more cell: a wall that fills the window would give it the whole first row
  if(!c){c=el('div','fm-democard nx-glass');c.id='fm-democard';
-  const go=button({icon:'i-play',label:'Try the demo farm',kind:'primary',size:'row',title:'Try the demo farm',does:'Adds nine simulated printers running sample prints, so the whole farm can be tried with no printer, and downloads their 3D models from their authors (the four Prusa models are already inside Stella Scope). Nothing real is touched and none count toward the licence.',onPress:async()=>{busy(go,true);try{await demoFarmAdd(farmToken);await refresh();}catch(e){toast(e.message,'alarm');}finally{busy(go,false);}}});
-  // F03: the open licences in one line, where the button is: pressing it is the person's yes to them, and the models are fetched at once.
-  const lic=el('p','fm-democard-lic','');demoLicenceLine().then(t=>{lic.textContent=t;lic.hidden=!t;});
+  const go=button({icon:'i-play',label:'Try the demo farm',kind:'primary',size:'row',title:'Try the demo farm',does:'Adds nine simulated printers running sample prints, so the whole farm can be tried with no printer. Each offers its 3D model to download when you want it. Nothing real is touched and none count toward the licence.',onPress:async()=>{busy(go,true);try{await demoFarmAdd(farmToken);await refresh();}catch(e){toast(e.message,'alarm');}finally{busy(go,false);}}});
+  // release-2026-11-14: nothing is fetched by this press, so no licence line here; each model's licence is shown on its own Get button.
+  const lic=el('p','fm-democard-lic','');lic.hidden=true;
   // F04 (2026-10-19): a fresh install's first need is to add a printer (or to try the demo): the card says both in words, beside the header's plus.
   const add=button({icon:'i-plus',label:'Add a printer',size:'row',title:'Add a printer',does:'Finds printers on this network, or takes an address you type.',onPress:()=>sheetAddPrinter()});add.dataset.act='add-first';
   c.append(el('b','','No printer connected yet'),el('p','','Try the demo farm: nine simulated printers, a toolchanger and a Prusa among them, each at its own place in a sample print. Nothing real is touched, and every one is marked DEMO.'),lic,go,add);}
@@ -543,7 +544,7 @@ function layout(){
  summary(raw);
  $('fm-sub').textContent=`${n===total?total:n+' OF '+total} ${total===1?'PRINTER':'PRINTERS'}`;
  allocate();manage3d();}
-// ---- a press grows a tile in place (U04, 2026-10-20) ----------------------------------------------------------
+// ---- a press grows a tile in place (U04, 2026-10-20, the owner) ----------------------------------------------------------
 // The grown tile takes the room of four (two columns and two rows; the whole width on a phone) and the others flow around it. The change is made in the page at once and
 // then played from where every tile was to where it is now (FLIP), on the spring of the control kit, so nothing pops: a tile that moves glides, the one that grows
 // grows. A press on the grown tile, or on another tile, settles it back the same way.
@@ -564,7 +565,7 @@ function cellOf(grid,r){
  const cs=getComputedStyle(grid),cols=cs.gridTemplateColumns.split(' ').map(parseFloat),rows=cs.gridTemplateRows.split(' ').map(parseFloat),cg=parseFloat(cs.columnGap)||0,rg=parseFloat(cs.rowGap)||0,g=grid.getBoundingClientRect(),b=r.getBoundingClientRect();
  const at=(sizes,gap,p)=>{let acc=0;for(let i=0;i<sizes.length;i++){if(p<acc+sizes[i]+gap/2)return i;acc+=sizes[i]+gap;}return Math.max(0,sizes.length-1);};
  return {col:at(cols,cg,b.left-g.left+2),row:at(rows,rg,b.top-g.top+2),cols:cols.length};}
-// 2026-10-24: "when I click on the printer itself, it expands the tab ... uses a bunch of wasteful space ... it could just be an overlay or a card over top
+// the owner 2026-10-24: "when I click on the printer itself, it expands the tab ... uses a bunch of wasteful space ... it could just be an overlay or a card over top
 // of it." The open printer is a card over the wall: an empty frame keeps its place so nothing on the wall moves, and a press on the veil or Escape closes it.
 function markOpen(t,on){
  t.root.toggleAttribute('data-open',on);t.head.setAttribute('aria-expanded',String(on));
@@ -660,6 +661,7 @@ const stickyH=()=>{const s=document.querySelector('.fm-sticky');if(!s)return;con
   item('i-backup','Backup','Save the farm to a file, or restore it.',()=>sheetBackup(),true);
   item('i-fullscreen','Wall screen','The wall for a screen across the room: no buttons, big tiles.',()=>{location.href='/farm?tv=1';});
   item('i-chat','Feedback','Tell 3D3D what to fix or add. Sent only when you press Send.',()=>sheetFeedback());
+  item('i-play','Walkthrough','A short tour of this page: what each part is and why it is there.',()=>startTour('farm'));
   item('i-help','Help','The user guide: set up, add a printer, cameras, the queue, alerts, backup and what to do when something is wrong.',()=>{location.href='/help';});
   item('i-view','About','The version, the licences, who made what is inside Stella Scope, and how to reach 3D3D.',()=>sheetAbout());
   body.append(list);}}),'more');a.append(more);
@@ -683,6 +685,8 @@ const stickyH=()=>{const s=document.querySelector('.fm-sticky');if(!s)return;con
   const dy=scrollY-lastY;lastY=scrollY;const driven=Date.now()-inputAt<500;
   if(driven&&!stuck()&&scrollY>innerHeight*1.2&&dy<-6){up.hidden=false;clearTimeout(upTimer);upTimer=setTimeout(()=>{up.hidden=true;},2800);}else if(scrollY<innerHeight*1.2||dy>6){up.hidden=true;}});},{passive:true});
  await refresh();stills();stickyH();
+ // release-2026-11-14: the first start shows the walkthrough once (web/next-tour.js); never on the wall screen, which has no buttons
+ if(!tv)setTimeout(()=>maybeTour('farm'),1200);
  setInterval(()=>{if(!document.hidden)refresh();},2000);
  setInterval(stills,4000);setTimeout(stills,1500);
  document.addEventListener('visibilitychange',()=>{if(document.hidden)allocate();else{refresh();stills();}});

@@ -234,6 +234,12 @@ pub struct MoonState {
     pub uploads: Vec<(String, usize)>,
     /// UI board U06: a saved 7 x 7 bed mesh (a shallow bowl, 0.12 mm across, taken as a real Klipper reports it) for a browser to look at; off, the matrix is empty as it always was.
     pub mesh: bool,
+    /// fix-0.6.2 WO-01: what a mesh-corrected head differs from the G-code's Z by (an AD5M with a load-cell mesh near -1.6 mm reads its head about 1.5 mm under the layer Z). 0 = no mesh.
+    pub gcode_z_shift: f64,
+    /// fix-0.6.2 WO-01: list Z-Mod's destructive macros in gcode/help, as the AD5M does (names from the 10-28 run).
+    pub zmod_macros: bool,
+    /// fix-0.6.2 WO-02: answer as the Z-Mod Adventurer 5M does (see moon_status).
+    pub ad5m: bool,
 }
 impl MoonState {
     pub fn new() -> Self {
@@ -266,6 +272,9 @@ impl MoonState {
             stall_ms: 0,
             uploads: Vec::new(),
             mesh: false,
+            gcode_z_shift: 0.0,
+            zmod_macros: false,
+            ad5m: false,
         }
     }
     fn step(&mut self) {
@@ -378,7 +387,8 @@ fn mesh_object() -> Value {
             (0..7)
                 .map(|x| {
                     let (fx, fy) = (x as f64 / 6.0 - 0.5, y as f64 / 6.0 - 0.5);
-                    ((0.16 * (fx * fx + fy * fy) + 0.03 * fx * fy * 4.0 - 0.02) * 10000.0).round() / 10000.0
+                    ((0.16 * (fx * fx + fy * fy) + 0.03 * fx * fy * 4.0 - 0.02) * 10000.0).round()
+                        / 10000.0
                 })
                 .collect()
         })
@@ -397,7 +407,7 @@ fn moon_status(s: &mut MoonState) -> Value {
         "webhooks":{"state":s.klippy,"state_message":if s.klippy=="ready"{"Printer is ready"}else{"Lost communication with MCU 'mcu'\nPrinter is shutdown"}},
         "motion_report":{"live_position":[s.pos[0],s.pos[1],s.pos[2],0.0],"live_velocity":if moving {120.0} else {0.0},"live_extruder_velocity":if ev {5.0} else {0.0}},
         "toolhead":{"position":[s.pos[0],s.pos[1],s.pos[2],0.0],"homed_axes":s.homed,"max_velocity":300.0,"max_accel":3000.0,"square_corner_velocity":5.0,"axis_minimum":[0,0,-2,0],"axis_maximum":[350,350,330,0]},
-        "gcode_move":{"homing_origin":[0,0,s.z_offset,0],"speed_factor":s.speed_factor,"extrude_factor":s.extrude_factor,"speed":1000.0},
+        "gcode_move":{"homing_origin":[0,0,s.z_offset,0],"gcode_position":[s.pos[0],s.pos[1],s.pos[2]+s.gcode_z_shift,0.0],"speed_factor":s.speed_factor,"extrude_factor":s.extrude_factor,"speed":1000.0},
         "idle_timeout":{"state":if s.busy()||s.print_state=="printing" {"Printing"} else if s.nozzle_target>0.0 {"Ready"} else {"Idle"}},
         "print_stats":{"state":s.print_state,"filename":s.filename,"total_duration":s.progress*600.0,"print_duration":s.progress*600.0,"filament_used":s.progress*3000.0,"message":"","info":{"total_layer":null,"current_layer":null}},
         "virtual_sdcard":{"progress":s.progress,"is_active":s.print_state=="printing","file_path":s.filename},
@@ -410,7 +420,7 @@ fn moon_status(s: &mut MoonState) -> Value {
         "bed_mesh":if s.mesh {mesh_object()} else {json!({"profile_name":"","probed_matrix":[[]],"mesh_min":[20,20],"mesh_max":[330,330]})},
         "quad_gantry_level":{"applied":s.qgl_applied},
         "stepper_enable":{"steppers":{"stepper_x":true,"stepper_y":true,"stepper_z":true,"stepper_z1":true,"stepper_z2":true,"stepper_z3":true,"extruder":true}},
-        "configfile":{"settings":{"printer":{"kinematics":"corexy","max_velocity":300.0},"gcode_macro load_filament":{"gcode":"{% set temp = params.TEMP|default(220)|float %}\nG1 E50 F300"},"gcode_macro unload_filament":{"gcode":"{% set temp = params.TEMP|default(220)|float %}\nG1 E-100 F300"},"gcode_macro quad_gantry_level":{"gcode":"G28"},"bltouch":{"z_offset":1.9}}}
+        "configfile":{"settings":{"printer":{"kinematics":"corexy","max_velocity":300.0},"gcode_macro load_filament":{"gcode":"{% set temp = params.TEMP|default(220)|float %}\nG1 E50 F300"},"gcode_macro unload_filament":{"gcode":"{% set temp = params.TEMP|default(220)|float %}\nG1 E-100 F300"},"gcode_macro quad_gantry_level":{"gcode":"G28"},"bltouch":{"z_offset":1.9},"quad_gantry_level":{},"stepper_z1":{},"stepper_z2":{},"stepper_z3":{},"bed_mesh":{}}}
     });
     for name in MOTORS {
         let mut drv = json!({"cs_actual":if moving {18} else {8},"stst":if moving {0} else {1}});
@@ -421,6 +431,58 @@ fn moon_status(s: &mut MoonState) -> Value {
         }
         o[format!("tmc2209 {name}")] =
             json!({"run_current":0.9,"hold_current":0.5,"drv_status":drv});
+    }
+    if s.ad5m {
+        // fix-0.6.2 WO-02: the Z-Mod Adventurer 5M of the 2026-10-28 capture: one Z, no quad gantry level, no BLTouch, a load-cell probe filed as a temperature sensor,
+        // drivers that report their set current and no DRV_STATUS, the driver-board fan, the part fan as fan_generic fanM106, the input shaper in the config.
+        let m = o.as_object_mut().unwrap();
+        m.remove("quad_gantry_level");
+        m.remove("fan");
+        m.remove("heater_fan hotend_fan");
+        if let Some(v) = m.remove("controller_fan controller_fan") {
+            m.insert("controller_fan driver_fan".into(), v);
+        }
+        m.insert(
+            "fan_generic fanM106".into(),
+            json!({"speed":s.fan,"rpm":null}),
+        );
+        m.insert(
+            "heater_fan heat_fan".into(),
+            json!({"speed":if s.nozzle > 50.0 {1.0} else {0.0},"rpm":null}),
+        );
+        for z in ["stepper_z1", "stepper_z2", "stepper_z3"] {
+            m.remove(&format!("tmc2209 {z}"));
+        }
+        for n in ["stepper_x", "stepper_y", "stepper_z", "extruder"] {
+            m.insert(
+                format!("tmc2209 {n}"),
+                json!({"run_current":0.8,"hold_current":0.5}),
+            );
+        }
+        m.insert("stepper_enable".into(), json!({"steppers":{"stepper_x":true,"stepper_y":true,"stepper_z":true,"extruder":true}}));
+        m.insert(
+            "temperature_sensor weightValue".into(),
+            json!({"temperature":520.0,"measured_min_temp":20.0,"measured_max_temp":980.0}),
+        );
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/ad5m-config-sections-2026-10-28.json"
+        ))
+        .unwrap();
+        let mut settings = serde_json::Map::new();
+        for name in fixture["sections"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            settings.insert(name.to_ascii_lowercase(), json!({}));
+        }
+        settings.insert(
+            "printer".into(),
+            json!({"kinematics":"corexy","max_velocity":600.0}),
+        );
+        settings.insert("input_shaper".into(), fixture["input_shaper"].clone());
+        m.insert("configfile".into(), json!({"settings":settings}));
     }
     o
 }
@@ -619,6 +681,30 @@ fn moon_route(st: &Arc<Mutex<MoonState>>, req: Req) -> Rsp {
             .map(|s| s.to_string())
             .collect();
             names.extend(MOTORS.iter().map(|m| format!("tmc2209 {m}")));
+            if st.lock().unwrap().ad5m {
+                names.retain(|n| {
+                    ![
+                        "quad_gantry_level",
+                        "fan",
+                        "heater_fan hotend_fan",
+                        "controller_fan controller_fan",
+                        "tmc2209 stepper_z1",
+                        "tmc2209 stepper_z2",
+                        "tmc2209 stepper_z3",
+                    ]
+                    .contains(&n.as_str())
+                });
+                names.extend(
+                    [
+                        "fan_generic fanM106",
+                        "heater_fan heat_fan",
+                        "controller_fan driver_fan",
+                        "temperature_sensor weightValue",
+                        "display_status",
+                    ]
+                    .map(String::from),
+                );
+            }
             Rsp::json(json!({"result":{"objects":names}}))
         }
         ("GET", "/printer/objects/query") => {
@@ -636,13 +722,31 @@ fn moon_route(st: &Arc<Mutex<MoonState>>, req: Req) -> Rsp {
             }
             Rsp::json(json!({"result":{"eventtime":unix_now(),"status":out}}))
         }
-        ("GET", "/printer/gcode/help") => Rsp::json(json!({"result":{
+        ("GET", "/printer/gcode/help") => {
+            let mut help = json!({"result":{
             "QUAD_GANTRY_LEVEL":"Conform a moving, twistable gantry to the shape of a stationary bed",
             "LOAD_FILAMENT":"Park front right, heat, purge 50 mm","UNLOAD_FILAMENT":"Park front right, heat, retract 100 mm",
             "SET_HEATER_TEMPERATURE":"Sets a heater temperature","BED_MESH_CALIBRATE":"Perform Mesh Bed Leveling","PROBE_ACCURACY":"Probe Z-height accuracy at current XY position",
             "SET_GCODE_OFFSET":"Set a virtual offset to g-code positions","PAUSE":"Pauses the current print","RESUME":"Resumes the print from a pause","CANCEL_PRINT":"Cancel the current print",
             "FIRMWARE_RESTART":"Firmware restart","RESTART":"Reload config file and restart host software","EXCLUDE_OBJECT":"Excludes an object","SET_VELOCITY_LIMIT":"Set printer velocity limits","SET_PRESSURE_ADVANCE":"Set pressure advance parameters",
-            "TEST_RESONANCES":"Runs the resonance test","Z_OFFSET_APPLY_PROBE":"Adjust the probe's z_offset","SAVE_CONFIG":"Overwrite config file and restart"}})),
+            "TEST_RESONANCES":"Runs the resonance test","Z_OFFSET_APPLY_PROBE":"Adjust the probe's z_offset","SAVE_CONFIG":"Overwrite config file and restart"}});
+            if st.lock().unwrap().zmod_macros {
+                // as listed by the Z-Mod AD5M on 2026-10-28; the first five wipe or remove things, the last two are the ordinary ones
+                for (name, text) in [
+                    ("REMOVE_ZMOD", "Remove Z-Mod"),
+                    ("CLEAR_EMMC", "Wipe the printer's storage"),
+                    ("RESET_PASSWD", "Reset the password"),
+                    ("RESTORE_TAR_CONFIG", "Restore the config archive"),
+                    ("NEW_SAVE_CONFIG", "Write a new saved config"),
+                    ("SDCARD_RESET_FILE", "Clear the SD card file"),
+                    ("AUTO_FULL_BED_LEVEL", "Level the bed with the load cell"),
+                    ("SCREWS_TILT_CALCULATE", "Report the bed screw turns"),
+                ] {
+                    help["result"][name] = json!(text);
+                }
+            }
+            Rsp::json(help)
+        }
         ("POST", "/printer/gcode/script") => {
             let script = body["script"].as_str().unwrap_or("").to_owned();
             moon_script(st, &script);
@@ -667,9 +771,20 @@ fn moon_route(st: &Arc<Mutex<MoonState>>, req: Req) -> Rsp {
         ("GET", "/server/files/list") => Rsp::json(json!({"result":[
             {"path":"cube_20mm_PETG.gcode","modified":unix_now()-3600.0,"size":412345,"permissions":"rw"},
             {"path":"camera_cap_PETG.gcode","modified":unix_now()-86400.0,"size":2214400,"permissions":"rw"}]})),
-        ("GET", "/server/files/metadata") => Rsp::json(
-            json!({"result":{"size":412345,"modified":unix_now()-3600.0,"slicer":"OrcaSlicer","slicer_version":"2.2.0","layer_height":0.2,"first_layer_height":0.2,"object_height":20.0,"estimated_time":1260.0,"filament_name":"Generic PETG","filament_type":"PETG","filament_total":3200.0,"filament_weight_total":9.6,"layer_count":100,"first_layer_extr_temp":245.0,"first_layer_bed_temp":55.0,"nozzle_diameter":0.4,"thumbnails":[]}}),
-        ),
+        ("GET", "/server/files/metadata") => {
+            if req
+                .param("filename")
+                .is_some_and(|f| f.starts_with("3mf_print/"))
+            {
+                // shape of the 10-28 run: Orca's 1 h 48 estimate, PETG 0.4, the picture beside the file in its own .thumbs folder
+                return Rsp::json(
+                    json!({"result":{"size":412345,"modified":unix_now()-3600.0,"slicer":"OrcaSlicer","slicer_version":"2.5.0","layer_height":0.2,"first_layer_height":0.2,"object_height":11.0,"estimated_time":6480.0,"filament_name":"Generic PETG","filament_type":"PETG","filament_total":9200.0,"filament_weight_total":27.0,"layer_count":55,"first_layer_extr_temp":245.0,"first_layer_bed_temp":75.0,"nozzle_diameter":0.4,"thumbnails":[{"width":32,"height":32,"size":900,"relative_path":".thumbs/paddle-32x32.png"},{"width":300,"height":300,"size":9000,"relative_path":".thumbs/paddle-300x300.png"}]}}),
+                );
+            }
+            Rsp::json(
+                json!({"result":{"size":412345,"modified":unix_now()-3600.0,"slicer":"OrcaSlicer","slicer_version":"2.2.0","layer_height":0.2,"first_layer_height":0.2,"object_height":20.0,"estimated_time":1260.0,"filament_name":"Generic PETG","filament_type":"PETG","filament_total":3200.0,"filament_weight_total":9.6,"layer_count":100,"first_layer_extr_temp":245.0,"first_layer_bed_temp":55.0,"nozzle_diameter":0.4,"thumbnails":[]}}),
+            )
+        }
         ("GET", "/server/job_queue/status") => {
             Rsp::json(json!({"result":{"queued_jobs":[],"queue_state":"ready"}}))
         }
@@ -677,6 +792,20 @@ fn moon_route(st: &Arc<Mutex<MoonState>>, req: Req) -> Rsp {
             json!({"result":{"moonraker_stats":{"cpu_usage":1.0,"memory":40000},"cpu_temp":48.0,"network":{},"system_cpu_usage":{"cpu":12.0},"system_memory":{"total":4000000,"available":2300000,"used":1700000},"websocket_connections":0}}),
         ),
         ("GET", "/server/webcams/list") => Rsp::json(json!({"result":{"webcams":[]}})),
+        ("GET", p) if p.starts_with("/server/files/gcodes/") => {
+            if p.to_ascii_lowercase().ends_with(".png") {
+                // a 96 x 96 picture, drawn here so the fake carries no binary file
+                let img = image::RgbImage::from_fn(96, 96, |x, y| {
+                    image::Rgb([40 + x as u8, 120, 200 - y as u8])
+                });
+                let mut png = std::io::Cursor::new(Vec::new());
+                img.write_to(&mut png, image::ImageFormat::Png).unwrap();
+                return Rsp::bytes("image/png", png.into_inner());
+            }
+            Rsp::text(
+                ";LAYER_CHANGE\n;Z:0.2\nG1 X100 Y100 E1\n;LAYER_CHANGE\n;Z:0.4\nG1 X120 Y100 E1\n",
+            )
+        }
         ("GET", p) if p.starts_with("/server/files/config/") => {
             Rsp::text("[printer]\nkinematics: corexy\n")
         }
@@ -770,6 +899,9 @@ fn moon_route(st: &Arc<Mutex<MoonState>>, req: Req) -> Rsp {
                             s.pos[i] = n.as_f64().unwrap_or(s.pos[i]);
                         }
                     }
+                    ("gcode_z_shift", v) => s.gcode_z_shift = v.as_f64().unwrap_or(0.0),
+                    ("ad5m", v) => s.ad5m = v.as_bool().unwrap_or(false),
+                    ("zmod_macros", v) => s.zmod_macros = v.as_bool().unwrap_or(false),
                     ("qgl_secs", v) => s.qgl_secs = v.as_f64().unwrap_or(6.0),
                     ("load_secs", v) => s.load_secs = v.as_f64().unwrap_or(4.0),
                     ("tmc", v) => {
@@ -1064,7 +1196,11 @@ fn prusa_route(st: &Arc<Mutex<PrusaState>>, user: &str, pass: &str, req: Req) ->
         ("GET", p) if p.starts_with("/api/v1/files/usb/") => {
             let name = pct_decode(&p["/api/v1/files/usb/".len()..]);
             // the printer answers to the long name and to the short one
-            match s.files.iter().find(|(n, _, _)| *n == name || short_name(n) == name) {
+            match s
+                .files
+                .iter()
+                .find(|(n, _, _)| *n == name || short_name(n) == name)
+            {
                 Some((n, sz, t)) => {
                     // Finish-2 F06 (2026-10-19): the real CORE One L (firmware 6.5.7) answers no `meta` at all for a plain .gcode (its time, filament and layer height
                     // are in the file's own comments); only a binary .bgcode, which carries them in blocks, is described. The fake once described every file.
@@ -1081,13 +1217,25 @@ fn prusa_route(st: &Arc<Mutex<PrusaState>>, user: &str, pass: &str, req: Req) ->
         // the file itself, at its download reference (short name), as the printer serves it
         ("GET", p) if p.starts_with("/usb/") => {
             let name = pct_decode(&p["/usb/".len()..]);
-            match s.files.iter().find(|(n, _, _)| *n == name || short_name(n) == name) {
-                Some((n, _, _)) => Rsp::bytes("application/octet-stream", s.contents.get(n).cloned().unwrap_or_else(|| b"G28\nG1 X10 Y10 Z0.2 E1 F1200\n".to_vec())),
+            match s
+                .files
+                .iter()
+                .find(|(n, _, _)| *n == name || short_name(n) == name)
+            {
+                Some((n, _, _)) => Rsp::bytes(
+                    "application/octet-stream",
+                    s.contents
+                        .get(n)
+                        .cloned()
+                        .unwrap_or_else(|| b"G28\nG1 X10 Y10 Z0.2 E1 F1200\n".to_vec()),
+                ),
                 None => Rsp::status(404, json!({"message":"Not Found"})),
             }
         }
         // A file sliced without pictures (PrusaSlicer's command line) lists a thumbnail address that answers 404 (finish-2 F02).
-        ("GET", p) if p.starts_with("/thumb/") && p.to_ascii_uppercase().contains("NOPIC") => Rsp::status(404, json!({"title":"Not Found"})),
+        ("GET", p) if p.starts_with("/thumb/") && p.to_ascii_uppercase().contains("NOPIC") => {
+            Rsp::status(404, json!({"title":"Not Found"}))
+        }
         ("GET", p) if p.starts_with("/thumb/") => Rsp::bytes("image/png", tiny_png()),
         ("PUT", p) if p.starts_with("/api/v1/job/") && p.ends_with("/pause") => {
             if s.state == "PRINTING" {
@@ -1176,8 +1324,8 @@ fn prusa_route(st: &Arc<Mutex<PrusaState>>, user: &str, pass: &str, req: Req) ->
 }
 
 // ------------------------------------------------------------------------------------------
-// FlashForge Adventurer 5M. HTTP 8898 field names are from a real /detail capture of our printer
-// (firmware 5.1.7, 2026-08-30); the 8899 reply texts follow the regexes in our probe.sh. The fake
+// FlashForge Adventurer 5M. HTTP 8898 field names are from a real /detail capture of the owner's printer
+// (firmware 5.1.7, 2026-08-30); the 8899 reply texts follow the regexes in the owner's probe.sh. The fake
 // enforces LAN mode and the case-sensitive check code, takes one control session at a time, and keeps
 // every TCP line it was sent so a test sees the exact bytes.
 // ------------------------------------------------------------------------------------------
@@ -1301,16 +1449,33 @@ fn flash_http(st: &Arc<Mutex<FlashState>>, req: Req) -> Rsp {
     let mut s = st.lock().unwrap();
     // Finish-2 F05: the HTTP upload as the 5M's firmware takes it: multipart `gcodeFile`, the check code in headers.
     if req.path() == "/uploadGcode" {
-        s.http_log.push(json!({"path":"/uploadGcode","print_now":req.headers.get("printnow")}));
-        if req.headers.get("serialnumber") != Some(&s.serial) || req.headers.get("checkcode") != Some(&s.check) {
+        s.http_log
+            .push(json!({"path":"/uploadGcode","print_now":req.headers.get("printnow")}));
+        if req.headers.get("serialnumber") != Some(&s.serial)
+            || req.headers.get("checkcode") != Some(&s.check)
+        {
             return Rsp::json(json!({"code":1,"message":"Access code is different"}));
         }
         let text = String::from_utf8_lossy(&req.body).into_owned();
-        let name = text.split("filename=\"").nth(1).and_then(|r| r.split('"').next()).unwrap_or("").to_owned();
+        let name = text
+            .split("filename=\"")
+            .nth(1)
+            .and_then(|r| r.split('"').next())
+            .unwrap_or("")
+            .to_owned();
         let start = text.find("\r\n\r\n").map_or(0, |i| i + 4);
-        let end = req.body.windows(4).rposition(|w| w == b"\r\n--").unwrap_or(req.body.len());
+        let end = req
+            .body
+            .windows(4)
+            .rposition(|w| w == b"\r\n--")
+            .unwrap_or(req.body.len());
         let size = end.saturating_sub(start);
-        if req.headers.get("filesize").and_then(|v| v.parse::<usize>().ok()) != Some(size) {
+        if req
+            .headers
+            .get("filesize")
+            .and_then(|v| v.parse::<usize>().ok())
+            != Some(size)
+        {
             return Rsp::json(json!({"code":2,"message":"file size mismatch"}));
         }
         s.uploads.push((name.clone(), size));
@@ -1642,9 +1807,19 @@ impl FakeMjpeg {
 /// The FAT 8.3 name PrusaLink lists a long file name under ("twistbowl.gcode" -> "TWISTB~1.GCO").
 fn short_name(long: &str) -> String {
     let (stem, ext) = long.rsplit_once('.').unwrap_or((long, ""));
-    let up = |s: &str, n: usize| -> String { s.chars().filter(char::is_ascii_alphanumeric).take(n).collect::<String>().to_ascii_uppercase() };
+    let up = |s: &str, n: usize| -> String {
+        s.chars()
+            .filter(char::is_ascii_alphanumeric)
+            .take(n)
+            .collect::<String>()
+            .to_ascii_uppercase()
+    };
     let (s, e) = (up(stem, 8), up(ext, 3));
-    if s.len() <= 8 && stem.chars().all(|c| c.is_ascii_alphanumeric()) && ext.len() <= 3 && stem.len() <= 8 {
+    if s.len() <= 8
+        && stem.chars().all(|c| c.is_ascii_alphanumeric())
+        && ext.len() <= 3
+        && stem.len() <= 8
+    {
         return if e.is_empty() { s } else { format!("{s}.{e}") };
     }
     format!("{}~1.{e}", up(stem, 6))

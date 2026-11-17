@@ -99,23 +99,53 @@ fn parts_oriented(glb: &[u8], orient: Option<[[f64; 3]; 3]>) -> Vec<Part> {
     let o = orient.unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
     let mut out = Vec::new();
     for n in json["nodes"].as_array().expect("nodes") {
-        let Some(mi) = n["mesh"].as_u64() else { continue };
+        let Some(mi) = n["mesh"].as_u64() else {
+            continue;
+        };
         let mesh = &json["meshes"][mi as usize];
-        assert!(n["rotation"].is_null() && n["scale"].is_null(), "a node has a rotation or scale of its own, which this does not read");
+        assert!(
+            n["rotation"].is_null() && n["scale"].is_null(),
+            "a node has a rotation or scale of its own, which this does not read"
+        );
         let m: [f64; 16] = match n["matrix"].as_array() {
             Some(a) => std::array::from_fn(|i| a[i].as_f64().unwrap()),
             None => {
                 let t = |i: usize| n["translation"][i].as_f64().unwrap_or(0.0);
-                [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, t(0), t(1), t(2), 1.0]
+                [
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    t(0),
+                    t(1),
+                    t(2),
+                    1.0,
+                ]
             }
         };
         let name = n["name"].as_str().unwrap_or("");
         let key = mesh["extras"]["part_key"]
             .as_str()
             .map(str::to_owned)
-            .or_else(|| name.split_once("__").filter(|(k, _)| k.starts_with('p') && k[1..].bytes().all(|b| b.is_ascii_digit())).map(|(k, _)| k.to_owned()))
+            .or_else(|| {
+                name.split_once("__")
+                    .filter(|(k, _)| {
+                        k.starts_with('p') && k[1..].bytes().all(|b| b.is_ascii_digit())
+                    })
+                    .map(|(k, _)| k.to_owned())
+            })
             .unwrap_or_default();
-        let acc = &json["accessors"][mesh["primitives"][0]["attributes"]["POSITION"].as_u64().expect("POSITION") as usize];
+        let acc = &json["accessors"][mesh["primitives"][0]["attributes"]["POSITION"]
+            .as_u64()
+            .expect("POSITION") as usize];
         let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
         for &x in &[0, 1] {
             for &y in &[0, 1] {
@@ -125,7 +155,9 @@ fn parts_oriented(glb: &[u8], orient: Option<[[f64; 3]; 3]>) -> Vec<Part> {
                         acc[if y == 0 { "min" } else { "max" }][1].as_f64().unwrap(),
                         acc[if z == 0 { "min" } else { "max" }][2].as_f64().unwrap(),
                     ];
-                    let f: [f64; 3] = std::array::from_fn(|r| m[r] * p[0] + m[4 + r] * p[1] + m[8 + r] * p[2] + m[12 + r]);
+                    let f: [f64; 3] = std::array::from_fn(|r| {
+                        m[r] * p[0] + m[4 + r] * p[1] + m[8 + r] * p[2] + m[12 + r]
+                    });
                     for r in 0..3 {
                         let d = (o[r][0] * f[0] + o[r][1] * f[1] + o[r][2] * f[2]) * 1000.0;
                         lo[r] = lo[r].min(d);
@@ -134,7 +166,12 @@ fn parts_oriented(glb: &[u8], orient: Option<[[f64; 3]; 3]>) -> Vec<Part> {
                 }
             }
         }
-        out.push(Part { key, group: mesh["extras"]["group"].as_str().unwrap_or("").to_owned(), min: lo, max: hi });
+        out.push(Part {
+            key,
+            group: mesh["extras"]["group"].as_str().unwrap_or("").to_owned(),
+            min: lo,
+            max: hi,
+        });
     }
     out
 }
@@ -148,27 +185,48 @@ fn lowest_tip(glb: &[u8], hidden: &std::collections::HashSet<String>) -> [f64; 3
     let bin = 20 + len + 8; // the BIN chunk's data
     let mut verts: Vec<[f64; 3]> = Vec::new();
     for n in json["nodes"].as_array().expect("nodes") {
-        let Some(mi) = n["mesh"].as_u64() else { continue };
+        let Some(mi) = n["mesh"].as_u64() else {
+            continue;
+        };
         let mesh = &json["meshes"][mi as usize];
-        let key = mesh["extras"]["part_key"].as_str().or_else(|| n["extras"]["part_key"].as_str()).unwrap_or("");
+        let key = mesh["extras"]["part_key"]
+            .as_str()
+            .or_else(|| n["extras"]["part_key"].as_str())
+            .unwrap_or("");
         if hidden.contains(key) {
             continue;
         }
         for prim in mesh["primitives"].as_array().unwrap() {
             let acc = &json["accessors"][prim["attributes"]["POSITION"].as_u64().unwrap() as usize];
             let bv = &json["bufferViews"][acc["bufferView"].as_u64().unwrap() as usize];
-            let at = bin + bv["byteOffset"].as_u64().unwrap_or(0) as usize + acc["byteOffset"].as_u64().unwrap_or(0) as usize;
+            let at = bin
+                + bv["byteOffset"].as_u64().unwrap_or(0) as usize
+                + acc["byteOffset"].as_u64().unwrap_or(0) as usize;
             let t = |i: usize| n["translation"][i].as_f64().unwrap_or(0.0);
             for v in 0..acc["count"].as_u64().unwrap() as usize {
-                let f = |c: usize| f32::from_le_bytes(glb[at + v * 12 + c * 4..at + v * 12 + c * 4 + 4].try_into().unwrap()) as f64;
-                verts.push([(f(0) + t(0)) * 1000.0, (f(1) + t(1)) * 1000.0, (f(2) + t(2)) * 1000.0]);
+                let f = |c: usize| {
+                    f32::from_le_bytes(
+                        glb[at + v * 12 + c * 4..at + v * 12 + c * 4 + 4]
+                            .try_into()
+                            .unwrap(),
+                    ) as f64
+                };
+                verts.push([
+                    (f(0) + t(0)) * 1000.0,
+                    (f(1) + t(1)) * 1000.0,
+                    (f(2) + t(2)) * 1000.0,
+                ]);
             }
         }
     }
     let lo = verts.iter().map(|v| v[1]).fold(f64::MAX, f64::min);
     let tip: Vec<&[f64; 3]> = verts.iter().filter(|v| v[1] <= lo + 0.25).collect();
     let n = tip.len() as f64;
-    [tip.iter().map(|v| v[0]).sum::<f64>() / n, lo, tip.iter().map(|v| v[2]).sum::<f64>() / n]
+    [
+        tip.iter().map(|v| v[0]).sum::<f64>() / n,
+        lo,
+        tip.iter().map(|v| v[2]).sum::<f64>() / n,
+    ]
 }
 
 fn catalogue_row<'a>(cat: &'a Value, id: &str) -> &'a Value {
@@ -186,13 +244,7 @@ fn basis_of(cat: &Value, motion: &Value, id: &str) -> [[f64; 3]; 3] {
         .as_array()
         .cloned()
         .or_else(|| motion["profiles"][id]["basis"].as_array().cloned())
-        .unwrap_or_else(|| {
-            vec![
-                json!([1, 0, 0]),
-                json!([0, 0, 1]),
-                json!([0, -1, 0]),
-            ]
-        });
+        .unwrap_or_else(|| vec![json!([1, 0, 0]), json!([0, 0, 1]), json!([0, -1, 0])]);
     let mut out = [[0.0; 3]; 3];
     for r in 0..3 {
         for c in 0..3 {
@@ -215,7 +267,9 @@ fn r3(v: [f64; 3]) -> Value {
 fn pin_ok(glb: &[u8], cat: &Value, id: &str) {
     assert_eq!(
         sha256::hex(glb),
-        catalogue_row(cat, id)["pin"]["model_sha256"].as_str().unwrap(),
+        catalogue_row(cat, id)["pin"]["model_sha256"]
+            .as_str()
+            .unwrap(),
         "{id}: the model is not the one the catalogue pins"
     );
 }
@@ -228,12 +282,26 @@ fn pin_ok(glb: &[u8], cat: &Value, id: &str) {
 /// F03 (2026-10-19): a sheet with a tab is longer than the bed it lies on (the Rook's PEI is 134 mm for a 120 mm bed), so `slack` is how much
 /// longer than the build size a slab may be (1.1 for every machine measured before, 1.15 for the Rook), and `within` how far below the
 /// highest top the squarest slab may lie (1 mm before; the Satsuma's heater plate lies 9.5 mm under the sheet that has the tab).
-fn plate(all: &[Part], size: f64, slack: f64, within: f64, lower: f64) -> (f64, f64, f64, f64, f64) {
+fn plate(
+    all: &[Part],
+    size: f64,
+    slack: f64,
+    within: f64,
+    lower: f64,
+) -> (f64, f64, f64, f64, f64) {
     let slabs: Vec<&Part> = all
         .iter()
         .filter(|p| {
-            let (w, d, h) = (p.max[0] - p.min[0], p.max[2] - p.min[2], p.max[1] - p.min[1]);
-            w >= size * lower && d >= size * lower && w <= size * slack && d <= size * slack && h < 10.0
+            let (w, d, h) = (
+                p.max[0] - p.min[0],
+                p.max[2] - p.min[2],
+                p.max[1] - p.min[1],
+            );
+            w >= size * lower
+                && d >= size * lower
+                && w <= size * slack
+                && d <= size * slack
+                && h < 10.0
         })
         .collect();
     let top = slabs.iter().map(|p| p.max[1]).fold(f64::MIN, f64::max);
@@ -271,7 +339,11 @@ fn tip(all: &[Part], keys: &[String]) -> Option<[f64; 3]> {
 fn keys_of(motion: &Value, id: &str, group: &str) -> Vec<String> {
     motion["profiles"][id]["groups"][group]
         .as_array()
-        .map(|a| a.iter().filter_map(|k| k.as_str().map(str::to_owned)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|k| k.as_str().map(str::to_owned))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -295,7 +367,11 @@ fn main() {
     let prusa_only = a.iter().any(|x| x == "--prusa-only");
     a.retain(|x| x != "--prusa-only");
     let models = Path::new(&a[0]);
-    let (out, prusa_out) = if prusa_only { (Path::new(&a[1]), Some(Path::new(&a[1]))) } else { (Path::new(&a[1]), a.get(2).map(Path::new)) };
+    let (out, prusa_out) = if prusa_only {
+        (Path::new(&a[1]), Some(Path::new(&a[1])))
+    } else {
+        (Path::new(&a[1]), a.get(2).map(Path::new))
+    };
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut cat = read_json(&root.join("web/printer-models.json"));
     // The machines added by hand beside the 3D Print Rig catalogue (the CORE One L).
@@ -304,7 +380,10 @@ fn main() {
         m.extend(x.iter().cloned());
     }
     let mut motion = read_json(&root.join("web/printer-motion.json"));
-    for extra in ["web/printer-motion-extra.json", "web/printer-motion-parts.json"] {
+    for extra in [
+        "web/printer-motion-extra.json",
+        "web/printer-motion-parts.json",
+    ] {
         let x = read_json(&root.join(extra));
         for (k, v) in x["profiles"].as_object().unwrap() {
             motion["profiles"][k] = v.clone();
@@ -313,36 +392,45 @@ fn main() {
     let mut found: Vec<Found> = Vec::new();
 
     if !prusa_only {
-    // The maker's own numbers (machine_profile.json): the printer's origin in the CAD frame (Z up) is where the
-    // nozzle tip is in the model's pose minus where the maker says the nozzle is over the bed in that pose.
-    for id in [
-        "voron_v24_350_printed",
-        "voron_v24_300_printed",
-        "voron_v02_120",
-        "micron_plus_r1_180",
-    ] {
-        let dir = models.join(format!("machines/{id}"));
-        let glb = gunzip(&dir.join("model.glb.gz"));
-        pin_ok(&glb, &cat, id);
-        let prof = read_json(&dir.join("machine_profile.json"));
-        let n = |k: &str, i: usize| prof[k][i].as_f64().unwrap_or_else(|| panic!("{id}: {k}"));
-        let tipc = [0, 1, 2].map(|i| n("nozzle_tip_mm", i));
-        let reference = [0, 1, 2].map(|i| n("display_reference_xyz_mm", i));
-        let origin = [0, 1, 2].map(|i| tipc[i] - reference[i]);
-        // The plate says the same: its top is the bed's top, and (where the maker wrote it) its corner.
-        let top = prof["bed_top_world_z_mm"].as_f64().unwrap();
-        assert!((origin[2] - top).abs() < 0.05, "{id}: the plate top {top} and the nozzle say different heights ({})", origin[2]);
-        if let Some(c) = prof["bed_surface_min_xy_mm"].as_array() {
-            for i in 0..2 {
-                assert!((origin[i] - c[i].as_f64().unwrap()).abs() < 0.05, "{id}: the plate corner and the nozzle disagree");
+        // The maker's own numbers (machine_profile.json): the printer's origin in the CAD frame (Z up) is where the
+        // nozzle tip is in the model's pose minus where the maker says the nozzle is over the bed in that pose.
+        for id in [
+            "voron_v24_350_printed",
+            "voron_v24_300_printed",
+            "voron_v02_120",
+            "micron_plus_r1_180",
+        ] {
+            let dir = models.join(format!("machines/{id}"));
+            let glb = gunzip(&dir.join("model.glb.gz"));
+            pin_ok(&glb, &cat, id);
+            let prof = read_json(&dir.join("machine_profile.json"));
+            let n = |k: &str, i: usize| prof[k][i].as_f64().unwrap_or_else(|| panic!("{id}: {k}"));
+            let tipc = [0, 1, 2].map(|i| n("nozzle_tip_mm", i));
+            let reference = [0, 1, 2].map(|i| n("display_reference_xyz_mm", i));
+            let origin = [0, 1, 2].map(|i| tipc[i] - reference[i]);
+            // The plate says the same: its top is the bed's top, and (where the maker wrote it) its corner.
+            let top = prof["bed_top_world_z_mm"].as_f64().unwrap();
+            assert!(
+                (origin[2] - top).abs() < 0.05,
+                "{id}: the plate top {top} and the nozzle say different heights ({})",
+                origin[2]
+            );
+            if let Some(c) = prof["bed_surface_min_xy_mm"].as_array() {
+                for i in 0..2 {
+                    assert!(
+                        (origin[i] - c[i].as_f64().unwrap()).abs() < 0.05,
+                        "{id}: the plate corner and the nozzle disagree"
+                    );
+                }
             }
-        }
-        // CAD frame (Z up, Y toward the back) into the display frame the table is written in: the machine's basis.
-        let b = basis_of(&cat, &motion, id);
-        let disp = [0, 1, 2].map(|r| (0..3).map(|c| b[r][c] * origin[c]).sum::<f64>());
-        let nozzle = [0, 1, 2].map(|r| (0..3).map(|c| b[r][c] * tipc[c]).sum::<f64>());
-        let s = prof["build_surface_mm"][0].as_f64().unwrap_or_else(|| catalogue_row(&cat, id)["size_mm"].as_f64().unwrap());
-        found.push(Found {
+            // CAD frame (Z up, Y toward the back) into the display frame the table is written in: the machine's basis.
+            let b = basis_of(&cat, &motion, id);
+            let disp = [0, 1, 2].map(|r| (0..3).map(|c| b[r][c] * origin[c]).sum::<f64>());
+            let nozzle = [0, 1, 2].map(|r| (0..3).map(|c| b[r][c] * tipc[c]).sum::<f64>());
+            let s = prof["build_surface_mm"][0]
+                .as_f64()
+                .unwrap_or_else(|| catalogue_row(&cat, id)["size_mm"].as_f64().unwrap());
+            found.push(Found {
             generic: false,
             id: Box::leak(id.to_owned().into_boxed_str()),
             origin_display: disp,
@@ -351,37 +439,124 @@ fn main() {
             nozzle2_display: None,
             how: format!("The maker's machine profile: the nozzle tip is at CAD {:.2}, {:.2}, {:.2} and is {:.2}, {:.2}, {:.2} mm over the bed in the model's pose, so printer 0,0,0 is the plate's corner at CAD {:.2}, {:.2}, {:.2}; the plate top ({top:.2}) agrees.", tipc[0], tipc[1], tipc[2], reference[0], reference[1], reference[2], origin[0], origin[1], origin[2]),
         });
-    }
+        }
 
-    // Machines whose maker wrote no origin: the plate is measured from the model.
-    // (id, folder, the group whose lowest part is the nozzle, slack, within, generic: see `plate` and `Found`)
-    let measured: [(&str, &str, &str, f64, f64, bool); 13] = [
-        ("ender3_stock_220", "site/ender3", "head", 1.1, 1.0, false),
-        ("voron_trident_300", "machines/voron_trident_300", "", 1.1, 1.0, false),
-        ("sovol_sv08_350", "site/sv08-v2", "head", 1.1, 1.0, false),
-        ("doomcube2_350_reference", "site/doomcube-v103/doomcube2_350_reference", "", 1.1, 1.0, false),
-        // F03 (2026-10-19): the other machines with registered motion.
-        ("fysetc_v24_250_pro", "machines/fysetc_v24_250_pro", "head", 1.1, 1.0, true),
-        ("rook_mk2_120", "site/requested-v1/rook", "head", 1.15, 1.5, true),
-        ("satsuma180_v10", "site/requested-v1/satsuma", "head", 1.1, 12.0, true),
-        ("the100_v11_165", "site/requested-v1/the100", "head", 1.1, 1.0, true),
-        ("tictac_21_120", "site/requested-v1/tictac", "head", 1.1, 1.0, true),
-        // The Annex machines (matrix nodes, turned upright by their profile's `orient`; parts_oriented).
-        ("annex_k1_assembly", "machines/annex_k1_assembly", "head", 1.1, 2.0, true),
-        ("annex_k2_assembly", "machines/annex_k2_assembly", "head", 1.1, 2.0, true),
-        ("annex_k3_assembly", "machines/annex_k3_assembly", "head", 1.1, 1.0, true),
-        // The SnakeOil XY IDEX: two carriages (head, head2) on one beam; the second's nozzle and the dock-ends are measured below.
-        ("snakeoil_xy_idex", "site/snakeidex", "head", 1.1, 1.0, true),
-    ];
-    for (id, dir, head, slack, within, generic) in measured {
-        let glb = gunzip(&models.join(dir).join("model.glb.gz"));
-        pin_ok(&glb, &cat, id);
-        let orient: Option<[[f64; 3]; 3]> = motion["profiles"][id]["orient"].as_array().map(|r| std::array::from_fn(|i| std::array::from_fn(|j| r[i][j].as_f64().unwrap())));
-        let all = if orient.is_some() { parts_oriented(&glb, orient) } else { parts(&glb) };
-        let size = catalogue_row(&cat, id)["size_mm"].as_f64().unwrap();
-        let (cx, cz, top, w, d) = plate(&all, size, slack, within, if id == "snakeoil_xy_idex" { 0.95 } else { 1.0 });
-        let nozzle = if head.is_empty() { None } else { tip(&all, &keys_of(&motion, id, head)) };
-        found.push(Found {
+        // Machines whose maker wrote no origin: the plate is measured from the model.
+        // (id, folder, the group whose lowest part is the nozzle, slack, within, generic: see `plate` and `Found`)
+        let measured: [(&str, &str, &str, f64, f64, bool); 13] = [
+            ("ender3_stock_220", "site/ender3", "head", 1.1, 1.0, false),
+            (
+                "voron_trident_300",
+                "machines/voron_trident_300",
+                "",
+                1.1,
+                1.0,
+                false,
+            ),
+            ("sovol_sv08_350", "site/sv08-v2", "head", 1.1, 1.0, false),
+            (
+                "doomcube2_350_reference",
+                "site/doomcube-v103/doomcube2_350_reference",
+                "",
+                1.1,
+                1.0,
+                false,
+            ),
+            // F03 (2026-10-19): the other machines with registered motion.
+            (
+                "fysetc_v24_250_pro",
+                "machines/fysetc_v24_250_pro",
+                "head",
+                1.1,
+                1.0,
+                true,
+            ),
+            (
+                "rook_mk2_120",
+                "site/requested-v1/rook",
+                "head",
+                1.15,
+                1.5,
+                true,
+            ),
+            (
+                "satsuma180_v10",
+                "site/requested-v1/satsuma",
+                "head",
+                1.1,
+                12.0,
+                true,
+            ),
+            (
+                "the100_v11_165",
+                "site/requested-v1/the100",
+                "head",
+                1.1,
+                1.0,
+                true,
+            ),
+            (
+                "tictac_21_120",
+                "site/requested-v1/tictac",
+                "head",
+                1.1,
+                1.0,
+                true,
+            ),
+            // The Annex machines (matrix nodes, turned upright by their profile's `orient`; parts_oriented).
+            (
+                "annex_k1_assembly",
+                "machines/annex_k1_assembly",
+                "head",
+                1.1,
+                2.0,
+                true,
+            ),
+            (
+                "annex_k2_assembly",
+                "machines/annex_k2_assembly",
+                "head",
+                1.1,
+                2.0,
+                true,
+            ),
+            (
+                "annex_k3_assembly",
+                "machines/annex_k3_assembly",
+                "head",
+                1.1,
+                1.0,
+                true,
+            ),
+            // The SnakeOil XY IDEX: two carriages (head, head2) on one beam; the second's nozzle and the dock-ends are measured below.
+            ("snakeoil_xy_idex", "site/snakeidex", "head", 1.1, 1.0, true),
+        ];
+        for (id, dir, head, slack, within, generic) in measured {
+            let glb = gunzip(&models.join(dir).join("model.glb.gz"));
+            pin_ok(&glb, &cat, id);
+            let orient: Option<[[f64; 3]; 3]> =
+                motion["profiles"][id]["orient"].as_array().map(|r| {
+                    std::array::from_fn(|i| std::array::from_fn(|j| r[i][j].as_f64().unwrap()))
+                });
+            let all = if orient.is_some() {
+                parts_oriented(&glb, orient)
+            } else {
+                parts(&glb)
+            };
+            let size = catalogue_row(&cat, id)["size_mm"].as_f64().unwrap();
+            let (cx, cz, top, w, d) = plate(
+                &all,
+                size,
+                slack,
+                within,
+                if id == "snakeoil_xy_idex" { 0.95 } else { 1.0 },
+            );
+            let nozzle = if head.is_empty() {
+                None
+            } else {
+                tip(&all, &keys_of(&motion, id, head))
+            };
+            found.push(Found {
             generic,
             id,
             // The print area is the machine's build size, centred on the plate; Y0 is its front edge (+Z).
@@ -391,8 +566,7 @@ fn main() {
             nozzle2_display: if head.is_empty() { None } else { tip(&all, &keys_of(&motion, id, "head2")) },
             how: format!("Measured from the model (mm, display frame, Y up): the plate is a {w:.1} x {d:.1} slab centred at X {cx:.1}, Z {cz:.1}, top {top:.1}; the {size:.0} mm print area is centred on it and Y0 is its front edge (the +Z side, the project's convention).{}", nozzle.map_or(String::new(), |n| format!(" The nozzle tip is at X {:.1}, Z {:.1}, height {:.1}, so {:.1} mm over the plate.", n[0], n[2], n[1], n[1] - top))),
         });
-    }
-
+        }
     }
 
     // The CORE One L: Prusa's CAD, with a calibration measured when the machine was added (printer-motion-extra.json).
@@ -404,7 +578,8 @@ fn main() {
         let b = basis_of(&cat, &motion, id);
         let prof = &motion["profiles"][id];
         let nozzle_cad = [-14.5, 80.0, 449.0];
-        if let Some(p) = Some(models.join("prusa-core-one-l/model.glb.gz")).filter(|p| p.is_file()) {
+        if let Some(p) = Some(models.join("prusa-core-one-l/model.glb.gz")).filter(|p| p.is_file())
+        {
             // The registered nozzle (Nextruder, picked by its part names when the machine was added) is the one used: the
             // lowest part of the head group is not the nozzle on this machine (something in the group reaches below
             // it). What the model can confirm is the sheet: its top is the Z0 the calibration touches.
@@ -413,27 +588,45 @@ fn main() {
             let all = parts(&glb);
             let sheet = all
                 .iter()
-                .filter(|p| p.group == "bed" && p.max[0] - p.min[0] > 250.0 && p.max[2] - p.min[2] > 250.0)
+                .filter(|p| {
+                    p.group == "bed" && p.max[0] - p.min[0] > 250.0 && p.max[2] - p.min[2] > 250.0
+                })
                 .map(|p| p.max[1])
                 .fold(f64::MIN, f64::max);
             println!("CORE One L: the bed sheet's top is {sheet:.2} in the model, the registered Z0 is {:.2} (nozzle {:.1} less its 21 mm)", nozzle_cad[2] - 21.0, nozzle_cad[2]);
-            assert!((sheet - (nozzle_cad[2] - 21.0)).abs() < 1.0, "the CORE One L sheet is not where the calibration touches it");
+            assert!(
+                (sheet - (nozzle_cad[2] - 21.0)).abs() < 1.0,
+                "the CORE One L sheet is not where the calibration touches it"
+            );
         }
         let cal = &prof["calibration"];
         let axes_at_zero: [f64; 3] = [0, 1, 2].map(|i| {
             let raw = cal["offset_mm"][i].as_f64().unwrap();
-            let (lo, hi) = (prof["axes"][["x", "y", "z"][i]][0].as_f64().unwrap(), prof["axes"][["x", "y", "z"][i]][1].as_f64().unwrap());
+            let (lo, hi) = (
+                prof["axes"][["x", "y", "z"][i]][0].as_f64().unwrap(),
+                prof["axes"][["x", "y", "z"][i]][1].as_f64().unwrap(),
+            );
             raw.clamp(lo.min(hi), lo.max(hi))
         });
         let comp = |spec: &Value| -> f64 {
             match spec {
                 Value::Number(n) => n.as_f64().unwrap_or(0.0),
-                Value::String(s) => ["x", "y", "z"].iter().position(|a| a == s).map_or(0.0, |i| axes_at_zero[i]),
-                Value::Object(o) => o.iter().next().map_or(0.0, |(k, f)| ["x", "y", "z"].iter().position(|a| a == k).map_or(0.0, |i| axes_at_zero[i]) * f.as_f64().unwrap_or(1.0)),
+                Value::String(s) => ["x", "y", "z"]
+                    .iter()
+                    .position(|a| a == s)
+                    .map_or(0.0, |i| axes_at_zero[i]),
+                Value::Object(o) => o.iter().next().map_or(0.0, |(k, f)| {
+                    ["x", "y", "z"]
+                        .iter()
+                        .position(|a| a == k)
+                        .map_or(0.0, |i| axes_at_zero[i])
+                        * f.as_f64().unwrap_or(1.0)
+                }),
                 _ => 0.0,
             }
         };
-        let disp_of = |name: &str| -> [f64; 3] { [0, 1, 2].map(|c| comp(&prof["motions"][name][c])) };
+        let disp_of =
+            |name: &str| -> [f64; 3] { [0, 1, 2].map(|c| comp(&prof["motions"][name][c])) };
         let (head, bed) = (disp_of("head"), disp_of("bed"));
         let origin: [f64; 3] = [0, 1, 2].map(|c| nozzle_cad[c] + head[c] - bed[c]);
         let disp = [0, 1, 2].map(|r| (0..3).map(|c| b[r][c] * origin[c]).sum::<f64>());
@@ -466,14 +659,25 @@ fn main() {
             // The CORE One L's groups come from its model's own part records.
             || f.id == "prusa_core_one_l";
         let group_is_bed = bed_has_parts && prof["motions"].get("bed").is_some();
-        let group = if group_is_bed { json!("bed") } else { Value::Null };
+        let group = if group_is_bed {
+            json!("bed")
+        } else {
+            Value::Null
+        };
         let mut m = Map::new();
-        m.insert("model_sha256".into(), catalogue_row(&cat, f.id)["pin"]["model_sha256"].clone());
+        m.insert(
+            "model_sha256".into(),
+            catalogue_row(&cat, f.id)["pin"]["model_sha256"].clone(),
+        );
         m.insert("origin_mm".into(), r3(origin));
         m.insert("axes".into(), Value::Array(axes));
         m.insert("group".into(), group);
         m.insert("plate_mm".into(), json!(f.plate));
-        m.insert("nozzle_mm".into(), f.nozzle_display.map_or(Value::Null, |n| r3(to_frame(&b, n))));
+        m.insert(
+            "nozzle_mm".into(),
+            f.nozzle_display
+                .map_or(Value::Null, |n| r3(to_frame(&b, n))),
+        );
         m.insert("basis".into(), json!(f.how));
         // A machine whose registration holds no calibration of its own starts at the low end of each travel, which puts the
         // nozzle wherever the CAD pose left it. With the plate and the nozzle both measured, the calibration that puts the
@@ -494,10 +698,17 @@ fn main() {
                     _ => None,
                 })
             };
-            let rest = |group: &str| -> [f64; 3] { [0, 1, 2].map(|c| prof["rest_offsets_mm"][group][c].as_f64().unwrap_or(0.0)) };
-            let (rest_head, rest_bed) = (rest("head"), if group_is_bed { rest("bed") } else { [0.0; 3] });
+            let rest = |group: &str| -> [f64; 3] {
+                [0, 1, 2].map(|c| prof["rest_offsets_mm"][group][c].as_f64().unwrap_or(0.0))
+            };
+            let (rest_head, rest_bed) = (
+                rest("head"),
+                if group_is_bed { rest("bed") } else { [0.0; 3] },
+            );
             let (mut off, mut sign, mut by) = ([0.0_f64; 3], [1.0_f64; 3], Vec::new());
-            let zspan = (prof["axes"]["z"][1].as_f64().unwrap() - prof["axes"]["z"][0].as_f64().unwrap()).max(1.0);
+            let zspan = (prof["axes"]["z"][1].as_f64().unwrap()
+                - prof["axes"]["z"][0].as_f64().unwrap())
+            .max(1.0);
             let ext = [f.plate[0], f.plate[1], zspan];
             let mut axes = Map::new();
             for (i, name) in ["x", "y", "z"].iter().enumerate() {
@@ -508,11 +719,22 @@ fn main() {
                     _ => panic!("{}: neither the head nor the bed moves with {name}", f.id),
                 };
                 let s = dir[c];
-                assert!((s.abs() - 1.0).abs() < 1e-9 && k.abs() == 1.0, "{}: printer {name} does not run along component {c} of the motion", f.id);
-                let gap = (origin[c] + rest_bed[c]) - (n_frame[c] + rest_head[c]);   // from the nozzle to the plate's origin, both as the pose stands at axis zero
-                (sign[i], off[i]) = if carrier == "head" { (k * s, k * gap) } else { (-k * s, -k * gap) };
+                assert!(
+                    (s.abs() - 1.0).abs() < 1e-9 && k.abs() == 1.0,
+                    "{}: printer {name} does not run along component {c} of the motion",
+                    f.id
+                );
+                let gap = (origin[c] + rest_bed[c]) - (n_frame[c] + rest_head[c]); // from the nozzle to the plate's origin, both as the pose stands at axis zero
+                (sign[i], off[i]) = if carrier == "head" {
+                    (k * s, k * gap)
+                } else {
+                    (-k * s, -k * gap)
+                };
                 let ends = [off[i], sign[i] * ext[i] + off[i]];
-                axes.insert((*name).into(), json!([ends[0].min(ends[1]), ends[0].max(ends[1])]));
+                axes.insert(
+                    (*name).into(),
+                    json!([ends[0].min(ends[1]), ends[0].max(ends[1])]),
+                );
                 by.push(carrier);
             }
             // Two carriages (the SnakeOil XY IDEX): the second tool's nozzle stands where it stands in the model, so while it prints its group follows the head's
@@ -523,7 +745,10 @@ fn main() {
                 let n2 = f.nozzle2_display.expect("the second carriage has a nozzle");
                 let n2_frame = to_frame(&b, n2);
                 let rest: [f64; 3] = [0, 1, 2].map(|c| n_frame[c] - n2_frame[c]);
-                extra.insert("rest_offsets_mm".into(), json!({"head2": rest.map(|v| (v * 1000.0).round() / 1000.0)}));
+                extra.insert(
+                    "rest_offsets_mm".into(),
+                    json!({"head2": rest.map(|v| (v * 1000.0).round() / 1000.0)}),
+                );
                 let a = |p: f64| sign[0] * p + off[0];
                 extra.insert("tools".into(), json!([{"group":"head","park":{"x":a(0.0)}},{"group":"head2","park":{"x":a(f.plate[0])}}]));
             }
@@ -535,7 +760,11 @@ fn main() {
             if let Some(Value::Object(pr)) = m.get_mut("profile") {
                 pr.extend(extra);
             }
-        } else         if let (Some(n), true, Some(head)) = (f.nozzle_display, prof.get("calibration").is_none(), prof["motions"].get("head")) {
+        } else if let (Some(n), true, Some(head)) = (
+            f.nozzle_display,
+            prof.get("calibration").is_none(),
+            prof["motions"].get("head"),
+        ) {
             let n_frame = to_frame(&b, n);
             let want = [0, 1, 2].map(|c| origin[c] - n_frame[c]);
             // Frame component c of the head's motion is: nothing, an axis name, or {axis: factor}.
@@ -543,7 +772,9 @@ fn main() {
             for c in 0..3 {
                 let (name, k) = match &head[c] {
                     Value::String(s) => (s.clone(), 1.0),
-                    Value::Object(o) => o.iter().next().map_or((String::new(), 0.0), |(k, f)| (k.clone(), f.as_f64().unwrap_or(1.0))),
+                    Value::Object(o) => o.iter().next().map_or((String::new(), 0.0), |(k, f)| {
+                        (k.clone(), f.as_f64().unwrap_or(1.0))
+                    }),
                     _ => (String::new(), 0.0),
                 };
                 if let Some(i) = ["x", "y", "z"].iter().position(|a| *a == name) {
@@ -558,7 +789,10 @@ fn main() {
                 "calibration_basis":format!("Measured from the model: the nozzle tip is {:.1} mm over the plate, {:.1} mm from its left edge and {:.1} mm from its front edge in the model's pose, so reported 0,0,0 is that far back along each axis; the travel is widened to the {:.0} mm print area.", n[1] - f.origin_display[1], n[0] - f.origin_display[0], f.origin_display[2] - n[2], f.plate[0]),
             }));
         }
-        println!("{}: origin {} group {} nozzle {}", f.id, m["origin_mm"], m["group"], m["nozzle_mm"]);
+        println!(
+            "{}: origin {} group {} nozzle {}",
+            f.id, m["origin_mm"], m["group"], m["nozzle_mm"]
+        );
         machines.insert(f.id.to_owned(), Value::Object(m));
     }
     // F09 (2026-10-19): the other Prusa machines whose converted CAD ships in the build. Like the CORE One L, the calibration in
@@ -566,11 +800,39 @@ fn main() {
     // the bed moves; the model's own plate (`sheet`, the part whose top the nozzle touches at Z0) must be where that puts the plate's top.
     // (id, folder, nozzle tip in the CAD frame, print area, the printer's X, Y and Z as vectors in the CAD frame, the part key of the sheet)
     // The tip is the lowest point of the hotend part (tools/printer-cad glbtool: `lowest`), the sheet the part named in each model's notice.
-    type PrusaFrame = (&'static str, &'static str, [f64; 3], [f64; 2], [[f64; 3]; 3], &'static str);
+    type PrusaFrame = (
+        &'static str,
+        &'static str,
+        [f64; 3],
+        [f64; 2],
+        [[f64; 3]; 3],
+        &'static str,
+    );
     let prusa: [PrusaFrame; 3] = [
-        ("prusa_core_one", "prusa-core-one", [-1.17, -57.94, 329.0], [250.0, 220.0], [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "p00403"),
-        ("prusa_mk3s", "prusa-mk3s", [-21.66, -47.47, 179.78], [250.0, 210.0], [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "p00043"),
-        ("prusa_mini", "prusa-mini", [-41.3, 59.7, -93.4], [180.0, 180.0], [[-1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]], "p00089"),
+        (
+            "prusa_core_one",
+            "prusa-core-one",
+            [-1.17, -57.94, 329.0],
+            [250.0, 220.0],
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            "p00403",
+        ),
+        (
+            "prusa_mk3s",
+            "prusa-mk3s",
+            [-21.66, -47.47, 179.78],
+            [250.0, 210.0],
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            "p00043",
+        ),
+        (
+            "prusa_mini",
+            "prusa-mini",
+            [-41.3, 59.7, -93.4],
+            [180.0, 180.0],
+            [[-1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]],
+            "p00089",
+        ),
     ];
     for (id, dir, nozzle_cad, plate_mm, axes, sheet) in prusa {
         let glb = gunzip(&models.join(dir).join("model.glb.gz"));
@@ -578,30 +840,54 @@ fn main() {
         let b = basis_of(&cat, &motion, id);
         let prof = &motion["profiles"][id];
         let all = parts(&glb);
-        let sheet_top = all.iter().find(|p| p.key == sheet).unwrap_or_else(|| panic!("{id}: no part {sheet}")).max[1];
+        let sheet_top = all
+            .iter()
+            .find(|p| p.key == sheet)
+            .unwrap_or_else(|| panic!("{id}: no part {sheet}"))
+            .max[1];
         let cal = &prof["calibration"];
         let axes_at_zero: [f64; 3] = [0, 1, 2].map(|i| {
             let raw = cal["offset_mm"][i].as_f64().unwrap();
-            let (lo, hi) = (prof["axes"][["x", "y", "z"][i]][0].as_f64().unwrap(), prof["axes"][["x", "y", "z"][i]][1].as_f64().unwrap());
+            let (lo, hi) = (
+                prof["axes"][["x", "y", "z"][i]][0].as_f64().unwrap(),
+                prof["axes"][["x", "y", "z"][i]][1].as_f64().unwrap(),
+            );
             raw.clamp(lo.min(hi), lo.max(hi))
         });
         let comp = |spec: &Value| -> f64 {
             match spec {
                 Value::Number(n) => n.as_f64().unwrap_or(0.0),
-                Value::String(s) => ["x", "y", "z"].iter().position(|a| a == s).map_or(0.0, |i| axes_at_zero[i]),
-                Value::Object(o) => o.iter().next().map_or(0.0, |(k, f)| ["x", "y", "z"].iter().position(|a| a == k).map_or(0.0, |i| axes_at_zero[i]) * f.as_f64().unwrap_or(1.0)),
+                Value::String(s) => ["x", "y", "z"]
+                    .iter()
+                    .position(|a| a == s)
+                    .map_or(0.0, |i| axes_at_zero[i]),
+                Value::Object(o) => o.iter().next().map_or(0.0, |(k, f)| {
+                    ["x", "y", "z"]
+                        .iter()
+                        .position(|a| a == k)
+                        .map_or(0.0, |i| axes_at_zero[i])
+                        * f.as_f64().unwrap_or(1.0)
+                }),
                 _ => 0.0,
             }
         };
-        let disp_of = |name: &str| -> [f64; 3] { [0, 1, 2].map(|c| comp(&prof["motions"][name][c])) };
+        let disp_of =
+            |name: &str| -> [f64; 3] { [0, 1, 2].map(|c| comp(&prof["motions"][name][c])) };
         // The head and the gantry move with the head's axes; what carries the nozzle at reported zero is the head group, and the plate is carried by the bed.
         let (head, bed) = (disp_of("head"), disp_of("bed"));
         let origin: [f64; 3] = [0, 1, 2].map(|c| nozzle_cad[c] + head[c] - bed[c]);
         let disp = [0, 1, 2].map(|r| (0..3).map(|c| b[r][c] * origin[c]).sum::<f64>());
-        assert!((sheet_top - disp[1]).abs() < 0.2, "{id}: the model's sheet top is {sheet_top:.2} and the calibration touches {:.2}", disp[1]);
+        assert!(
+            (sheet_top - disp[1]).abs() < 0.2,
+            "{id}: the model's sheet top is {sheet_top:.2} and the calibration touches {:.2}",
+            disp[1]
+        );
         println!("{id}: the sheet {sheet} top is {sheet_top:.2} in the model, the calibration touches {:.2}", disp[1]);
         let mut m = Map::new();
-        m.insert("model_sha256".into(), catalogue_row(&cat, id)["pin"]["model_sha256"].clone());
+        m.insert(
+            "model_sha256".into(),
+            catalogue_row(&cat, id)["pin"]["model_sha256"].clone(),
+        );
         m.insert("origin_mm".into(), r3(origin));
         m.insert("axes".into(), json!(axes));
         m.insert("group".into(), json!("bed"));
@@ -617,15 +903,37 @@ fn main() {
     let mut tools = Map::new();
     let parts_dir = models.join("parts");
     if parts_dir.is_dir() {
-        let bank = cat["options"].as_array().unwrap().iter().find(|o| o["id"] == "stealthchanger_bank").expect("the StealthChanger bank is in the catalogue");
+        let bank = cat["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["id"] == "stealthchanger_bank")
+            .expect("the StealthChanger bank is in the catalogue");
         for (tid, t) in bank["attach"]["tools"].as_object().unwrap() {
-            let head = t["active"].as_array().unwrap().iter().find(|a| a["role"] == "head").expect("a tool has a head part");
+            let head = t["active"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|a| a["role"] == "head")
+                .expect("a tool has a head part");
             let part = head["part"].as_str().unwrap();
             let glb = gunzip(&parts_dir.join(part).join("model.glb.gz"));
-            assert_eq!(sha256::hex(&glb), cat["parts"][part]["pin"]["model_sha256"].as_str().unwrap(), "{part}: not the file the catalogue pins");
-            let hidden: std::collections::HashSet<String> = head["hidden_keys"].as_array().unwrap().iter().filter_map(|k| k.as_str().map(str::to_owned)).collect();
+            assert_eq!(
+                sha256::hex(&glb),
+                cat["parts"][part]["pin"]["model_sha256"].as_str().unwrap(),
+                "{part}: not the file the catalogue pins"
+            );
+            let hidden: std::collections::HashSet<String> = head["hidden_keys"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|k| k.as_str().map(str::to_owned))
+                .collect();
             let tip = lowest_tip(&glb, &hidden);
-            println!("tool {tid}: tip in the file at X {:.2}, Y(up) {:.2}, Z {:.2}", tip[0], tip[1], tip[2]);
+            println!(
+                "tool {tid}: tip in the file at X {:.2}, Y(up) {:.2}, Z {:.2}",
+                tip[0], tip[1], tip[2]
+            );
             tools.insert(tid.clone(), json!({"part":part,"tip_file_mm":r3(tip),"basis":"The centre of the lowest faces (within 0.25 mm of the lowest point) of the parts of the tool's head file that are drawn, in the file's display frame, millimetres."}));
         }
     }

@@ -7,7 +7,7 @@
 //! Stella's `printer.cfg` contains the section TWICE: the live one at line 381 and a fully
 //! commented-out reference copy at line 825 (`#heater_temp: 50.0`). The edit therefore takes the
 //! first section whose `heater_temp` is not commented out, and rewrites only the number on that
-//! one line — the trailing `# 2026-09-15: was 30.0 ...` comment is our own and is kept verbatim.
+//! one line — the trailing `# 2026-09-15: was 30.0 ...` comment is the owner's own and is kept verbatim.
 
 use crate::{moonraker::Moonraker, Result};
 use serde_json::Value;
@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(changed[0].0, 6);
         assert_eq!(CFG.lines().count(), after.lines().count());
 
-        // our trailing comment survives byte for byte; only the number moved.
+        // the owner's trailing comment survives byte for byte; only the number moved.
         assert_eq!(
             changed[0].2,
             "heater_temp: 45.0    # 2026-09-15: was 30.0 (Klipper default 50). Bed 60 kept the enclosed nozzle at 30 C"

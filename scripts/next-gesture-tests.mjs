@@ -56,7 +56,7 @@ test('captured hold cancels when the pointer leaves or capture is lost',()=>{
  }finally{if(oldFrame===undefined)delete globalThis.requestAnimationFrame;else globalThis.requestAnimationFrame=oldFrame;
   if(oldCancel===undefined)delete globalThis.cancelAnimationFrame;else globalThis.cancelAnimationFrame=oldCancel;}
 });
-// 2026-10-22: a tap on CANCEL did nothing and said nothing. A hold says when it starts, and an early release is reported as a cancel (nothing sent).
+// the owner 2026-10-22: a tap on CANCEL did nothing and said nothing. A hold says when it starts, and an early release is reported as a cancel (nothing sent).
 test('a hold reports its start at the first touch, and a tap is an early release: started, never confirmed',()=>{
  const oldFrame=globalThis.requestAnimationFrame,oldCancel=globalThis.cancelAnimationFrame;
  let frame,started=0,confirmed=0,cancelled=0;globalThis.requestAnimationFrame=fn=>{frame=fn;return 1;};globalThis.cancelAnimationFrame=()=>{};

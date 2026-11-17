@@ -1047,6 +1047,9 @@ fn finish(database: &str, run_id: i64, outcome: Result<Value>) {
 }
 
 fn run_capture(cfg: &Config, run_id: i64, axis: &str) -> Result<Value> {
+    if cfg.driver == "demo" {
+        return demo_capture(cfg, run_id, axis);
+    }
     let (host, port) = crate::ws_source::host_port(cfg)?;
     let (scv, scv_measured) = fetch_scv(cfg);
     let mut analysed = Vec::new();
@@ -1057,6 +1060,51 @@ fn run_capture(cfg: &Config, run_id: i64, axis: &str) -> Result<Value> {
         analysed.push(analyse(leg, &rows)?);
     }
     Ok(result_json(axis, &analysed, scv, scv_measured))
+}
+
+/// A demo printer has no accelerometer: its head shakes through the same sweep (src/demo_klipper.rs) while the
+/// readings are made here, a resonance at the machine's own frequency excited by the sweep's noise, then analysed
+/// exactly as a real capture is (app-final WO-01, 2026-11-01).
+fn demo_capture(cfg: &Config, run_id: i64, axis: &str) -> Result<Value> {
+    let (scv, scv_measured) = fetch_scv(cfg);
+    let mut analysed = Vec::new();
+    for (leg, script) in legs(axis)? {
+        Moonraker::new(cfg).post("/printer/gcode/script", Some(&json!({"script": script})))?;
+        let f0 = crate::demo::resonance_hz(cfg, leg);
+        let rows = demo_samples(f0, leg.ends_with('y') || leg == "y");
+        let connection = open(&cfg.database)?;
+        store_raw(&connection, run_id, leg, &rows)?;
+        analysed.push(analyse(leg, &rows)?);
+    }
+    Ok(result_json(axis, &analysed, scv, scv_measured))
+}
+
+/// Accelerometer rows (time, x, y, z) of a damped resonance at `f0` Hz driven by white noise, 3200 samples a second.
+fn demo_samples(f0: f64, y_axis: bool) -> Vec<[f64; 4]> {
+    let fs = 3200.0;
+    let n = (fs * 20.0) as usize;
+    let (w, zeta) = (std::f64::consts::TAU * f0, 0.08);
+    let dt = 1.0 / fs;
+    let (mut x, mut v) = (0.0f64, 0.0f64);
+    let mut seed = 0x2545F4914F6CDD1Du64 ^ (f0 * 1000.0) as u64;
+    let mut noise = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % 20001) as f64 / 10000.0 - 1.0
+    };
+    (0..n)
+        .map(|i| {
+            let force = 4000.0 * noise();
+            let a = force - 2.0 * zeta * w * v - w * w * x;
+            v += a * dt;
+            x += v * dt;
+            let main = a * 0.02;
+            let other = 20.0 * noise();
+            let (ax, ay) = if y_axis { (other, main) } else { (main, other) };
+            [i as f64 * dt, ax, ay, 9810.0 + 15.0 * noise()]
+        })
+        .collect()
 }
 
 /// Create the run row and start the sweep on a background thread. Returns the run id at once:
