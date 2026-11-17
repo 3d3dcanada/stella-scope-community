@@ -29,6 +29,8 @@ cargo build --release --locked        # Rust 1.91 or newer, Git, a C compiler
 
 Open <http://127.0.0.1:7420/>. Prefer a package? Linux users can install the `.deb` from the [latest release](https://github.com/3d3dcanada/stella-scope-community/releases/latest) (see [Install](#install)).
 
+<p align="center"><img src="docs/screenshots/demo.gif" alt="A 15-second tour: the farm wall, a printer in 3D, calibration" width="420"></p>
+
 ## What it does
 
 **Runs the farm from one wall.** Klipper (Moonraker), Prusa (PrusaLink) and FlashForge (Adventurer 5M and 5M Pro) printers side by side. Each tile is an instrument cluster: state, job, time left, temperatures, the camera and the printer in 3D. Printers are found on your network or added by address.
@@ -158,6 +160,10 @@ Bug reports, fixes, new printer support, documentation and ideas are all welcome
 4. Fill in the pull request template. CI must be green.
 
 We do not ask for money. If Stella Scope saves you a print and you want to help, the best contributions are a good bug report with a recording, a fix, or a printer we can test against.
+
+## Roadmap
+
+What is next, and where we would most like help, lives in the [issue tracker](https://github.com/3d3dcanada/stella-scope-community/issues): open source installers for Windows and Android, a macOS build, more tested printers, and cleanup of the old licence code. Issues labelled [`good first issue`](https://github.com/3d3dcanada/stella-scope-community/labels/good%20first%20issue) are the gentlest start.
 
 ## Status
 
