@@ -30,11 +30,9 @@ Stella Scope is a recorder first. Printer controls are **off** unless you set `c
 
 ## Install
 
-**Linux (Debian, Ubuntu and derivatives):** download the `.deb` from [3d3d.ca/software/stella](https://3d3d.ca/software/stella#download), then `sudo apt install ./stella-scope_0.6.3_amd64.deb`.
+**Linux (Debian, Ubuntu and derivatives):** download the `.deb` from this repository's [releases](https://github.com/3d3dcanada/stella-scope-community/releases/latest), then `sudo apt install ./stella-scope_0.6.3_amd64.deb`.
 
-**Windows 10 and 11:** download `stella-scope_0.6.3_x64-setup.exe` from the same page and run it.
-
-**Android:** download the `.apk` from the same page, sideload it, then scan the pairing code shown on your computer.
+**Windows 10 and 11, Android:** the open source installers are not rebuilt yet. The ones on [3d3d.ca/software/stella](https://3d3d.ca/software/stella#download) still carry the old five-printer limit; to run without it, build from source below.
 
 **From source** (Rust stable, Git, a C compiler):
 
