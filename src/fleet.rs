@@ -69,7 +69,7 @@ fn load(farm: &Farm) -> Value {
 
 fn save(farm: &Farm, v: &Value) -> Result<()> {
     let path = books_path(farm);
-    let temp = PathBuf::from(format!("{}.tmp-{}", path.display(), std::process::id()));
+    let temp = crate::farm::unique_temp(&path);
     fs::write(
         &temp,
         serde_json::to_vec_pretty(v).map_err(|e| e.to_string())?,
@@ -389,7 +389,7 @@ fn check_low(farm: &Farm) {
 }
 
 /// What a printer's change of state says to the farm, if anything: `Some("offline")` or `Some("online")`.
-/// b (2026-10-20: "it said back online, the wall did not change"): a Klipper printer that is switched on answers Moonraker for the half
+/// b (2026-10-20, the owner: "it said back online, the wall did not change"): a Klipper printer that is switched on answers Moonraker for the half
 /// minute Klipper takes to start, and in that time the wall (rightly) says "Needs attention", but the feed said "back online" the moment it was
 /// no longer offline. A printer is back online when it has left offline AND is in a state it can work from; while it answers but is in error it
 /// stays lost, and says so once, when it is ready. `lost` holds the printers that have gone offline and not yet come back.
@@ -734,7 +734,7 @@ pub fn plug_switch(farm: &Farm, id: &str, body: &[u8]) -> Result<Value> {
 // ---- slicer upload key -------------------------------------------------------------------------
 // A slicer's "OctoPrint" printer stores a key. By default that is its own upload key, which can only
 // drop a file in the queue (the plate check and a person still stand between it and a printer). The
-// owner can also let the farm control key work there, or turn slicer uploads off (2026-10-13: "both
+// owner can also let the farm control key work there, or turn slicer uploads off (the owner 2026-10-13: "both
 // ways, a person can switch that in settings").
 
 fn slicer_path(farm: &Farm) -> PathBuf {
@@ -754,7 +754,7 @@ fn slicer_cache() -> &'static Mutex<Option<Value>> {
 
 fn write_private(path: &PathBuf, v: &Value) -> Result<()> {
     use std::io::Write;
-    let temp = PathBuf::from(format!("{}.tmp-{}", path.display(), std::process::id()));
+    let temp = crate::farm::unique_temp(&path);
     let mut o = fs::OpenOptions::new();
     o.write(true).create(true).truncate(true);
     #[cfg(unix)]

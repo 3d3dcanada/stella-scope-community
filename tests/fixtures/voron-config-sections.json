@@ -1,0 +1,4 @@
+{"_about":"Section names of a Voron 2.4 with a BLTouch and four Z motors, as Stella's own printer reports them. No address, no secret.",
+ "sections":["printer","mcu","mcu EBBCan","stepper_x","stepper_y","stepper_z","stepper_z1","stepper_z2","stepper_z3","extruder","heater_bed","bltouch","quad_gantry_level","bed_mesh","safe_z_home",
+  "input_shaper","adxl345","tmc2209 stepper_x","tmc2209 stepper_y","tmc2209 stepper_z","tmc2209 stepper_z1","tmc2209 stepper_z2","tmc2209 stepper_z3","tmc2209 extruder",
+  "controller_fan controller_fan","heater_fan hotend_fan","fan","gcode_macro quad_gantry_level","gcode_macro print_start"]}

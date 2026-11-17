@@ -1,4 +1,4 @@
-/* Stella Scope look A : the glass cockpit. Loaded last on every page; it changes the surface, never the layout.
+/* Stella Scope look A (the owner, 2026-10-23): the glass cockpit. Loaded last on every page; it changes the surface, never the layout.
    the owner approved this direction over the rebuild: the left sidebar with words under its icons, gauges floating on solid holographic discs,
    every pane real glass. The layout is the 10-20 board's, which he had accepted. */
 :root{
@@ -92,7 +92,7 @@
 .nx-state[data-state=ready][data-mode=paused] .nx-state-dot{background:#FFB020;box-shadow:0 0 0 3px rgba(255,176,32,.18),0 0 12px rgba(255,176,32,.6)}
 .nx-state[data-state=ready][data-mode=paused]{border-color:rgba(255,176,32,.45)!important}
 
-/* ======== the panels (2026-10-23: "everything you open from it never had a design pass") ========
+/* ======== the panels (the owner 2026-10-23: "everything you open from it never had a design pass") ========
    Every sheet and dialog is the same glass as the sidebar and the dock: rounded, a lit lip, a real shadow on the machine behind it.
    Inside, one size of corner (12 px keys and fields, 16 px cards), readable type (13-15 px, never 10), and the LED figures kept for numbers. */
 :root{--r-key:12px;--r-card:16px}
@@ -194,7 +194,7 @@ body[data-layout=phone] .nx-sheet{bottom:calc(16px + var(--safe-b))!important}
 .nx-filecard{border-radius:18px!important;overflow:hidden}
 .nx-filecard-pic{border-radius:14px!important}
 
-/* ======== round three (2026-10-23: "it still looks identical") ======== */
+/* ======== round three (the owner 2026-10-23: "it still looks identical") ======== */
 /* ---- the head: one glass visor across the top instead of loose chips ---- */
 #nx-top{background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.015)),rgba(9,13,18,.70);
  -webkit-backdrop-filter:blur(26px) saturate(170%);backdrop-filter:blur(26px) saturate(170%);
@@ -265,7 +265,7 @@ body[data-layout=phone] .nx-job-pct{font-size:24px}
 /* a phone's position row has room for the three numbers only; where they come from is said on the computer */
 body[data-layout=phone] .nx-dock .nx-pos-src{display:none!important}
 
-/* 2026-10-23 (a live ring print, 1568x751): the job block held a fixed 620 px and pushed the red STOP off the right
+/* the owner 2026-10-23 (a live ring print, 1568x751): the job block held a fixed 620 px and pushed the red STOP off the right
    edge. The job block gives way; the right-hand keys and STOP never do. */
 body:is([data-layout=desktop],[data-layout=tablet]) #nx-top .nx-job{flex:0 1 620px;width:auto;min-width:150px}
 #nx-top .nx-top-right{flex:none}

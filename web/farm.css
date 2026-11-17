@@ -275,6 +275,9 @@ body.fm:has(.nxctl.live) .fm-root{z-index:auto}
  .fm-media:has(>.fm-mdl:not([hidden])){aspect-ratio:auto;min-height:152px}
  .fm-mdl{left:6px;right:6px;gap:4px 8px;padding:6px 7px}
  .fm-mdl-t{flex-basis:100%;font-size:11px}
+ /* a two-column phone tile is narrower than "Get the 3D model"; the button takes the full row and its words wrap, never cut */
+ .fm-mdl .nx-btn{flex:1 1 100%;min-width:0;justify-content:center;white-space:normal;text-align:center;line-height:1.2}
+ .fm-mdl .nx-btn .nx-lbl{white-space:normal;overflow:visible;text-overflow:clip}
  .fm-over{left:6px;right:6px;bottom:6px}
  .fm-over>span{font-size:10.5px;padding:5px 7px}
  .fm-demo{left:6px;top:6px;padding:3px 6px}
@@ -339,7 +342,7 @@ body.fm-tv .fm-tv-exit[data-show]{opacity:1;pointer-events:auto}
 .fm-power-now{font:600 18px/1.3 var(--mono);margin:0 0 10px}
 .fm-power-warn{margin:0 0 12px;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,45,146,.45);background:rgba(255,45,146,.08);font:500 14px/1.4 var(--sans)}
 
-/* Brand law for the wall (our board, 2026-10-18): the neons are accents, not floods and not gradients. The shared buttons carry a
+/* Brand law for the wall (the owner's board, 2026-10-18): the neons are accents, not floods and not gradients. The shared buttons carry a
    sheen and a glow; on the wall they are flat. (Sheets and dialogs opened from the wall keep the shared look.) */
 .fm-root .nx-btn{background:rgba(255,255,255,.07);box-shadow:none}
 .fm-root .nx-btn[data-kind=primary]{background:var(--accent);border-color:var(--accent)}

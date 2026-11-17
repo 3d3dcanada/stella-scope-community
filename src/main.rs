@@ -214,6 +214,7 @@ fn start() -> Result<()> {
         } else {
             for first in cfg.printers.iter_mut().take(1) {
                 first.driver = "demo".into();
+                first.address.clear(); // a demo printer never keeps a real address
                 first.demo_start_at.get_or_insert(0.3);
                 if first.model.is_none() {
                     first.model = Some("Voron 2.4 350".into());
@@ -240,14 +241,7 @@ fn start() -> Result<()> {
         startup_warnings,
     )?;
     let first = farm.first();
-    // the 3D models this build carries (Prusa's CORE One L and CORE One, the MK3S+ and the MINI) are put in the
-    // person's library before the first page is asked for, so a fresh install draws them with nothing to download and no file to find.
-    if !readonly {
-        let carried = farm.library().seed_bundled();
-        if !carried.is_empty() {
-            println!("  3D models put in the library: {}", carried.join(", "));
-        }
-    }
+    // no model ships with Stella Scope; each is fetched when the person asks (src/printer_models.rs `fetch_url`).
     println!(
         "Stella Scope {}: http://{}:{} | {} | {}",
         env!("CARGO_PKG_VERSION"),

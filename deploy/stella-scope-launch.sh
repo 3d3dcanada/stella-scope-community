@@ -49,7 +49,7 @@ fi
 
 # Single instance: a second icon raises the existing window instead.
 #
-# 2026-09-21: the app stopped opening at all, with no window and no taskbar dot. The startup
+# the owner 2026-09-21: the app stopped opening at all, with no window and no taskbar dot. The startup
 # lock was taken with `exec 9>`, so the detached watcher inherited fd 9 and held the lock for the
 # whole grace period after the window closed -- up to 15 minutes. Every launch in that window hit
 # `flock -n`, failed, found no window to raise, and exited silently. Two changes keep that from
@@ -78,7 +78,7 @@ done
 [ "$ok" = 0 ] && notify-send -u critical "Stella Scope" "Recorder service did not answer on ${URL} — check: systemctl --user status stella-scope.service"
 
 # 9>&- so the browser never carries the startup lock: Brave outlives this script.
-# 2026-09-26: the Stella Scope icon opened the new 3D3D Studio. Every Brave --app window on
+# the owner 2026-09-26: the Stella Scope icon opened the new 3D3D Studio. Every Brave --app window on
 # 127.0.0.1 is named "127.0.0.1" to the desktop (the running Brave drops --class), so the icon
 # claimed whichever loopback app was open. Stella now opens in its own small Brave profile, a
 # separate Brave process that keeps --class, so the window is "StellaScope" and nothing else is.

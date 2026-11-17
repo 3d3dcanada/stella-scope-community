@@ -74,7 +74,7 @@ struct OpenPrint {
 }
 
 /// a print's start counts as recorded only when a quiet sample (idle, finished, or another
-/// file) lies at most this far before its first printing sample. In our recording of
+/// file) lies at most this far before its first printing sample. In the owner's recording of
 /// 2026-09-16..22 every print start the recorder saw followed a quiet sample by under 0.7 s; the one
 /// print it joined late (2026-09-21 20:06:45, Klipper's total_duration already 162.9 s) followed
 /// the previous quiet sample by 5518 s, and a stale quiet sample like that proves nothing.
@@ -662,7 +662,7 @@ impl Store {
     /// reprint at the 11:54:45 keyframe, and a cancel and reprint inside one 60 s keyframe interval
     /// would vanish. The run is replayed through the same keyframe/delta decoder load_sample uses.
     // ponytail: replays every sample of the current run from the newest keyframe outside it, never
-    // more than RUN_SCAN_S back. Measured 2026-09-22 on our 55 min Voron run of 2026-09-17 (8385
+    // more than RUN_SCAN_S back. Measured 2026-09-22 on the owner's 55 min Voron run of 2026-09-17 (8385
     // samples): +110 ms to service start, so about 6 s at the 48 h bound. Skip deltas that cannot
     // touch print_stats in the SQL, or record print starts as they happen, if prints get that long.
     fn run_start(&self, newest: f64, file: &str) -> Result<(f64, Option<f64>)> {

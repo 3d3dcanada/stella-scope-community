@@ -23,7 +23,7 @@ fn library(database: &str) -> PathBuf {
 }
 
 /// True when this printer's managed library carries the full machine CAD the main 3D scene draws
-/// (2026-10-12: that scene doubles as the printer's farm-wall model; there is no
+/// (the owner 2026-10-12: that scene doubles as the printer's farm-wall model; there is no
 /// separate setting for it). Same asset ids `web/hud-scene.js` looks for.
 pub fn has_reference_model(database: &str) -> bool {
     let Ok(value) = manifest(database) else {

@@ -1,4 +1,4 @@
-//! stella-eye: print failure detection for Stella Scope (2026-09-25: "the biggest thing is
+//! stella-eye: print failure detection for Stella Scope (the owner 2026-09-25: "the biggest thing is
 //! spaghetti detective or something like it").
 //!
 //! The model is Obico's open failure detector (a one-class YOLOv2, 416 x 416, exported to ONNX with

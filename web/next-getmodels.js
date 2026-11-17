@@ -1,3 +1,4 @@
+// no model ships with Stella Scope and nothing downloads by itself; each printer's tile and page fetch only that printer's files.
 // "Get the 3D models". A fresh install that tries the demo farm has the printers but not their
 // CAD: the models are separate downloads under their authors' open licences. After the press this offers one plain button
 // that fetches every open model the farm draws, from the address its author publishes it at, each checked against its
@@ -59,15 +60,11 @@ function draw(w){
  const lines=[],mo=open.filter(m=>m.kind!=='part'),po=open.filter(m=>m.kind==='part');
  if(mo.length)lines.push(`${mo.length===1?'One machine':mo.length+' machines'} here ${mo.length===1?'has':'have'} no 3D model yet.`);
  if(po.length)lines.push(`The files of their toolchangers and add-ons are not here either (${po.length} files).`);
- if(open.length)lines.push(`${open.length===1?'It is':'They are'} free to get from ${open.length===1?'its author':'their authors'}, under open licences.`);
+ // (the owner: nothing downloads that you did not pick): no button here fetches them all; each tile gets its own model on its own press.
+ if(open.length)lines.push(`Each printer's tile has its own Get button, so you download only the models you want. Nothing downloads by itself.`);
  if((f.failed||[]).length)lines.push(failedLine(f));
  for(const m of rest)lines.push(m.why||`${m.label} is added under Printer models.`);
  b.append(el('p','fm-licence-text',lines.join(' ')));
- if(open.length){
-  const row=el('div','fm-licence-act');
-  row.append(button({icon:'i-view',label:`Get the 3D models (${mb(w.open_bytes)}, open licence)`,kind:'primary',size:'row',title:'Get the 3D models',does:'Shows the licences first, then downloads the models from their authors\' own sites. Each file is checked before it is kept.',onPress:()=>licences(w)}));
-  b.append(row);
- }
 }
 const short=m=>String(m.label||m.id).split(' / ')[0];
 // what went wrong, once, in the service's plain words (the same sentence a tile says), never the raw error with its address.
@@ -80,7 +77,7 @@ function failedLine(f){
  *  ({id,label}); about the same words are in About and in the model's own sheet. */
 export function showNotice(m){
  openModal({title:`${short(m)}: who made it, and the terms`,icon:'i-view',build:(body)=>{
-  body.append(el('p','nx-note',`This model ships inside Stella Scope. Below are its maker, the licence it is under, what was done to the file and the licence text. Nothing here is downloaded.`));
+  body.append(el('p','nx-note',`3D3D hosts this model's file for download under its maker's licence. Below are its maker, the licence it is under, what was done to the file and the licence text. Nothing here is downloaded.`));
   const pre=el('pre','nx-gm-notice');pre.tabIndex=0;pre.setAttribute('aria-label',`The notice for ${short(m)}`);pre.textContent='Reading the notice…';body.append(pre);
   fetch(`/api/printer-models/${encodeURIComponent(m.id)}/notice`).then(r=>r.json()).then(n=>{if(!n.text)throw Error(n.error||'no notice');pre.textContent=n.text;}).catch(e=>{pre.textContent='The notice could not be read: '+e.message;});
  }});
@@ -104,11 +101,11 @@ export function sheetAbout(){
    list.append(r);}
   body.replaceChildren(
    // the version, the licence, how a bigger farm buys one (the owner: no e-Transfer address is shown publicly; the payment details come with the invoice), and who to write to
-   section('Stella Scope',el('p','nx-note',`Version ${d.version}. Free and open source under the ${d.licence} licence, made by ${d.maker}. Free for up to five printers. A perpetual licence for more is bought by Interac e-Transfer, and the payment details come with the invoice. To buy, or with any question, write to ${d.contact}.`),aboutLinks([['i-help','Help','Opens the user guide.',()=>{location.href='/help';}],['i-link','Write to '+d.maker,'Opens a new email to '+d.contact+' in your mail program.',()=>{location.href='mailto:'+d.contact;}]])),
+   section('Stella Scope',el('p','nx-note',`Version ${d.version}, made by ${d.maker}. ${d.licence_words||''} Free and open source, with no printer limit. Source: github.com/3d3dcanada/stella-scope-community. Questions: ${d.contact}.`),aboutLinks([['i-help','Help','Opens the user guide.',()=>{location.href='/help';}],['i-link','Write to '+d.maker,'Opens a new email to '+d.contact+' in your mail program.',()=>{location.href='mailto:'+d.contact;}]])),
    section('Licences',el('p','nx-note','What other people made that is inside Stella Scope, and the terms each is shared under.'),aboutLinks([['i-view','Code, fonts and data','Every library, font and file inside Stella Scope, with its licence.',()=>{location.href='/help?doc=licences';}],['i-printers','Printer model licences','Each 3D printer model, who made it and the terms it is shared under.',()=>{location.href='/help?doc=models';}]])),
    d.rig?section(`${d.rig.name} (${d.rig.licence})`,el('p','nx-note',`The Printer models page and its catalogue of machines come from ${d.rig.name} by ${d.rig.by}, shared under the ${d.rig.licence} licence. Its own CAD stays with each author and is downloaded only when you ask, with the licence shown first.`),aboutLinks([['i-view','Show the MIT notice','The licence notice that goes with this credit.',()=>rigNotice(d.rig)]])):el('span'),
-   section(`3D models inside Stella Scope (${mb(d.bytes||0)})`,el('p','nx-note','These models ship inside Stella Scope so your printer is drawn the moment you add it, with nothing to download. Each is shared free of charge under its maker\'s licence, with its notice. Prusa Research is not connected with Stella Scope and has not approved it.'),list),
-   section('Other 3D models',el('p','nx-note','The models of every other machine are not inside Stella Scope. They are downloaded from their authors when you ask, with their licence shown first, under Printer models.')));
+   section(`3D models 3D3D hosts (${mb(d.bytes||0)} in all)`,el('p','nx-note','No 3D model is inside Stella Scope. These have no download address from their makers, so 3D3D hosts the files; each is downloaded only when you ask for it, and shared free of charge under its maker\'s licence, with its notice. Prusa Research is not connected with Stella Scope and has not approved it.'),list),
+   section('Other 3D models',el('p','nx-note','The models of every other machine are downloaded from their authors when you ask, with their licence shown first, under Printer models.')));
  }});
 }
 
@@ -149,7 +146,7 @@ export function modelStatus(w,pid){
  const models=w.models||[],items=(w.fetch?.items)||[];
  const rows=ids.map(id=>({id,row:models.find(m=>m.id===id),item:items.find(i=>i.id===id)}));
  const bad=rows.find(r=>r.item?.state==='failed');
- if(bad)return {state:'failed',kind:bad.item.failure?.kind||'other',plain:bad.item.failure?.plain||bad.item.error||'The 3D model could not be downloaded.',id:bad.id};
+ if(bad)return {state:'failed',kind:bad.item.failure?.kind||'other',plain:bad.item.failure?.plain||bad.item.error||'The 3D model could not be downloaded.',id:bad.id,ids:rows.filter(r=>r.row?.open).map(r=>r.id)};
  const mine=rows.filter(r=>r.item);
  if(mine.length){
   const got=mine.reduce((n,r)=>n+(r.item.got||0),0),total=mine.reduce((n,r)=>n+(r.item.bytes||0),0);
@@ -159,11 +156,12 @@ export function modelStatus(w,pid){
   return {state:going?'getting':'waiting',pct:total?got/total:0,got,total,checking};}
  const hold=rows.find(r=>r.row&&!r.row.open);
  if(hold)return {state:'hand',plain:hold.row.why||'This model is added by hand under Printer models.'};
- return {state:'missing',bytes:rows.reduce((n,r)=>n+(r.row?.bytes||0),0)};}
+ return {state:'missing',bytes:rows.reduce((n,r)=>n+(r.row?.bytes||0),0),ids:rows.filter(r=>r.row?.open).map(r=>r.id)};}
 
-/** Press again for every open model still missing (a retry after a failure, or the first fetch of a farm that was restarted). */
-export async function getModelsNow(tok){
- const r=await fetch('/api/printer-models/fetch-open',{method:'POST',headers:{'Content-Type':'application/json','X-Stella-Control-Token':tok||''},body:JSON.stringify({accept_licence:true})});
+/** Fetch exactly these model and part ids (one printer's own), and nothing else (release-2026-11-14: a tile's Get pulled every open model). */
+export async function getModelsNow(tok,ids){
+ if(!ids?.length)throw Error('There is no 3D model to download for this printer.');
+ const r=await fetch('/api/printer-models/fetch-open',{method:'POST',headers:{'Content-Type':'application/json','X-Stella-Control-Token':tok||''},body:JSON.stringify({accept_licence:true,ids})});
  const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'Stella Scope could not start the download.');
  modelsBanner(tok);return j;}
 
@@ -179,15 +177,16 @@ export const demoLicenceBytes=()=>fetch('/api/printer-models/demo-farm',{cache:'
 export function tileModelPanel(ctx){
  const box=el('div','fm-mdl');box.hidden=true;box.setAttribute('role','status');
  const text=el('span','fm-mdl-t'),bar=el('div','nx-gm-bar fm-mdl-bar');bar.setAttribute('role','progressbar');bar.setAttribute('aria-label','Getting the 3D model');
- const again=button({icon:'i-play',label:'Try again',size:'row',title:'Try again',does:'Asks the authors\' site for the 3D models that are still missing, with the same checks.',onPress:async b=>{if(b.dataset.busy!==undefined)return;
-  const tok=ctx.token();if(!tok){toast('Models are added from the Stella Scope window on the computer.','alarm');return;}busy(b,true);try{await getModelsNow(tok);}catch(e){toast(e.message,'alarm');}finally{busy(b,false);}}});
- const get=button({icon:'i-view',label:'Get it',size:'row',title:'Get it: the 3D model',does:'Downloads this machine\'s 3D model from its author, checked against the checksum its author published. The licences were shown first.',onPress:async b=>{if(b.dataset.busy!==undefined)return;
-  const tok=ctx.token();if(!tok){toast('Models are added from the Stella Scope window on the computer.','alarm');return;}busy(b,true);try{await getModelsNow(tok);}catch(e){toast(e.message,'alarm');}finally{busy(b,false);}}});
+ const again=button({icon:'i-play',label:'Try again',size:'row',title:'Try again',does:'Downloads this printer\'s 3D model again, with the same checks.',onPress:async b=>{if(b.dataset.busy!==undefined)return;
+  const tok=ctx.token();if(!tok){toast('Models are added from the Stella Scope window on the computer.','alarm');return;}busy(b,true);try{await getModelsNow(tok,ids);}catch(e){toast(e.message,'alarm');}finally{busy(b,false);}}});
+ const get=button({icon:'i-view',label:'Get the 3D model',size:'row',title:'Get the 3D model',does:'Downloads this printer\'s 3D model only, and keeps it only if the file checks out against its published checksum. Shared free under its maker\'s open licence.',onPress:async b=>{if(b.dataset.busy!==undefined)return;
+  const tok=ctx.token();if(!tok){toast('Models are added from the Stella Scope window on the computer.','alarm');return;}busy(b,true);try{await getModelsNow(tok,ids);}catch(e){toast(e.message,'alarm');}finally{busy(b,false);}}});
  for(const b of [again,get])b.hidden=true;
  box.append(text,bar,again,get);
- let last='';
+ let last='',ids=[];
  return {el:box,set(st){
   if(!st){if(!box.hidden){box.hidden=true;last='';}return;}
+  ids=st.ids||ids;
   const key=JSON.stringify([st.state,st.pct===undefined?'':pc(st.pct),st.plain||'',st.bytes||0,!!ctx.token()]);if(key===last)return;last=key;
   box.hidden=false;box.dataset.state=st.state;
   box.setAttribute('aria-live',st.state==='getting'||st.state==='waiting'?'off':'polite');   // a percentage that moves every second is not read out; a failure or a question is
@@ -197,5 +196,5 @@ export function tileModelPanel(ctx){
   else if(st.state==='waiting'){text.textContent='3D model: waiting for its turn';bar.style.setProperty('--p','0');bar.setAttribute('aria-valuenow','0');}
   else if(st.state==='failed')text.textContent=st.plain;
   else if(st.state==='hand')text.textContent=st.plain;
-  else text.textContent=`3D model: not here yet (${mb(st.bytes)}).`;
+  else text.textContent=`No 3D model on this computer yet (${mb(st.bytes)} to download).`;
   box.title=text.textContent;}};}

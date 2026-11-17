@@ -1,4 +1,4 @@
-// Look A : a signal says what it is in plain words first, Klipper's name beside it.
+// Look A (the owner 2026-10-23): a signal says what it is in plain words first, Klipper's name beside it.
 import test from 'node:test';import assert from 'node:assert/strict';
 import {plainSignal} from '../web/next-pages.js';
 test('Klipper objects and fields read as plain words',()=>{

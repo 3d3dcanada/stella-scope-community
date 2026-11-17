@@ -1,4 +1,4 @@
-//! Smart plugs (2026-10-13: "definitely should build smart plugs"): read a printer's power and
+//! Smart plugs (2026-10-13, the owner: "definitely should build smart plugs"): read a printer's power and
 //! switch it, on this network only, never through anyone's cloud. Three local protocols:
 //! Shelly (Gen2+ RPC, and Gen1 HTTP), Tasmota (HTTP commands) and TP-Link Kasa (the classic TCP 9999
 //! protocol). A plug is set per printer as `shelly://host`, `tasmota://host` or `kasa://host`.

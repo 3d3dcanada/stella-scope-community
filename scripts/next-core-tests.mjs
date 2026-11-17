@@ -43,11 +43,11 @@ test('deriveMode computes heating and at-temperature flags',()=>{
  assert.equal(deriveMode({link:ready,readings}).atTemp.nozzle,true);
 });
 test('idle dock has every slot in table order, Load and Unload beside Heat',()=>{
- // 2026-09-28: Load and Unload on the bottom bar. The table had
+ // The owner: 2026-09-28: Load and Unload on the bottom bar. The table had
  // eight slots; it has ten now, and a dock allowed ten shows them all.
  const dock=dockFor('idle',{maxSlots:12});
- // 2026-10-24: COOL beside HEAT, and a STOP that ends what the printer is doing without the emergency stop
- assert.deepEqual(dock.map(s=>s.key),['files','heat','cool','load','unload','home','level','move','macros','console','stop','more']); // 2026-10-23: PRINT first and lit, then heat and filament, then motion
+ // the owner 2026-10-24: COOL beside HEAT, and a STOP that ends what the printer is doing without the emergency stop
+ assert.deepEqual(dock.map(s=>s.key),['files','heat','cool','load','unload','home','level','move','macros','console','stop','more']); // the owner 2026-10-23: PRINT first and lit, then heat and filament, then motion
  assert.equal(dock.length,12);assert.ok(dock.every(s=>s.visible));
  // At the old eight the two that give way are the ones More already carries.
  const eight=dockFor('idle');assert.deepEqual(eight.filter(s=>s.visible).map(s=>s.key),['files','heat','cool','load','unload','home','level','more']);
@@ -60,14 +60,14 @@ test('Load and Unload are one press: named commands, no sheet',()=>{
 });
 test('a phone dock keeps Home, Heat, Load, Unload and More (idle: Print, Heat, Load, Home, More)',()=>{
  assert.deepEqual(dockFor('unhomed',{compact:true,maxSlots:5}).filter(s=>s.visible).map(s=>s.key),['home','heat','load','unload','more']);
- // 2026-10-23: a ready printer leads with PRINT; Unload goes to More on a phone
+ // the owner 2026-10-23: a ready printer leads with PRINT; Unload goes to More on a phone
  assert.deepEqual(dockFor('idle',{compact:true,maxSlots:5}).filter(s=>s.visible).map(s=>s.key),['files','heat','load','home','more']);
  // The kiosk has six: the same four, then Level, and Move goes to More.
  assert.deepEqual(dockFor('idle',{compact:true,maxSlots:6}).filter(s=>s.visible).map(s=>s.key),['files','heat','cool','load','home','more']);
 });
 test('compact printing dock retains primary and danger slots in original order',()=>{
  const dock=dockFor('printing',{compact:true});
- assert.deepEqual(dock.map(s=>s.key),['pause','speed','flow','fan','exclude','job','camera','cancel','more']); // 2026-10-25: the print page and the camera are on the bar while printing
+ assert.deepEqual(dock.map(s=>s.key),['pause','speed','flow','fan','exclude','job','camera','cancel','more']); // the owner 2026-10-25: the print page and the camera are on the bar while printing
  assert.deepEqual(dock.filter(s=>s.visible).map(s=>s.key),['pause','speed','flow','cancel','more']);
 });
 test('finished without a job uses idle dock',()=>assert.deepEqual(dockFor('finished',{jobName:''}),dockFor('idle')));
@@ -92,7 +92,7 @@ test('heatColor applies nozzle and bed thresholds',()=>{
  assert.equal(heatColor(60,0,'bed').tone,'hot');
  assert.equal(heatColor(116,0,'bed').tone,'danger');
 });
-// 2026-10-22: lowering the nozzle (or bed) target fired "Nozzle over temperature, 250° against a target of 45°" while the heater was just cooling.
+// the owner 2026-10-22: lowering the nozzle (or bed) target fired "Nozzle over temperature, 250° against a target of 45°" while the heater was just cooling.
 const feed=(kind,secs,fn)=>{const t=heatTrend(kind);let last;for(let s=0;s<=secs;s++){const [temp,target]=fn(s);t.push(1000+s,temp,target);last=[temp,target];}return {t,last};};
 test('a target lowered from 250 to 45 with the temperature falling is cooling, never an alarm',()=>{
  const {t,last}=feed('nozzle',90,s=>[250-s*1.5,45]);   // cooling 1.5° a second toward 45
@@ -202,7 +202,7 @@ test('homingFrame keeps an unhomed axis where it is drawn',async()=>{const {homi
  assert.deepEqual([...m([-170,0,10],{limits:lim,homed:'x',start:[100,120,40],ts:1,velocity:70})],[105,120,40]);});
 
 test('driver flags: open load at standstill is not a warning, in motion it is, other flags always are',()=>{
- // The reading from our report 2026-09-28: stepper_x olb=1, stst=1, cs_actual 25, printer parked.
+ // The reading from the owner's report 2026-09-28: stepper_x olb=1, stst=1, cs_actual 25, printer parked.
  assert.deepEqual(driverFlags({flags:['olb'],standstill:true},false),[]);
  assert.deepEqual(driverFlags({flags:['olb'],standstill:true},true),[],'stst wins even if the head is moving elsewhere');
  assert.deepEqual(driverFlags({flags:['olb'],standstill:false},false),[],'a parked machine raises nothing');
@@ -230,7 +230,7 @@ test('filament steps: markers are data, one now at a time, nothing recorded befo
  assert.deepEqual(st('unload','waiting'),['done','done','now','-','-']);assert.deepEqual(st('unload','cooling'),['done','done','done','now','-']);
  assert.deepEqual(filamentSteps('load','heating').map(s=>s.n),[1,2,3,4,5,6],'numbers are positions, fixed');
  assert.equal(filamentCanRecord({step:'done',ran:true}),true);
- assert.equal(filamentCanRecord({step:'done',ran:false}),false,'2026-09-28: pressing again marked it loaded instantly');
+ assert.equal(filamentCanRecord({step:'done',ran:false}),false,'the owner 2026-09-28: pressing again marked it loaded instantly');
  assert.equal(filamentCanRecord({step:'ready',ran:true}),false);assert.equal(filamentCanRecord({step:'running',ran:true}),false);assert.equal(filamentCanRecord(null),false);
  // the board 2026-10-22: from the moment the macro has returned (the wait, the cool-down, the shake, the end), not before
  for(const step of ['waiting','cooling','shaking','done'])assert.equal(filamentCanRecord({step,ran:true}),true,step);
@@ -410,7 +410,7 @@ test('the alarm says what the failure watch saw, and that nothing was stopped',(
  assert.equal(alarmWords({text:'FAILING'},{name:'Bolt'}).title,'Bolt: this print may have failed','an old event with no detail still reads, by its words');
 });
 
-// 2026-10-22: CANCEL in the paused bar did nothing; Klipper got PAUSE and never CANCEL_PRINT.
+// the owner 2026-10-22: CANCEL in the paused bar did nothing; Klipper got PAUSE and never CANCEL_PRINT.
 test('a held key says what holding does, in plain words',()=>{
  assert.equal(holdWords('cancel','Cancel print'),'Hold to cancel the print');
  assert.equal(holdWords('motors_off','MOTORS OFF'),'Hold to switch the motors off');

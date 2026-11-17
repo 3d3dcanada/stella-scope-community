@@ -6,7 +6,7 @@ test('there is one tile size: no S/M/L switch, no size rule, no stored size',()=
  assert.ok(!/SIZES|defaultSize|validSize|fm-size|view\.size|data-size/.test(js),'farm.js');assert.ok(!/data-size|fm-size|fm-sizepick/.test(css+html),'farm.css and farm.html');
  assert.ok(!/store\('fm-size'/.test(js),'nothing keeps a size');
 });
-// 2026-10-24: "it expands the tab for no reason ... it could just be an overlay or a card over top of it." A press opens the printer as a card over the wall.
+// the owner 2026-10-24: "it expands the tab for no reason ... it could just be an overlay or a card over top of it." A press opens the printer as a card over the wall.
 test('a press opens the printer as a card over the wall; its cell is kept, nothing on the wall moves',()=>{const hud=web('next-hud.css');
  assert.match(hud,/\.fm-tile\[data-open\]\{position:fixed!important;z-index:60/,'the card stands over the wall');assert.match(hud,/\.fm-veil\{position:fixed;inset:0;z-index:55/,'a veil under it');
  assert.match(js,/el\('div','fm-tile fm-ghost'\)/,'an empty frame keeps its cell');assert.match(js,/t\.root\.parentElement\.append\(v\)/,'the veil beside the card');

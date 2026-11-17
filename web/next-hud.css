@@ -1,4 +1,4 @@
-/* The HUD pass , loaded last on the printer page. the owner looked at an earlier build in the desktop window and listed it: dials with a pointless
+/* The HUD pass (the owner 2026-10-24), loaded last on the printer page. the owner looked at an earlier build in the desktop window and listed it: dials with a pointless
    disc behind them, square trays instead of the radial menus he asked for at the start, see-through panels, notifications over the machine,
    a giant PHONE PAIRED key, readouts crowding the bottom bar, a rail that scrolls, no COOL and no plain STOP. Rules for everything here:
    - Solid surfaces. The desktop window is WebKit and draws no backdrop blur, so nothing may depend on blur to be readable.
@@ -124,7 +124,7 @@ body:not([data-layout=phone]):not([data-layout=phone-land]):not([data-layout=tab
 .nxctl:not(.nxctl--lift) .nxc-seg:not(.on){fill:rgba(28,36,46,.92);stroke:rgba(255,255,255,.10)}
 .nx-wheel-seg[data-empty]{fill:#070a0e;stroke:rgba(255,255,255,.05);cursor:default}
 
-/* ---------- 7. the farm wall ---------- */
+/* ---------- 7. the farm wall (the owner 2026-10-24) ---------- */
 /* a printer opens as a card over the wall, not a tile that grows in place and pushes the others round */
 .fm-veil{position:fixed;inset:0;z-index:55;background:rgba(3,6,10,.74)}
 .fm-ghost{visibility:hidden;pointer-events:none}
@@ -162,7 +162,7 @@ body:not([data-layout=phone]):not([data-layout=phone-land]):not([data-layout=tab
 /* the camera / model tabs sat on the view keys (Iso Front Top Side): they stand under them now */
 body:not([data-layout=phone]):not([data-layout=tablet-port]) .nx-stagecard .nx-md-tabs{top:calc(var(--top) + var(--safe-t) + 60px)!important;width:auto!important}
 
-/* ---------- finish board A ---------- */
+/* ---------- finish board A (the owner 2026-10-25) ---------- */
 /* A3: keys sit side by side; a state's groups no longer spread across the bar */
 body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) #nx-dock .nx-keygroup{flex:none}
 body:is([data-layout=desktop],[data-layout=tablet],[data-layout=kiosk]) #nx-dock .nx-keys{gap:6px;flex:none}
@@ -181,7 +181,7 @@ body[data-sheet=wide]:is([data-layout=desktop],[data-layout=tablet]) #nx-left{op
 /* A5: the phone's deck is taller by the lane's line: the bank of dials stands above it */
 body:is([data-layout=phone],[data-layout=tablet-port]){--barh:172px}
 
-/* ---------- finish board B ---------- */
+/* ---------- finish board B (the owner 2026-10-25) ---------- */
 /* B10: Heat & fans, one instrument per heater: the dial, its readings as plain lines, the graph the whole width */
 .nx-ledscope .nx-ht-grid{grid-template-columns:1fr!important;gap:12px}
 .nx-ledscope .nx-ht{display:flex!important;flex-direction:column!important;gap:12px;padding:14px 16px!important}
@@ -206,7 +206,7 @@ body:is([data-layout=desktop],[data-layout=tablet]) .nx-sheet .nx-sheet-body{fle
 .nxctl .nxc-read .nxc-none{font:600 calc(var(--nxctl-size)*.075)/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:#8B95A1;text-shadow:none}
 .nx-ledscope .nx-lv-corner b{white-space:nowrap;font-size:15px!important}
 
-/* ---------- finish board D : the farm ---------- */
+/* ---------- finish board D (the owner 2026-10-25): the farm ---------- */
 /* D16: what each tile shows (kept on this device) */
 .fm-tile[data-show=machine] .fm-cam{display:none!important}
 .fm-tile[data-show=camera] .fm-3d,.fm-tile[data-show=camera] .fm-still{display:none!important}

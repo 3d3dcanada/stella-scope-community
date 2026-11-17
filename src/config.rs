@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// The id an old single-printer configuration gets, and the one our recording lives under.
+/// The id an old single-printer configuration gets, and the one the owner's recording lives under.
 pub const LEGACY_ID: &str = "stella";
 /// The id of the printer an unconfigured service starts with: it is not
 /// "stella", so a person adding their first printer, most likely called Stella, never collides with it.
@@ -236,6 +236,10 @@ pub struct Config {
     /// trial has begun; once set, the farm runs in trial for 30 days and then locks printers beyond
     /// the free five until a licence is entered.
     pub licence_trial_started: Option<f64>,
+    /// (the owner: "turn the heaters off ... a safety feature"): minutes a heater may stay on with no print running or
+    /// paused before Stella Scope turns the nozzle and the bed off. Changing a target starts the count again. Changed on the Heat page;
+    /// 5 to 60 minutes are in force (src/farm.rs `idle_minutes`: the owner, "an hour would be the maximum"), so an older file's 0 means 60.
+    pub heater_idle_off_min: u32,
     /// Nothing named a printer: no configuration file at all, or one with neither `moonraker_url` nor a
     /// `printers` list. The one printer such a service starts with is a
     /// placeholder for the farm, not a printer: it is never shown or counted while nothing answers there.
@@ -279,7 +283,7 @@ impl Default for Config {
         Self {
             driver: "moonraker".into(),
             // No address until the person names a printer (, 2026-10-19). This was
-            // http://127.0.0.1:7125, so a service with no printer polled whatever answered there: on our PC
+            // http://127.0.0.1:7125, so a service with no printer polled whatever answered there: on the owner's PC
             // that is the Kobra X bridge, which was read twice in testing. An empty address opens nothing.
             moonraker_url: String::new(),
             printers: Vec::new(),
@@ -301,6 +305,7 @@ impl Default for Config {
             printer_name: None,
             printer_model: None,
             licence_trial_started: None,
+            heater_idle_off_min: 30,
             unconfigured: false,
             database: "stella-scope.sqlite3".into(),
             controls_enabled: false,
@@ -330,7 +335,7 @@ impl Default for Config {
             probe_offset_confirmed: false,
             klippy_log_path: None,
             api_key_env: "STELLA_MOONRAKER_API_KEY".into(),
-            // 2026-09-22: print done/fault and probe-alarm notices while his window is closed.
+            // the owner 2026-09-22: print done/fault and probe-alarm notices while his window is closed.
             // The launcher's watcher already keeps the recorder alive through a print, so this only
             // fires while the recorder is running. notify-send must exist; its absence degrades to
             // a recorded event, never an error.
@@ -380,6 +385,7 @@ impl Config {
             )
         })?;
         cfg.unconfigured = Self::names_no_printer(&text);
+        cfg.printers.iter_mut().for_each(crate::demo::upgrade_entry);
         cfg.validate()?;
         Ok(cfg)
     }

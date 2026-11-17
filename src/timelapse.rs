@@ -1,4 +1,4 @@
-//! Timelapse and print reports (2026-10-26, "build those five"). While a printer prints, one picture from its camera at each new
+//! Timelapse and print reports (the owner 2026-10-26, "build those five"). While a printer prints, one picture from its camera at each new
 //! layer (at most one every MIN_GAP_S; one every EVERY_S when the printer does not report its layer), kept per print beside the recording:
 //! `<database>.timelapse/<started>-<file>/000001.jpg` and `print.json` (the file, when it started and ended, how it ended, the frames).
 //! The page plays the pictures back in order. Bounded: FRAMES_MAX a print, the newest KEEP_PRINTS prints, TOTAL_MAX_BYTES on disk.

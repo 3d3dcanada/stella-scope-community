@@ -1,4 +1,4 @@
-// Health over time (2026-10-26, "build those five": belt tension and motor health over time). What the recording already holds, read as a
+// Health over time (the owner 2026-10-26, "build those five": belt tension and motor health over time). What the recording already holds, read as a
 // trend so a slow change shows before it is a failed print: how alike the two belts answer (each belts run of the Input shaper page), each axis's
 // resonance over time (a belt going slack lowers it), each motor driver's current scaling and the flags it raised, each heater's heat-up speed.
 import {el,button,openSheet,section} from './next-ui.js';
@@ -31,13 +31,18 @@ export function pageHealth(){const ctx=pageCtx();if(!ctx)return;
    const [w,tone,why]=beltWord(last?.belts_similarity);
    belts.append(card('BELT MATCH',last?`${Math.round(last.belts_similarity*100)} %`:'—',w,tone,last?`${why} ${bel.length} measurement${bel.length===1?'':'s'}, the last ${new Date(last.ts*1000).toLocaleDateString()}.`:'No belt measurement yet: Input shaper › Compare belts.',bel.map(r=>r.belts_similarity),{lo:0.7,hi:1,ok:0.95}));
    for(const ax of ['X','Y']){const rs=runs.filter(r=>String(r.axis).toUpperCase()===ax&&Number.isFinite(r.peak_hz));const [pw,pt]=peakWord(rs[0]?.peak_hz,rs[rs.length-1]?.peak_hz);
-    belts.append(card(`${ax} RESONANCE`,rs.length?`${rs[rs.length-1].peak_hz.toFixed(1)} Hz`:'—',rs.length>1?pw:'',pt,rs.length?`${rs.length} measurement${rs.length===1?'':'s'}${rs[rs.length-1].recommended?.name?`, shaper ${rs[rs.length-1].recommended.name}`:''}.`:`No ${ax} measurement yet: Input shaper › Measure ${ax}.`,rs.map(r=>r.peak_hz)));}
+    // 0.6.2 nothing measured yet, but the printer's own input shaper is configured (the AD5M: mzv 56.2 Hz on X, zv 46.0 Hz on Y): those are the cards' numbers, said to be the setting.
+    const cf=(ctx.state.snapshot?.point?.telemetry?.config_sections||[]).find(c=>c.name==='input_shaper')?.fields||{},hz=Number(cf['shaper_freq_'+ax.toLowerCase()]),ty=cf['shaper_type_'+ax.toLowerCase()]||cf.shaper_type;
+    belts.append(card(`${ax} RESONANCE`,rs.length?`${rs[rs.length-1].peak_hz.toFixed(1)} Hz`:Number.isFinite(hz)&&hz>0?`${hz.toFixed(1)} Hz`:'—',rs.length>1?pw:'',pt,rs.length?`${rs.length} measurement${rs.length===1?'':'s'}${rs[rs.length-1].recommended?.name?`, shaper ${rs[rs.length-1].recommended.name}`:''}.`:Number.isFinite(hz)&&hz>0?`Set in the printer's input shaper${ty?': '+ty:''}. Not measured here yet: Input shaper › Measure ${ax}.`:`No ${ax} measurement yet: Input shaper › Measure ${ax}.`,rs.map(r=>r.peak_hz)));}
    belts.append(button({icon:'i-nav-signals',label:'Measure on the Input shaper page',size:'row',title:'Input shaper',does:'Measure X, Y and compare the belts.',onPress:()=>ctx.openPage?.('shaper')}));
   }).catch(()=>{belts.replaceChildren(el('p','nx-note','The resonance measurements are not available on this printer.'));});
   // motors: each driver's current scaling over the recording, and the flags it raised
+  // 0.6.2 a driver that reports only the current it was set to (TMC2209 without DRV_STATUS: the AD5M) shows that setting, said to be a setting, not a load.
+  const currents=()=>{const ms=Object.entries(ctx.state.snapshot?.point?.motors||{}).filter(([,m])=>Number.isFinite(m?.current)),W={stepper_x:'X MOTOR',stepper_y:'Y MOTOR',stepper_z:'Z MOTOR',stepper_z1:'Z1 MOTOR',stepper_z2:'Z2 MOTOR',stepper_z3:'Z3 MOTOR',extruder:'EXTRUDER'};
+   for(const [id,m] of ms)motors.append(card(W[id]||id.toUpperCase(),`${m.current.toFixed(2)} A`,'current setting','',`Run current ${m.current.toFixed(2)} A${Number.isFinite(m.hold)?', hold '+m.hold.toFixed(2)+' A':''}. This driver reports its setting, not its load, so there is nothing to trend.`,[]));return ms.length>0;};
   fetch('/api/history/motor-drift?limit=500',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(d=>{motors.replaceChildren();const ms=d?.motors||[];
-   if(!ms.length){motors.append(el('p','nx-note','No motor driver readings recorded: this printer\'s drivers do not report them.'));return;}
-   const seen=ms.filter(m=>(m.samples||0)>0||(m.flag_events||0)>0);if(!seen.length){motors.append(el('p','nx-note','No motor driver readings recorded yet: they appear once the printer has moved with its drivers reporting.'));return;}
+   if(!ms.length){if(!currents())motors.append(el('p','nx-note','No motor driver readings recorded: this printer\'s drivers do not report them.'));return;}
+   const seen=ms.filter(m=>(m.samples||0)>0||(m.flag_events||0)>0);if(!seen.length){if(!currents())motors.append(el('p','nx-note','No motor driver readings recorded yet: they appear once the printer has moved with its drivers reporting.'));return;}
    for(const m of seen){const flags=m.flag_events||0,drift=Number(m.drift),tone=flags?'alarm':Math.abs(drift)>=4?'warn':'ok';
     const word=flags?`${flags} warning${flags===1?'':'s'}${m.flags_seen?.length?': '+m.flags_seen.join(', '):''}`:Math.abs(drift)>=4?`working ${drift>0?'harder':'less'} than before`:'steady';
     motors.append(card((m.label||m.motor||'').toUpperCase(),Number.isFinite(m.last?.cs_actual)?`${m.last.cs_actual} / 31`:'—',word,tone,`Current scaling ${m.min_cs_actual??'—'} to ${m.max_cs_actual??'—'} over ${m.samples} readings${Number.isFinite(drift)?`, ${drift>=0?'+':''}${drift} since the first`:''}.`,[m.first?.cs_actual,m.min_cs_actual,m.max_cs_actual,m.last?.cs_actual].filter(Number.isFinite),{lo:0,hi:31}));}

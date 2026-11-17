@@ -146,7 +146,7 @@ fn hud_assets_carry_the_wo10_live_review_fixes() {
         "the bigger red Z readout is missing"
     );
 }
-/// our second look at the build. The two that cost him a print to find are the
+/// The owner: 's second look at the build. The two that cost him a print to find are the
 /// homing excursion and the jank, and both live on the live path in service.js rather than in the
 /// scene: a pose the machine cannot be in must never reach the jitter buffer, because interpolating
 /// through it manufactures poses that are inside the machine, and the guard must be told the
@@ -313,7 +313,7 @@ fn hud_assets_carry_the_wo16_files_row_without_a_thumbnail() {
     );
 }
 
-/// our first look at the ..16 toolhead. One marker per item, asserted
+/// The owner: 's first look at the ..16 toolhead. One marker per item, asserted
 /// on the served bytes because a HUD change is only real once it is in the binary. Item 1 (the
 /// Rapid Burner's back half) came later and has its own test below.
 #[test]
@@ -349,7 +349,7 @@ fn hud_assets_carry_the_wo17_toolhead_fixes() {
             "label:[r.x,-r.y,d.x,-d.y,",
             "item 5: cube labels are not mapped onto their own faces",
         ),
-        // our answer on 2026-09-23 ("the tall tower points up") overrode item 7's orientation: the
+        // the owner's answer on 2026-09-23 ("the tall tower points up") overrode item 7's orientation: the
         // carrier stands tower up and the board turns over with it, so these two markers follow him.
         (
             "ops:[rx(-Math.PI/2)],at:[127.34,181.15,128.76]",
@@ -439,7 +439,7 @@ fn hud_assets_carry_the_wo17_item1_carriage() {
     }
 }
 
-/// second pass . The Rapid Burner's own hotend mount, downloaded on our
+/// second pass . The Rapid Burner's own hotend mount, downloaded on the owner's
 /// go, closes the chain from the X block to the cowl: the mount's two halves on the carriage, the V6
 /// seated in their bore, the cowl on the clamp's inserts with everything measured off it, and the
 /// extruder mount, Sherpa, carrier and board on top. Served bytes.
@@ -488,7 +488,7 @@ fn hud_assets_carry_the_wo17_item1_hotend_mount_chain() {
             "move:shift([0,0,4.00],SHERPA_MOVE)",
             "the Sherpa's box is not corrected for the plate it leaves out",
         ),
-        // Since our answer the carrier and board are placed tower up, absolutely, rather
+        // Since the owner's answer the carrier and board are placed tower up, absolutely, rather
         // than carried by SHERPA_MOVE; the carrier's upper hole pair still lands on the Sherpa screws.
         (
             "at:[127.34,181.15,128.76],note:",
@@ -535,7 +535,7 @@ fn hud_assets_carry_the_wo17_item1_hotend_mount_chain() {
     }
 }
 
-/// our part cards: one part-to-signal map read by every card, no card for a
+/// The owner: 's part cards: one part-to-signal map read by every card, no card for a
 /// part with nothing wired, the bed's newest recorded mesh, and a readout grid with no background
 /// left to show through as an empty card. Served bytes; the map itself is unit-tested in
 /// scripts/service-core-tests.mjs.
@@ -650,7 +650,7 @@ fn hud_assets_carry_the_wo19_hud_alive() {
         (&hud, "act('MOTORS OFF',()=>send('motors_off')", "item 3: no MOTORS OFF on the toolbar"),
         (&hud, "act('PREHEAT',()=>openPreheat()", "item 3: no PREHEAT on the toolbar"),
         // removed the HUD's own preheat table: the menu reads the one preset store,
-        // whose seed is our profiles (operator::tests). This marker pinned the table until then.
+        // whose seed is the owner's profiles (operator::tests). This marker pinned the table until then.
         (&hud, "const menu=preheatMenu(PRESETS);", "item 3: the preheat menu does not read the preset store"),
         (&hud, "act('Macros',()=>openMacros()", "item 3: no Macros on the toolbar"),
         (&hud, "const mine=data.macros.filter(m=>m.macro===true)", "item 3: the macro list is not the gcode_macro sections"),
@@ -730,7 +730,7 @@ fn hud_dialogs_and_service_pages_carry_wo19_tooltips() {
     );
 }
 
-/// revision and nozzle datum , our two answers. "The tall tower points
+/// revision and nozzle datum , the owner's two answers. "The tall tower points
 /// up on my printer; that's where the umbilical goes": the carrier stands tower up and the loom
 /// starts on the tower's top face. "About 2.5 mm from the bottom of the cowl to the nozzle tip": the
 /// tip is placed from that hand measurement, and stays the Z datum. Served bytes.
@@ -761,7 +761,7 @@ fn hud_assets_carry_kens_tower_up_carrier_and_nozzle_datum() {
         ),
         (
             "const NOZZLE_BELOW_COWL_MM=2.5;",
-            "our 2.5 mm is not one named constant",
+            "the owner's 2.5 mm is not one named constant",
         ),
         (
             "(cowl.geometry.boundingBox.min.z-NOZZLE_BELOW_COWL_MM)",

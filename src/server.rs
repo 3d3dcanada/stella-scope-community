@@ -166,7 +166,7 @@ struct UploadGate {
     /// the farm key only when the owner allowed it.
     upload_keys: Vec<String>,
 }
-/// A sliced file can be tens of megabytes (a 52 MB one is in our folders); this is the ceiling.
+/// A sliced file can be tens of megabytes (a 52 MB one is in the owner's folders); this is the ceiling.
 const QUEUE_UPLOAD_MAX: usize = 300 * 1024 * 1024;
 /// The largest published 3D model is 80 MB packed.
 const MODEL_UPLOAD_MAX: usize = 400 * 1024 * 1024;
@@ -561,7 +561,7 @@ fn pairing_routes(
         return None;
     }
     // Desktop side: a POST must come from the desktop page itself.
-    let own = format!("http://{}:{}", cfg.bind, cfg.port);
+    let own = format!("http://{}", cfg.host()); // cfg.host() brackets an IPv6 loopback
     if request.method == "POST" && request.headers.get("origin") != Some(&own) {
         return Some((
             Response::json(
@@ -601,6 +601,14 @@ fn pairing_routes(
     ))
 }
 
+/// A request from Stella Scope's own page: browser engines (WebKitGTK in the desktop window, WebView2, Android WebView, any current
+/// browser) mark a page's own requests `Sec-Fetch-Site: same-origin`. A script or another program does not send it.
+pub fn own_page(headers: &std::collections::BTreeMap<String, String>) -> bool {
+    headers
+        .get("sec-fetch-site")
+        .is_some_and(|s| s == "same-origin")
+}
+
 fn desktop_host(request: &HttpRequest, cfg: &Config) -> bool {
     request.headers.get("host") == Some(&cfg.host())
 }
@@ -627,7 +635,8 @@ fn farm_route(request: &HttpRequest, farm: &Arc<Farm>, path: &str, lan: bool) ->
                 row["spool"] = spool;
             }
         }
-        if lan {
+        // the owner 2026-11-14: the farm token goes only to Stella Scope's own page (same-origin), never over the phone link
+        if lan || !own_page(&request.headers) {
             v["token"] = serde_json::Value::Null;
             v["writable"] = json!(false);
         }
@@ -822,45 +831,12 @@ fn farm_route(request: &HttpRequest, farm: &Arc<Farm>, path: &str, lan: bool) ->
         // The demo farm, added and removed in one press. Only demo printers are touched.
         // the press also fetches the demo's open models, one press and no second button, when the page says the licences
         // were shown (`accept_licence`, as for every fetch). Only the demo printers' models are asked for.
-        ("POST", Some("demo-farm")) => {
-            let accepted = serde_json::from_slice::<serde_json::Value>(&request.body)
-                .is_ok_and(|b| b["accept_licence"] == true);
-            match farm.add_demo_farm() {
-                Ok(mut v) => {
-                    if accepted {
-                        let lib = farm.library();
-                        let want: Vec<(String, Option<serde_json::Value>)> = farm
-                            .list()
-                            .iter()
-                            .filter(|p| p.entry.driver == "demo")
-                            .filter_map(|p| {
-                                p.entry
-                                    .cad_model
-                                    .clone()
-                                    .map(|m| (m, p.entry.cad_options.clone()))
-                            })
-                            .collect();
-                        let open = crate::printer_models::fetch_selection(
-                            &crate::printer_models::wanted(&want, &lib),
-                            &[],
-                        );
-                        v["fetch"] = if open.is_empty() {
-                            crate::printer_models::fetch_status(&lib)
-                        } else {
-                            crate::printer_models::start_fetch(
-                                &lib,
-                                &open,
-                                crate::printer_models::Source::Published,
-                                true,
-                            )
-                            .unwrap_or_else(|e| json!({"state":"error","error":e}))
-                        };
-                    }
-                    Some(Response::json(200, v))
-                }
-                Err(e) => fail(400, &e),
-            }
-        }
+        // (the owner: "you can just click on the UI to download what you want for a model"): the demo farm adds its printers
+        // and fetches nothing; each tile offers its own model, downloaded only on that press.
+        ("POST", Some("demo-farm")) => match farm.add_demo_farm() {
+            Ok(v) => Some(Response::json(200, v)),
+            Err(e) => fail(400, &e),
+        },
         ("DELETE", Some("demo-farm")) => match farm.remove_demo_farm() {
             Ok(v) => Some(Response::json(200, v)),
             Err(e) => fail(400, &e),
@@ -1840,8 +1816,141 @@ fn phone_access_route(
     }
 }
 
+/// How long a heater may stay on with no print before both are turned off (the owner 2026-11-14: changeable, an hour at most). GET reads it;
+/// POST {"minutes":N} from the Stella Scope window, with the farm token, changes it for every printer at once.
+fn heater_idle_route(
+    request: &HttpRequest,
+    farm: &Arc<Farm>,
+    path: &str,
+    lan: bool,
+) -> Option<Response> {
+    if path != "/api/farm/heater-idle" {
+        return None;
+    }
+    let fail = |code: u16, e: &str| Some(Response::json(code, json!({"error":e})));
+    let answer = |m: u32| {
+        Some(Response::json(
+            200,
+            json!({"minutes":m,"min":farm::IDLE_MIN,"max":farm::IDLE_MAX}),
+        ))
+    };
+    if request.method == "GET" {
+        return answer(farm.idle_off_min());
+    }
+    if request.method != "POST" {
+        return fail(405, "use GET or POST /api/farm/heater-idle");
+    }
+    if lan {
+        return fail(
+            403,
+            "this time is changed in the Stella Scope window on the computer",
+        );
+    }
+    if request.headers.get("origin") != Some(&format!("http://{}", farm.base.host())) {
+        return fail(
+            403,
+            "Origin does not match the configured loopback listener",
+        );
+    }
+    let valid = match (
+        farm.token.as_ref(),
+        request.headers.get("x-stella-control-token"),
+    ) {
+        (Some(e), Some(g)) => {
+            e.len() == g.len() && e.bytes().zip(g.bytes()).fold(0_u8, |d, (a, b)| d | (a ^ b)) == 0
+        }
+        _ => false,
+    };
+    if !valid {
+        return fail(401, "missing or invalid Stella control token");
+    }
+    let minutes = serde_json::from_slice::<serde_json::Value>(&request.body)
+        .ok()
+        .and_then(|v| v["minutes"].as_u64());
+    match minutes
+        .ok_or_else(|| "send the minutes as a whole number".to_owned())
+        .and_then(|m| farm.set_idle_off_min(m))
+    {
+        Ok(m) => answer(m),
+        Err(e) => fail(400, &e),
+    }
+}
+
 /// `POST /api/feedback`: what the person typed on the Feedback page, sent to 3D3D (feedback.rs). The desktop window only, with its Origin
 /// and the farm's control token, like every other thing that leaves the computer on a press.
+/// The first-run walkthrough (web/next-tour.js): which pages' walkthrough this installation has shown, kept beside the settings so it is shown
+/// once per installation and not once per browser (the owner 2026-11-14). GET reads it; POST {"seen":"farm"|"printer"} from Stella Scope's own page adds
+/// one. It is a flag and nothing else: no token is asked for, and the only words that can be written are the two page names.
+fn tour_route(request: &HttpRequest, farm: &Arc<Farm>, path: &str) -> Option<Response> {
+    if path != "/api/tour" {
+        return None;
+    }
+    let file = farm.config_dir().join("tour-seen");
+    let mut seen = tour_seen(&std::fs::read_to_string(&file).unwrap_or_default());
+    match request.method.as_str() {
+        "GET" => {}
+        "POST" => {
+            if request.headers.get("origin") != Some(&format!("http://{}", farm.base.host())) {
+                return Some(Response::json(
+                    403,
+                    json!({"error":"Origin does not match the configured loopback listener"}),
+                ));
+            }
+            let page = serde_json::from_slice::<serde_json::Value>(&request.body)
+                .ok()
+                .and_then(|v| v["seen"].as_str().map(str::to_owned))
+                .unwrap_or_default();
+            if !TOUR_PAGES.contains(&page.as_str()) {
+                return Some(Response::json(
+                    400,
+                    json!({"error":"seen must be farm or printer"}),
+                ));
+            }
+            // a saved recording being replayed is read-only: nothing is written beside it
+            if !seen.contains(&page) && farm.mode != "replay" {
+                seen.push(page);
+                if let Err(e) = std::fs::write(&file, format!("{}\n", seen.join("\n"))) {
+                    eprintln!(
+                        "the walkthrough could not be remembered in {}: {e}",
+                        file.display()
+                    );
+                }
+            }
+        }
+        _ => {
+            return Some(Response::json(
+                405,
+                json!({"error":"use GET or POST /api/tour"}),
+            ))
+        }
+    }
+    Some(Response::json(200, json!({"seen":seen})))
+}
+
+const TOUR_PAGES: [&str; 2] = ["farm", "printer"];
+
+/// The page names in a `tour-seen` file: one a line, anything else in it ignored, each name once.
+fn tour_seen(text: &str) -> Vec<String> {
+    TOUR_PAGES
+        .iter()
+        .filter(|p| text.lines().any(|l| l.trim() == **p))
+        .map(|p| (*p).to_owned())
+        .collect()
+}
+
+#[cfg(test)]
+mod tour_tests {
+    #[test]
+    fn the_walkthrough_file_holds_only_the_two_page_names_each_once() {
+        assert_eq!(super::tour_seen(""), Vec::<String>::new());
+        assert_eq!(
+            super::tour_seen("printer\nfarm\nfarm\n../../etc/passwd\n<script>\n"),
+            vec!["farm", "printer"]
+        );
+        assert_eq!(super::tour_seen(" farm \r\n"), vec!["farm"]);
+    }
+}
+
 fn feedback_route(
     request: &HttpRequest,
     farm: &Arc<Farm>,
@@ -2100,6 +2209,24 @@ fn connection(mut stream: TcpStream, farm: &Arc<Farm>, lan: bool) {
                 .unwrap_or(&request.target)
                 .to_owned();
             let path = full_path.as_str();
+            // a hostile web page in the owner's browser can make blind GETs here (an <img> pointed at
+            // a big print file, again and again). Browsers say where a request comes from; any data request from another site is refused.
+            if path.starts_with("/api/")
+                && request
+                    .headers
+                    .get("sec-fetch-site")
+                    .is_some_and(|s| s != "same-origin" && s != "none")
+            {
+                let _ = send(
+                    &mut stream,
+                    Response::json(
+                        403,
+                        json!({"error":"requests from other web sites are refused"}),
+                    ),
+                    "GET",
+                );
+                return;
+            }
             if lan {
                 if let Some(r) = lan_gate(&mut request, cfg, path, &mut peer) {
                     if let Err(e) = send(&mut stream, r, "GET") {
@@ -2134,6 +2261,18 @@ fn connection(mut stream: TcpStream, farm: &Arc<Farm>, lan: bool) {
             }
             if let Some(r) = licence_route(&request, farm, path, lan) {
                 if let Err(e) = send(&mut stream, r, "GET, POST, DELETE") {
+                    eprintln!("HTTP response was interrupted: {e}");
+                }
+                return;
+            }
+            if let Some(r) = heater_idle_route(&request, farm, path, lan) {
+                if let Err(e) = send(&mut stream, r, "GET, POST") {
+                    eprintln!("HTTP response was interrupted: {e}");
+                }
+                return;
+            }
+            if let Some(r) = tour_route(&request, farm, path) {
+                if let Err(e) = send(&mut stream, r, "GET, POST") {
                     eprintln!("HTTP response was interrupted: {e}");
                 }
                 return;
@@ -2264,7 +2403,11 @@ fn connection(mut stream: TcpStream, farm: &Arc<Farm>, lan: bool) {
             } else {
                 match Store::open(&cfg.database, true) {
                     Err(e) => Response::json(500, json!({"error":e})),
-                    Ok(db) => match printer.state.lock() {
+                    Ok(db) => match printer
+                        .state
+                        .lock()
+                        .or_else(|e| Ok::<_, ()>(e.into_inner()))
+                    {
                         Ok(status) => {
                             let snapshot = status.clone();
                             drop(status);

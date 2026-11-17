@@ -29,11 +29,18 @@ const tipBox=()=>$('nx-tip');let tipTimer=0,tipFor=null;
 export function tip(node,title,does='',why=''){node.dataset.tipTitle=title;node.dataset.tipDoes=does;if(why)node.dataset.tipWhy=why;else delete node.dataset.tipWhy;
  if(!node.getAttribute('aria-label'))node.setAttribute('aria-label',title);return node;}
 export function setWhy(node,why){if(why)node.dataset.tipWhy=why;else delete node.dataset.tipWhy;if(tipFor===node)showTip(node);}
+// the page may be zoomed (CSS zoom on <html>: the film's 2560 recorder sets 4/3). Rects come in window pixels, but
+// `left`/`top` of a fixed box are read in the page's own pixels and multiplied by the zoom, so a list placed by window pixels opened a third
+// further out: past the right edge from the bell, below the window from the status lane. Everything placed here is placed in window pixels / zoom.
+const zoomOf=()=>parseFloat(getComputedStyle(document.documentElement).zoom)||1;
+// Where a list opens over its anchor `r` (window pixels; `p` the list's size in window pixels, `W`x`H` the window, `z` the page zoom): above it, or
+// below when there is no room, inside the window; the answer is in the page's own pixels, for style.left/top.
+export function popPlace({r,p,W,H,z=1}){let x=r.left+r.width/2-p.width/2,y=r.top-p.height-10;x=Math.max(8,Math.min(W-p.width-8,x));if(y<8)y=Math.min(H-p.height-8,r.bottom+10);return {left:x/z,top:Math.max(8,y)/z};}
 function showTip(node){const box=tipBox();if(!box||!node.dataset.tipTitle)return;box.replaceChildren(el('b','',node.dataset.tipTitle));
  if(node.dataset.tipDoes)box.append(el('span','',node.dataset.tipDoes));if(node.dataset.tipWhy)box.append(el('em','',node.dataset.tipWhy));
  box.className='nx-tip nx-glass nx-glass--raised';box.hidden=false;const r=node.getBoundingClientRect(),b=box.getBoundingClientRect();
  let x=r.left+r.width/2-b.width/2,y=r.top-b.height-10;if(y<8)y=r.bottom+10;x=Math.max(8,Math.min(innerWidth-b.width-8,x));
- box.style.left=x+'px';box.style.top=y+'px';tipFor=node;}
+ const z=zoomOf();box.style.left=x/z+'px';box.style.top=y/z+'px';tipFor=node;}
 export function hideTip(){clearTimeout(tipTimer);const b=tipBox();if(b)b.hidden=true;tipFor=null;}
 export function initTips(){
  // A pressed control keeps quiet until the pointer leaves it: opening a sheet re-fires pointerover
@@ -58,8 +65,8 @@ export function initTips(){
 // The line that says what a held key does: above the key from the first touch, and "not sent" if the hand lets go early.
 let holdTimer=0;
 export function holdLine(near,text,tone='',ms=0){clearTimeout(holdTimer);let h=document.getElementById('nx-holdline');if(!h){h=el('div','nx-holdline nx-glass');h.id='nx-holdline';h.setAttribute('role','status');document.body.append(h);}
- h.textContent=text;h.dataset.tone=tone;h.hidden=false;const r=near.getBoundingClientRect(),w=h.offsetWidth,hh=h.offsetHeight;
- h.style.left=Math.max(8,Math.min(innerWidth-w-8,r.left+r.width/2-w/2))+'px';h.style.top=Math.max(8,r.top-hh-12)+'px';if(ms)holdTimer=setTimeout(()=>{h.hidden=true;},ms);}
+ h.textContent=text;h.dataset.tone=tone;h.hidden=false;const r=near.getBoundingClientRect(),z=zoomOf(),w=h.offsetWidth*z,hh=h.offsetHeight*z;
+ h.style.left=Math.max(8,Math.min(innerWidth-w-8,r.left+r.width/2-w/2))/z+'px';h.style.top=Math.max(8,r.top-hh-12)/z+'px';if(ms)holdTimer=setTimeout(()=>{h.hidden=true;},ms);}
 export function holdLineOff(){clearTimeout(holdTimer);const h=document.getElementById('nx-holdline');if(h)h.hidden=true;}
 export function button({icon:ico,label='',kind='default',size='row',cmd=null,onPress,hold=false,attention=false,title,does='',sub=null}={}){
  const b=el('button','nx-btn');b.type='button';b.dataset.kind=kind;b.dataset.size=size;if(cmd)b.dataset.cmd=cmd;if(attention)b.dataset.attention='';
@@ -132,7 +139,7 @@ export function dial({label,icon:ico,unit='',min=0,max=100,kind='thermal',heatKi
  return {el:root,set};}
 
 // ---------- fan ring ----------
-// Fan ring (2026-09-24: "you should be able to change the speed on the fly"). With onSet the
+// Fan ring (the owner 2026-09-24: "you should be able to change the speed on the fly"). With onSet the
 // ring is a control: drag round it (top is 0, clockwise to 100 %), it snaps to 5 % and sends on
 // release; a tap opens its panel. Without onSet (automatic fans) a tap opens the panel only.
 export function fanRing({label,onOpen,onSet=null,title=null,does=null}={}){
@@ -170,7 +177,7 @@ export function renderDock(host,slots,{press,message}={}){
 // ---------- 6.4 sheet ----------
 let sheetClose=null;
 // A dock button that opened a sheet, pop-up or radial carries data-showing while it is open, so a
-// second press on it closes the thing instead of opening it again .
+// second press on it closes the thing instead of opening it again (the owner 2026-09-24).
 export function markOpener(btn){clearOpener();btn?.setAttribute('data-showing','');}
 export function clearOpener(){for(const b of document.querySelectorAll('[data-showing]'))b.removeAttribute('data-showing');}
 // Keyboard users: a panel or dialog takes focus when it opens, a modal one keeps Tab inside, and focus goes
@@ -184,7 +191,7 @@ function takeFocus(host,{trap=false}={}){
  host.addEventListener('keydown',key);
  const release=()=>host.removeEventListener('keydown',key);
  return {release,restore(){release();if(opener&&opener!==document.body&&opener.isConnected&&(host.contains(document.activeElement)||document.activeElement===document.body||document.activeElement===host))try{opener.focus({preventScroll:true});}catch{}}};}
-// ---------- (2026-10-20: "nothing pops up"): a sheet or a dialog grows out of the key or tile that opened it and folds back into it ----------
+// ---------- (2026-10-20, the owner: "nothing pops up"): a sheet or a dialog grows out of the key or tile that opened it and folds back into it ----------
 // The spring is the kit's own (next-control.css --nxctl-spring). What a panel grows out of is what was pressed last (recorded when the press began, so it is still known
 // when the press closed the menu that held it). A panel opened from inside another one grows out of the pressed item but folds back into the key that opened the first.
 const SPRING='cubic-bezier(.34,1.56,.64,1)',FOLD='cubic-bezier(.5,-.18,.2,1)';
@@ -218,12 +225,12 @@ const SHEET_SIZE={'Heat':'compact','Look':'compact','Calibrate':'wide','Material
  'Levelling':'wide','Things to print':'wide','Signals':'wide','Parts':'wide','Timeline':'wide','Assembly':'wide','Motion & motors':'wide','Electronics':'wide'};
 export function openSheet({title,icon:ico='i-more',build,onClose,wide=false,eyebrow=''}){
  const host=$('nx-sheet');const wasFocus=document.activeElement;const open=openedBy();closeSheet(true);host.className='nx-sheet nx-glass nx-glass--raised'+(wide?' nx-sheet--wide':'');host.hidden=false;host._home=open.home;host.replaceChildren();
- // 2026-10-25: "these should be responsive to the size of what they're needed for". A panel's width follows what it holds: a short list is narrow,
+ // the owner 2026-10-25: "these should be responsive to the size of what they're needed for". A panel's width follows what it holds: a short list is narrow,
  // a page of figures is regular, a map or a grid of files is wide. Its height follows its content (next-pro.css).
  host.dataset.size=SHEET_SIZE[title]||'regular';
  const grip=el('div','nx-sheet-grip');grip.append(el('i'));
  const head=el('div','nx-sheet-head');const x=()=>button({icon:'i-close',size:'icon',kind:'ghost',title:'Close',does:'Closes this panel.',onPress:()=>closeSheet()});const tt=el('div','nx-sheet-title',title);
- // 2026-09-25: panels drag, resize, pin. Drag the header to float it anywhere (the corner
+ // the owner 2026-09-25: panels drag, resize, pin. Drag the header to float it anywhere (the corner
  // resizes it); Dock puts it back on the right; Pin keeps it on screen while other panels open.
  const tools=el('div','nx-sheet-tools');tools.append(button({icon:'i-dock-right',size:'icon',kind:'ghost',title:'Dock to the side',does:'Puts this panel back on the right edge.',onPress:()=>{panelDock(host,title);}}),
   button({icon:'i-pin',size:'icon',kind:'ghost',title:'Pin',does:'Keeps this panel on screen while you open others. Drag it by its header, resize it from the corner.',onPress:()=>pinSheet(host,title)}));
@@ -271,7 +278,7 @@ export function closeSheet(instant=false){const host=$('nx-sheet');if(!host||hos
 export function section(title,...children){const s=el('section','nx-section');if(title)s.append(el('h3','',title));s.append(...children);return s;}
 
 // ---------- 6.5 radial: the wheel ----------
-// 2026-10-24: "I asked for radial menus in the beginning ... each one of these buttons could be radial menus. Think Skyrim." Every key's choices
+// the owner 2026-10-24: "I asked for radial menus in the beginning ... each one of these buttons could be radial menus. Think Skyrim." Every key's choices
 // open as a weapon wheel over the machine: the choices round a ring, the one under the pointer lit, its name and what it does in the hub, and the
 // key's own figures (where the head is, the gantry, the temperatures) in the hub when nothing is lit. Solid surfaces only: the desktop window's
 // WebKit draws no backdrop blur, so nothing here is see-through. Up to eight round the ring; a longer list pages round it (MORE, or the mouse wheel).
@@ -303,7 +310,7 @@ export function openRadial(items,{x,y,from=null,onPick,title='',center=null}={})
   const n=list.length,step=2*Math.PI/n,gap=Math.min(.035,step*.08);
   list.forEach((it,i)=>{const a0=-Math.PI/2-step/2+i*step+gap,a1=a0+step-2*gap,mid=(a0+a1)/2;
    const path=sv('path',{d:arc(a0,a1,R,r),class:'nx-wheel-seg'});path.dataset.i=i;if(it.tone)path.dataset.tone=it.tone;if(it.empty)path.dataset.empty='';svg.append(path);
-   // 2026-10-25 ("the radial menu is not animated as well as it could be"): a lit choice lifts out along its own line from the middle
+   // the owner 2026-10-25 ("the radial menu is not animated as well as it could be"): a lit choice lifts out along its own line from the middle
    const ox=(6*Math.cos(mid)).toFixed(1),oy=(6*Math.sin(mid)).toFixed(1);path.style.setProperty('--dx',ox+'px');path.style.setProperty('--dy',oy+'px');
    if(!calm())path.animate([{opacity:0,transform:'scale(.55) rotate(-14deg)'},{opacity:1,transform:'scale(1) rotate(0deg)'}],{duration:320,delay:30+i*28,easing:'cubic-bezier(.2,.9,.25,1.15)',fill:'backwards'});
    if(it.empty)return;
@@ -345,9 +352,9 @@ export function openRadial(items,{x,y,from=null,onPick,title='',center=null}={})
  return {close,start:()=>{tracking=true;},release:e=>{if(!tracking)return;tracking=false;const z=at(e);if(z.zone==='ring'&&!list[z.i]?.hold)pick(z.i);},get btns(){return btns();}};}
 
 // ---------- 6.9 toast ----------
-// (2026-10-20: every message grows from where it belongs and settles back): a toast grows out of what it is about (`opts.from`: a tile, a key or a rectangle) or,
+// (2026-10-20, the owner: every message grows from where it belongs and settles back): a toast grows out of what it is about (`opts.from`: a tile, a key or a rectangle) or,
 // when the page does not say, out of the key that was just pressed, and folds back into it when it goes. With neither (a message nobody asked for) it grows from its own place.
-// 2026-10-24: notifications never sit over the machine. On a computer they slide into the bottom deck's lane; every one is kept for the bell (notices).
+// the owner 2026-10-24: notifications never sit over the machine. On a computer they slide into the bottom deck's lane; every one is kept for the bell (notices).
 export const notices=[];let noticeHook=null;export function onNotice(f){noticeHook=f;}
 export function toast(text,tone='info',opts={}){if(text){notices.push({text:String(text),tone,at:Date.now()});if(notices.length>60)notices.shift();noticeHook?.();}
  const lane=document.body.dataset.layout!=='phone'?$('nx-lane-toasts'):null,host=lane||$('nx-toasts');if(!host||!text)return;const t=el('div','nx-toast nx-glass nx-glass--raised');t.dataset.tone=tone;
@@ -376,7 +383,7 @@ export function numberField({label,unit='',prefix='',min=0,max=100,step=1,value=
 /** An LED figure: the value lit over a ghost of unlit digits (the panel language of the farm wall's counts); `unit` is a small word after it. */
 export function led(value,unit='',cls=''){const b=el('b','nx-fig'+(cls?' '+cls:'')),n=el('i','nx-fig-n',String(value));n.dataset.ghost='8'.repeat(Math.max(2,String(value).length));b.append(n);if(unit)b.append(el('small','',unit));return b;}
 
-// ---------- instrument gauge (NEXT review 2026-09-24: "the gauges look half done; speed and
+// ---------- instrument gauge (NEXT review 2026-09-24, the owner: "the gauges look half done; speed and
 // flow definitely belong in a round gauge") ----------
 // A real instrument: machined bezel, numbered scale over a 240° sweep, value band, red zone, a
 // tapered needle on a hub, digital readout under the hub, glass sheen. The needle rotates with a
@@ -458,8 +465,7 @@ export function openPopover(anchor,items,{onPick,title}={}){
  closePopover();hideTip();const pop=el('div','nx-pop nx-glass nx-glass--raised');pop.setAttribute('role','menu');if(title)pop.append(el('div','nx-pop-title',title));
  for(const it of items){const b=button({icon:it.icon,label:it.label,size:'row',kind:it.danger?'danger':'default',cmd:it.cmd,hold:it.hold,title:it.label,does:it.does||'',onPress:()=>{closePopover();onPick(it);}});b.setAttribute('role','menuitem');pop.append(b);}
  document.body.append(pop);const r=anchor.getBoundingClientRect(),p=pop.getBoundingClientRect();
- let x=r.left+r.width/2-p.width/2,y=r.top-p.height-10;x=Math.max(8,Math.min(innerWidth-p.width-8,x));if(y<8)y=Math.min(innerHeight-p.height-8,r.bottom+10);
- pop.style.left=x+'px';pop.style.top=y+'px';
+ const at=popPlace({r,p,W:innerWidth,H:innerHeight,z:zoomOf()});pop.style.left=at.left+'px';pop.style.top=at.top+'px';
  const away=e=>{if(!pop.contains(e.target)&&!anchor.contains(e.target))closePopover();},esc=e=>{if(e.key==='Escape')closePopover();};
  setTimeout(()=>{document.addEventListener('pointerdown',away,true);document.addEventListener('keydown',esc);},0);
  popClose=()=>{clearOpener();document.removeEventListener('pointerdown',away,true);document.removeEventListener('keydown',esc);pop.remove();popClose=null;};
@@ -469,7 +475,7 @@ export function closePopover(){popClose?.();}
 // ---------- G-code command bar ----------
 // Always in the top bar. Type G-code or search: Klipper's own commands (with their help), your
 // macros, your history and the app's actions, filtered as you type; arrows to move, Enter to run.
-// free text is never sent from here (next-core.js paletteItems); typed G-code
+// (the owner 2026-10-18): free text is never sent from here (next-core.js paletteItems); typed G-code
 // goes through the Console (`openConsole`). A command the printer lists, with its arguments, still runs.
 export function commandBar({host,source,run,locked,openConsole,hasConsole}){
  const wrap=el('div','nx-cmd'),box=el('label','nx-cmd-box'),input=el('input','nx-cmd-input'),kbd=el('kbd','','/');
@@ -551,14 +557,14 @@ const knob=style==='knob',root=el('div',(knob?'nxk':'nxb')+(cls?' '+cls:''));if(
 
 // ---------- stat tile: one reading, big, with its label and a note ----------
 export function stat(label,{value='—',note='',tone=''}={}){const w=el('div','nx-stat'),v=el('div','nx-stat-v'),n=el('div','nx-stat-n');w.append(el('div','nx-stat-l',label),v,n);
- // 2026-10-23: a figure with nothing to show never stands as a bare dash: it is dimmed and says why (its own note, else that nothing came yet).
+ // the owner 2026-10-23: a figure with nothing to show never stands as a bare dash: it is dimmed and says why (its own note, else that nothing came yet).
  const set=(x,{note:t=note,tone:k=tone}={})=>{const empty=x===null||x===undefined||x===''||x==='—';v.textContent=empty?'—':String(x);n.textContent=t||(empty?'nothing reported yet':'');w.toggleAttribute('data-empty',empty);if(k)w.dataset.tone=k;else delete w.dataset.tone;};set(value);return {el:w,set};}
 
 // ---------- modal: a question over whatever is open (the command review) ----------
-// A sheet would replace the page that asked (our filament wizard lost its place), so a review
+// A sheet would replace the page that asked (the owner's filament wizard lost its place), so a review
 // opens on top instead and the page underneath carries on when it closes.
 // anchor: the review opens as a drop-down under that element (the command bar) instead of over the
-// whole screen .
+// whole screen (the owner 2026-09-25).
 export function openModal({title,icon:ico='i-console',build,onClose,anchor=null}){const open=openedBy(),from=anchor?anchor.getBoundingClientRect():open.from;
  const back=el('div','nx-modal'+(anchor?' nx-modal--anchored':'')),card=el('div','nx-modal-card nx-glass nx-glass--raised');card.setAttribute('role','dialog');card.setAttribute('aria-modal','true');card.setAttribute('aria-label',title);card._home=anchor?{el:anchor,rect:from}:open.home;
  const head=el('div','nx-sheet-head'),body=el('div','nx-modal-body');let done=false,focus=null;
@@ -567,15 +573,15 @@ export function openModal({title,icon:ico='i-console',build,onClose,anchor=null}
   back.animate([{opacity:1},{opacity:0}],{duration:300,easing:'ease-in',fill:'forwards'});fold(card,homeRect(card._home),()=>back.remove());};
  const esc=e=>{if(e.key==='Escape'){e.stopPropagation();close();}};document.addEventListener('keydown',esc,true);
  head.append(icon(ico),el('div','nx-sheet-title',title),button({icon:'i-close',size:'icon',kind:'ghost',title:'Close',does:'Closes this without sending anything.',onPress:close}));
- card.append(head,body);back.append(card);if(anchor){const r=anchor.getBoundingClientRect(),w=Math.min(Math.max(r.width,440),innerWidth-24);card.style.width=w+'px';card.style.left=Math.max(12,Math.min(r.left,innerWidth-w-12))+'px';card.style.top=(r.bottom+8)+'px';}
+ card.append(head,body);back.append(card);const z=zoomOf();if(anchor){const r=anchor.getBoundingClientRect(),w=Math.min(Math.max(r.width,440),innerWidth-24);card.style.width=w/z+'px';card.style.left=Math.max(12,Math.min(r.left,innerWidth-w-12))/z+'px';card.style.top=(r.bottom+8)/z+'px';}
  back.addEventListener('pointerdown',e=>{if(e.target===back)close();});document.body.append(back);focus=takeFocus(card,{trap:true});build(body,close);card.querySelector('.nx-btn[data-kind=primary]:not(:disabled)')?.focus({preventScroll:true});
  // it opens over the key it grew from (as near to it as the window allows), not in the middle of the screen, and the dim gathers there
  if(!anchor){const r=card.getBoundingClientRect(),cx=from?from.left+from.width/2:innerWidth/2,cy=from?from.top+from.height/2:innerHeight/2;
-  card.style.width=r.width+'px';card.style.position='fixed';card.style.left=Math.max(12,Math.min(innerWidth-r.width-12,cx-r.width/2))+'px';card.style.top=Math.max(12,Math.min(innerHeight-r.height-12,cy-r.height/2))+'px';
-  back.style.setProperty('--ox',cx+'px');back.style.setProperty('--oy',cy+'px');}
+  card.style.width=r.width/z+'px';card.style.position='fixed';card.style.left=Math.max(12,Math.min(innerWidth-r.width-12,cx-r.width/2))/z+'px';card.style.top=Math.max(12,Math.min(innerHeight-r.height-12,cy-r.height/2))/z+'px';
+  back.style.setProperty('--ox',cx/z+'px');back.style.setProperty('--oy',cy/z+'px');}
  // polish 2026-10-22: a panel placed once at open time slid off the bottom of the window when its content grew (the filament picker's OTHER
  // fields), and its own primary key could not be reached. It moves up as it grows, never above the window's top; past that it scrolls inside.
- const keepIn=()=>{if(done)return ro.disconnect();const h=card.offsetHeight,t=parseFloat(card.style.top);if(isFinite(t)&&t+h>innerHeight-12)card.style.top=Math.max(12,innerHeight-h-12)+'px';};
+ const keepIn=()=>{if(done)return ro.disconnect();const H=innerHeight/z,h=card.offsetHeight,t=parseFloat(card.style.top);if(isFinite(t)&&t+h>H-12)card.style.top=Math.max(12,H-h-12)+'px';};
  const ro=new ResizeObserver(keepIn);ro.observe(card);
  grow(card,from);back.animate([{opacity:0},{opacity:1}],{duration:260,easing:'ease-out'});
  return {close};}
@@ -600,7 +606,7 @@ export function numberInput({label,unit='',prefix='',min=0,max=100,step=1,value=
  row.append(k('i-minus',-1),inp,k('i-plus',1));w.append(row,cap);show();
  w.get=()=>cur;w.set=w.setValue=v=>{cur=clamp(v);show();};return w;}
 
-// an earlier build (2026-10-23: "you should be able to choose what to add, what to take away"): every list that has a
+// an earlier build (the owner 2026-10-23: "you should be able to choose what to add, what to take away"): every list that has a
 // standard one (materials, build sheets, maintenance) offers the standard entries it does not hold, one at a time or all.
 let standardLists=null;
 export async function addFromStandard(anchor,kind,have,onAdd,{noun='entry',detail=()=> ''}={}){
@@ -611,7 +617,7 @@ export async function addFromStandard(anchor,kind,have,onAdd,{noun='entry',detai
   ...missing.map(x=>({icon:'i-plus',label:x.name+(detail(x)?' · '+detail(x):''),entry:x,does:`Adds ${x.name}. You can change it or take it away again.`}))];
  openPopover(anchor,items,{title:`Add from the standard list`,onPick:it=>onAdd(it.all?missing.map(x=>({...x})):[{...it.entry}])});}
 
-// ---------- the Look panel (2026-10-25: "be able to change the colour palette and how everything looks on the fly") ----------
+// ---------- the Look panel (the owner 2026-10-25: "be able to change the colour palette and how everything looks on the fly") ----------
 // The colour, the finish and the dial style, kept on this device (stella-paint) and put on <html> at once; paint.js puts them back before the next page draws.
 export const PAINT={
  accent:[['silver','Silver','#D9DEE3'],['racing-yellow','Racing Yellow','#FFC21A'],['guards-red','Guards Red','#E8323A'],['miami-blue','Miami Blue','#16AEE6'],

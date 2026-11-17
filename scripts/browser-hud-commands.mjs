@@ -36,7 +36,7 @@ try{
  await page.mouse.click(1,1);
  check('outside click leaves no modal open',await page.locator('.hud-modal[open]').count()===0);
 
- // The tuning, History and missing-value checks read the Klipper telemetry of our September recording; a demo has none of it.
+ // The tuning, History and missing-value checks read the Klipper telemetry of the owner's September recording; a demo has none of it.
  if(process.env.HUD_FIXTURE==='replay-2026-09'){
  await page.getByRole('button',{name:'More',exact:true}).click();await page.getByText('Tune',{exact:true}).click();
  const tuning=page.locator('.hud-modal[open]');

@@ -3,12 +3,13 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseGcode } from '../web/hud-gcode.js';
-import { poseFor, blendGroups, printPoint, pathAt, arcOf, atArc, project, byteAt, buildPrint, countAt, colorsOf, DEFAULT_COLORS, HeadFollow } from '../web/model-follow.js';
+import { poseFor, blendGroups, printPoint, pathAt, arcOf, atArc, project, byteAt, buildPrint, countAt, colorsOf, DEFAULT_COLORS, HeadFollow, flexRig, beltWeights, tubeWeights } from '../web/model-follow.js';
 
 let checks = 0;
 const is = (a, b, label) => { checks++; assert.deepEqual(a, b, label); };
 const near = (a, b, label, eps = 1e-6) => { checks++; assert.ok(Math.abs(a - b) <= eps, `${label}: ${a} is not within ${eps} of ${b}`); };
 const json = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), 'utf8'));
+const ok01 = (v, label) => { checks++; assert.ok(v > 0 && v < 1, `${label}: ${v} is not between 0 and 1`); };
 
 // --- the pose: the same numbers as src/demo.rs (tool_changes_in_the_file_move_the_active_tool_and_idle_tools_park) ---
 {
@@ -274,7 +275,7 @@ is(colorsOf('G1 X1\n'), DEFAULT_COLORS, 'no line, the brand colours');
  g.report({ position: [100, 50, 0.2], source: 'file', byte: at(3), state: 'printing', ageS: 0 }, 0);
  is(g.arc, null, 'a position far from its move is not used');
  is(g.frame(10).along, true, 'and the file is still followed by byte');
- // 2026-10-25 (CORE One L): a printer that reports its Z but not X and Y (PrusaLink printing) keeps its own Z: at the start it is heating
+ // the owner 2026-10-25 (CORE One L): a printer that reports its Z but not X and Y (PrusaLink printing) keeps its own Z: at the start it is heating
  // at Z 150 with the bed down, and the file's first layer would have drawn the bed up at the nozzle.
  const h = new HeadFollow({ parsed });
  h.report({ position: null, z: 150, source: 'file', byte: at(3), state: 'printing', ageS: 0 }, 0);
@@ -282,6 +283,70 @@ is(colorsOf('G1 X1\n'), DEFAULT_COLORS, 'no line, the brand colours');
  const k = new HeadFollow({ parsed });
  k.report({ position: null, source: 'file', byte: at(3), state: 'printing', ageS: 0 }, 0);
  is(k.frame(10).position[2], pathAt(parsed, at(3)).z, 'with no live Z, the file\'s');
+}
+
+// --- 0.6.2 the belts and tubes ride with what moves them, on every kinematics ---
+{
+ const v24 = { head: ['x', 'y', 'z'], x_beam: [0, 'y', 'z'], z_gantry: [0, 0, 'z'], fixed: [0, 0, 0] };
+ is(flexRig(v24), { beam: 'x_beam', carrier: 'z_gantry', along: 1, across: 0 }, 'a flying gantry: the beam runs on CAD Y, the head on CAD X, the plane climbs');
+ is(flexRig({ head: ['x', 'y', 0], gantry: [0, 'y', 0], bed: [0, 0, { z: -1 }] }), { beam: 'gantry', carrier: null, along: 1, across: 0 }, 'a bed that drops: nothing climbs under the belts');
+ is(flexRig({ head: ['x', 'z', { y: -1 }], gantry: [0, 'z', { y: -1 }], z_gantry: [0, 'z', 0] }), { beam: 'gantry', carrier: 'z_gantry', along: 2, across: 0 }, 'the SV08: the frame is Y up, so the beam runs on CAD Z');
+ is(flexRig({ head: ['x', 'z', 0], beam: [0, 'z', 0], bed: [0, 0, 'y'] }), { beam: 'beam', carrier: null, along: 1, across: 0 }, 'a slinger: the beam climbs, the head runs on it');
+ is(flexRig({ head: ['x', 'y', 0] }), null, 'no beam, no belts to ride on it');
+ // The V2.4's frame: display = (CAD x, CAD z, -CAD y). A belt laid out in the display frame, metres: a fixed pulley at the rear, the Y run, the beam's idler, the X run, a clamp in the carriage.
+ const B = [[1, 0, 0], [0, 0, 1], [0, -1, 0]], axes = { x: [-175, 175], y: [-179, 171], z: [-27, 303] };
+ const beamBox = [[-0.255, 0.085, -0.028], [0.255, 0.193, 0.0225]], headBox = [[-0.04, 0.085, -0.023], [0.035, 0.217, 0.076]];
+ const pts = [[-0.234, 0.14, -0.253], [-0.234, 0.14, -0.1], [-0.212, 0.14, 0.01], [-0.1, 0.14, 0.01], [-0.008, 0.14, 0.01], [0.004, 0.14, 0.01], [0.1, 0.14, 0.01], [0.212, 0.14, 0.01], [0.234, 0.14, 0.232]];
+ const pos = new Float32Array(pts.flat());
+ const { wy, wx } = beltWeights(pos, [0, 0, 0], flexRig(v24), { basis: B, axes, motions: v24, beamBox, headBox });
+ near(wy[0], 0, 'the rear pulley is past where the beam can reach');
+ near(wy[8], 0, 'so is the front one');
+ ok01(wy[1], 'the Y run stretches');
+ for (const i of [2, 3, 4, 5, 6, 7]) near(wy[i], 1, 'the X run and the beam\'s idlers ride with the beam');
+ near(wx[2], 0, 'the beam\'s idler is past where the carriage can reach', 1e-6);
+ near(wx[7], 0, 'on both sides', 1e-6);
+ near(wx[4], 1, 'the belt\'s end rides in the carriage'); near(wx[5], 1, 'both ends');
+ ok01(wx[3], 'the X run stretches'); ok01(wx[6], 'on both sides');
+ near(wx[0], 0, 'nothing out of the beam\'s band runs along X');
+ // Where they land: the head at the far end of its travel, the beam at the back, the gantry up. A belt end stays in the carriage, the idler on the beam, the rear pulley with the gantry.
+ const g = { head: [175, 171, 40], x_beam: [0, 171, 40], z_gantry: [0, 0, 40] }, mm = (i, wa, wb) => [0, 1, 2].map((c) => g.z_gantry[c] + wa * (g.x_beam[c] - g.z_gantry[c]) + wb * (g.head[c] - g.x_beam[c]));
+ is(mm(4, wy[4], wx[4]), g.head, 'the end is at the head');
+ is(mm(2, wy[2], wx[2]), g.x_beam, 'the idler is at the beam');
+ is(mm(0, wy[0], wx[0]), g.z_gantry, 'the pulley is at the gantry');
+ // No fold, at either end of the beam's travel: a straight run along Y collapses at most, it never turns over.
+ const line = new Float32Array(Array.from({ length: 97 }, (_, i) => [-0.234, 0.14, -0.25 + i * 0.005]).flat()), l = beltWeights(line, [0, 0, 0], flexRig(v24), { basis: B, axes, motions: v24, beamBox, headBox }).wy;
+ for (const dy of [-179, 171]) { let prev = -Infinity, ok = true; for (let i = 0; i < 97; i++) { const z = line[i * 3 + 2] * 1000 - dy * l[i]; if (z < prev - 1e-3) ok = false; prev = z; } is(ok, true, `no fold with the beam at ${dy}`); }
+ // A belt wholly on the beam (a slinger's X belt): rigid with the beam; its tails follow the head, its far pulleys do not.
+ const sl = { head: ['x', 'z', 0], beam: [0, 'z', 0], bed: [0, 0, 'y'] }, I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+ const b2 = new Float32Array([[-0.2, 0.19, 0.03], [-0.039, 0.18, 0.03], [0.021, 0.18, 0.03], [0.2, 0.19, 0.03]].flat());
+ const w2 = beltWeights(b2, [0, 0, 0], flexRig(sl), { basis: I, axes: { x: [-116, 104], y: [-110, 110], z: [-53, 190] }, motions: sl, beamBox: [[-0.213, 0.141, -0.071], [0.207, 0.254, 0.061]], headBox: [[-0.042, 0.155, 0.023], [0.031, 0.221, 0.095]] });
+ is([...w2.wy], [1, 1, 1, 1], 'all of it climbs with the beam');
+ is([w2.wx[0], w2.wx[1], w2.wx[2], w2.wx[3]], [0, 1, 1, 0], 'the tails ride in the carriage, the return pulleys stay on the beam');
+ // A closed loop with no vertex at the carriage: it has nothing to clamp and stays with the beam.
+ const b3 = new Float32Array([[-0.2, 0.19, 0.03], [0.2, 0.19, 0.03]].flat());
+ is([...beltWeights(b3, [0, 0, 0], flexRig(sl), { basis: I, axes: { x: [-116, 104], y: [-110, 110], z: [-53, 190] }, motions: sl, beamBox: [[-0.213, 0.141, -0.071], [0.207, 0.254, 0.061]], headBox: [[-0.042, 0.155, 0.023], [0.031, 0.221, 0.095]] }).wx], [0, 0], 'a closed loop');
+ // A part's own translation counts (a node may carry one).
+ const b4 = new Float32Array([-0.2, 0.19, 0.03]); near(beltWeights(b4, [0.2, 0, 0], flexRig(sl), { basis: I, axes: { x: [-116, 104], y: [-110, 110], z: [-53, 190] }, motions: sl, beamBox: [[-0.213, 0.141, -0.071], [0.207, 0.254, 0.061]], headBox: [[-0.042, 0.155, 0.023], [0.031, 0.221, 0.095]] }).wx[0], 1, 'at the origin with its translation, the vertex is in the carriage');
+ // A tube: its end at the head follows all the way, its far end not at all, and it never jumps between.
+ const tube = new Float32Array([[0, 0.135, 0.02], [0, 0.2, 0], [0.1, 0.3, -0.1], [0.197, 0.354, -0.21]].flat());
+ const tw = tubeWeights(tube, [0, 0, 0], headBox);
+ near(tw[0], 1, 'the end on the head'); near(tw[3], 0, 'the end on the frame');
+ assert.ok(tw[0] > tw[1] && tw[1] > tw[2] && tw[2] > tw[3], 'it falls away along the tube'); checks++;
+}
+
+// --- 0.6.2 the pace is measured in the printer's time. Two answers that reach a busy page 66 ms apart are 500 ms apart at the printer; the head must not read that as eight times the pace ---
+{
+ const text = 'G90\nG1 X0 Y0 Z0.2 F6000\n;LAYER_CHANGE\n' + Array.from({ length: 400 }, (_, i) => `G1 X${i} Y0 E${i} F6000`).join('\n') + '\n', parsed = parseGcode(text, { maxSegments: 100000 });
+ const byteOf = (x) => { const p = pathAt(parsed, 0); let lo = 0, hi = text.length; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2, a = pathAt(parsed, m); if (a && a.x < x) lo = m; else hi = m; } return Math.ceil(hi); };
+ const h = new HeadFollow({ parsed, spec: null, calibration: null });
+ const rep = (x, ts) => ({ position: [x, 0, 0.2], source: 'file', byte: byteOf(x), state: 'printing', ageS: 0, ts });
+ h.report(rep(100, 1000), 1000); h.report(rep(150, 1000.5), 1500); h.report(rep(200, 1001), 2000);
+ near(h.arcRate, 0.1, 'a steady 100 mm/s, in the printer\'s time', 0.02);
+ h.report(rep(250, 1001.5), 2066);   // a stalled page's answer, 66 ms after the last
+ near(h.arcRate, 0.1, 'an answer that arrives late is not a faster printer', 0.02);
+ const k = new HeadFollow({ parsed });
+ k.report({ ...rep(100), ts: undefined }, 1000); k.report({ ...rep(150), ts: undefined }, 1500);
+ near(k.arcRate, 0.1, 'a report with no moment of its own is measured as it arrives, as before', 0.02);
 }
 
 console.log(`model-follow: ${checks} assertions passed.`);

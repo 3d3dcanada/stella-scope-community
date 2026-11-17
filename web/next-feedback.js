@@ -1,4 +1,4 @@
-// Feedback (2026-10-27: "We're supposed to have feedback in all of our apps anyway, so people can give us feedback"). What the person types
+// Feedback (the owner 2026-10-27: "We're supposed to have feedback in all of our apps anyway, so people can give us feedback"). What the person types
 // goes to 3D3D only when they press Send (feedback.rs): the words, the app's version and system, and, if the box stays ticked, how many
 // printers of which kind. The page says exactly that before anything is sent, and shows the reference 3d3d.ca gives back.
 import {el,button,busy,openSheet,section} from './next-ui.js';

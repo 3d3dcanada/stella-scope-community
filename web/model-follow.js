@@ -240,7 +240,7 @@ const lerp3 = (a, b, u) => [lerp(a[0], b[0], u), lerp(a[1], b[1], u), lerp(a[2],
 
 /** The head of one model. Feed it every report (`report`), ask it for any moment (`frame`). Times are milliseconds
  *  on one clock (performance.now()). A report: {position: [x,y,z]|null, source: 'live'|'file', byte, progress, state,
- *  tool, ageS}. */
+ *  tool, ageS, ts}. `ts` is the printer's own moment for the position (seconds): the pace is measured in its time, not in when the answers happened to reach the page. */
 export class HeadFollow {
  constructor({ spec = null, calibration = null, parsed = null, toolBlendMs = 450 } = {}) {
   this.spec = spec; this.cal = calibration; this.parsed = parsed; this.toolBlendMs = toolBlendMs;
@@ -262,12 +262,13 @@ export class HeadFollow {
   const stamp = now - (num(rep.ageS) ? rep.ageS * 1000 : 0);
   const fresh = this.stamp === null || stamp > this.stamp + 1;
   if (!fresh) return false;
+  const clock = num(rep.ts) ? rep.ts * 1000 : stamp;   // the time the pace is measured in
   const here = this.sample(now); // where the head is now, before the gap between reports is re-measured
   if (this.recv !== null) this.dur = clamp(0.7 * this.dur + 0.3 * (now - this.recv), 120, 2500);
   this.recv = now; this.stamp = stamp;
   if (num(rep.tool) && rep.tool !== this.tool) { this.prevTool = this.tool; this.tool = rep.tool; this.toolAt = this.prevTool === null ? -1e9 : now; }
   this.state = rep.state || ''; this.source = rep.source === 'live' ? 'live' : 'file';
-  // 2026-10-25 (CORE One L): PrusaLink says where Z is even while it hides X and Y. The bed follows that live Z, never the file's:
+  // the owner 2026-10-25 (CORE One L): PrusaLink says where Z is even while it hides X and Y. The bed follows that live Z, never the file's:
   // heating and wiping at Z 150, the file's first layer would have drawn the bed up at the nozzle while the real one went down.
   this.liveZ = num(rep.z) ? rep.z : null;
   if (Array.isArray(rep.position) && rep.position.every(num)) {
@@ -281,21 +282,21 @@ export class HeadFollow {
    // A print always reads byte 0 first (it is heating), so a 0 after a file has been read is a start over as well.
    const back = here.byte !== null && (byte < here.byte - (this.rate * this.dur * 1.5 + 64) || (byte === 0 && here.byte > 0));
    // The pace the file is being read at, from this report and the one before (bytes a millisecond of the printer's own time).
-   const gap = this.last && stamp > this.last.stamp ? stamp - this.last.stamp : 0;
+   const gap = this.last && clock > this.last.clock ? clock - this.last.clock : 0;
    if (back || !gap || byte < this.last.byte) this.rate = 0;
    else this.rate = this.rate ? 0.5 * this.rate + 0.5 * ((byte - this.last.byte) / gap) : (byte - this.last.byte) / gap;
-   this.last = { byte, stamp };
+   this.last = { byte, clock };
    // Glide to where the file will have been read by the next report, so the head runs on at pace rather than waiting
    // at this one; never backwards.
    const from = back || here.byte === null ? byte : here.byte;
    this.bytes = { from, to: Math.max(from, byte + this.rate * this.dur), t0: now };
-   this.trackArc(rep, byte, stamp, here, now);
+   this.trackArc(rep, byte, clock, here, now);
   }
   return true;
  }
 
  /** Put the reported position on the move the byte names; when it lies on it, the head is followed by distance along the path. */
- trackArc(rep, byte, stamp, here, now) {
+ trackArc(rep, byte, clock, here, now) {
   let arc = null;
   if (this.parsed && Array.isArray(rep.position) && rep.position.every(num)) {
    // The byte a printer reports is the end of the line it is in (a demo printer) or a little ahead of the head (Klipper reads
@@ -304,19 +305,19 @@ export class HeadFollow {
    if (at) {
     const n = this.parsed.layers[at.layer].offsets.length;
     let best = null;
-    for (let k = Math.max(0, at.segment - 6); k <= Math.min(n - 1, at.segment + 2); k++) {
-     const pr = project(this.parsed, at.layer, k, rep.position[0], rep.position[1], rep.position[2]);
-     if (!best || pr.dist < best.dist) best = { ...pr, k };
-    }
-    if (best && best.dist < 1) arc = arcOf(this.parsed, at.layer, best.k, best.u);
+    const look = (l, from, to) => { for (let k = Math.max(0, from); k <= to; k++) { const pr = project(this.parsed, l, k, rep.position[0], rep.position[1], rep.position[2]); if (!best || pr.dist < best.dist) best = { ...pr, k, l }; } };
+    look(at.layer, at.segment - 6, Math.min(n - 1, at.segment + 2));
+    // 0.6.2 the byte may already name the next layer while the head finishes the last moves of this one
+    if (at.segment < 6 && at.layer > 0) { const m = this.parsed.layers[at.layer - 1].offsets.length; look(at.layer - 1, m - (6 - at.segment), m - 1); }
+    if (best && best.dist < 1) arc = arcOf(this.parsed, best.l, best.k, best.u);
    }
   }
   if (arc === null) { this.arc = null; this.arcRate = 0; this.lastArc = null; return; }
-  const gap = this.lastArc && stamp > this.lastArc.stamp ? stamp - this.lastArc.stamp : 0;
+  const gap = this.lastArc && clock > this.lastArc.clock ? clock - this.lastArc.clock : 0;
   const back = here.arc != null && arc < here.arc - (this.arcRate * this.dur * 1.5 + 4);
   if (back || !gap || arc < this.lastArc.arc) this.arcRate = 0;
   else this.arcRate = this.arcRate ? 0.5 * this.arcRate + 0.5 * ((arc - this.lastArc.arc) / gap) : (arc - this.lastArc.arc) / gap;
-  this.lastArc = { arc, stamp };
+  this.lastArc = { arc, clock };
   const from = back || here.arc == null ? arc : here.arc;
   this.arc = { from, to: Math.max(from, arc + this.arcRate * this.dur), t0: now };
  }
@@ -361,4 +362,76 @@ export class HeadFollow {
   const moving = !quiet && (along || !s.settled || blend < 1);
   return { position, byte, layer, tool: this.tool, groups, along, moving, label: this.source === 'live' ? 'live' : 'following the file' };
  }
+}
+
+// ---- 4. the belts and tubes ------------------------------------------------------------------------------------
+// 0.6.2 (the owner 2026-10-30: "a Stealthburner printing with the belt not moved, not with the gantry, just sitting there in the middle of the prints").
+// The rig's models keep their belts and tubes as "reference_flexible" parts: one mesh each, in the CAD pose, in no motion group, so the belts stayed where the CAD left them
+// while the beam and the head went away. No part of a belt moves rigidly, so a belt is a mesh with a weight per vertex, the same rule on every machine:
+// every vertex rides with the carrier (a Z gantry: the whole belt plane climbs), `wy` says how much of the beam's travel a vertex takes (1 in the beam's own band, where the X run and
+// the beam's idlers are; 0 out past where the beam can ever reach, where the fixed pulleys are; a straight run between the two is stretched), and `wx` how much of the head's travel it takes
+// along the beam (1 where the belt's ends are clamped in the carriage, 0 out past where the carriage can ever reach). A loop with no ends at the carriage has no vertex there and simply stays with the beam.
+// Tooth pitch and tension are not simulated. A tube has one end on the head and one on the frame: a smooth weight along its length. Both are pure so they can be tested without a page.
+
+/** Which groups carry a machine's belts and along which components of the CAD frame: `beam` holds the X rail, `carrier` the belt plane (null when nothing climbs under it), `along`
+ *  the component the beam travels on, `across` the one the head travels on along the beam. Null when the machine has no head on a beam (the Annex machines' crossed rails). */
+export function flexRig(motions) {
+ if (!motions?.head) return null;
+ const beam = ['x_beam', 'gantry', 'beam'].find((n) => motions[n]);
+ if (!beam) return null;
+ const carrier = motions.z_gantry ? 'z_gantry' : null, base = carrier ? motions[carrier] : [0, 0, 0];
+ const same = (a, b) => JSON.stringify(a ?? 0) === JSON.stringify(b ?? 0);
+ const along = [0, 1, 2].find((c) => !same(motions[beam][c], base[c])), across = [0, 1, 2].find((c) => !same(motions.head[c], motions[beam][c]));
+ return along === undefined || across === undefined ? null : { beam, carrier, along, across };
+}
+
+/** The range a motion component runs over as its axis goes through its travel, always holding 0 (the CAD pose). */
+function reach(spec, axes) {
+ let lo = 0, hi = 0;
+ if (typeof spec === 'string' && axes?.[spec]) [lo, hi] = axes[spec];
+ else if (spec && typeof spec === 'object') { const [k, f] = Object.entries(spec)[0] || []; if (axes?.[k]) { lo = axes[k][0] * f; hi = axes[k][1] * f; } }
+ return [Math.min(lo, hi, 0), Math.max(lo, hi, 0)];
+}
+
+/** Display row and sign of a component of the CAD frame (the basis is a signed permutation, rows into the display). */
+function rowOf(basis, c) { const r = [0, 1, 2].find((i) => Math.abs(basis[i][c]) > 0.5); return [r, Math.sign(basis[r][c])]; }
+
+/** A box [lo, hi] in the display frame (metres) as a span along component c, in millimetres of the CAD frame. */
+function spanOf(box, basis, c) { const [r, s] = rowOf(basis, c), a = box[0][r] * s * 1000, b = box[1][r] * s * 1000; return [Math.min(a, b), Math.max(a, b)]; }
+
+/** The weights of one belt: `pos` its vertices (display frame, metres), `t` the part's own translation, `rig` from flexRig, `beamBox` and `headBox` where those groups stand in the CAD pose. */
+export function beltWeights(pos, t, rig, { basis, axes, motions, beamBox, headBox }) {
+ const n = pos.length / 3, wy = new Float32Array(n), wx = new Float32Array(n);
+ const [ra, sa] = rowOf(basis, rig.along), [rx, sx] = rowOf(basis, rig.across);
+ const [b0, b1] = spanOf(beamBox, basis, rig.along), [dl, dh] = reach(motions[rig.beam][rig.along], axes);
+ const f0 = b0 + dl, f1 = b1 + dh;   // past these the beam never comes: the fixed pulleys
+ const [c0, c1] = spanOf(headBox, basis, rig.across);
+ let h0 = Infinity, h1 = -Infinity;
+ for (let i = 0; i < n; i++) {
+  const u = (pos[i * 3 + ra] + t[ra]) * 1000 * sa;
+  wy[i] = u <= f0 || u >= f1 ? 0 : u < b0 ? (u - f0) / (b0 - f0) : u > b1 ? (f1 - u) / (f1 - b1) : 1;
+  if (wy[i] === 1) { const v = (pos[i * 3 + rx] + t[rx]) * 1000 * sx; if (v >= c0 && v <= c1) { h0 = Math.min(h0, v); h1 = Math.max(h1, v); } }
+ }
+ if (h0 <= h1) {
+  const [xl, xh] = reach(motions.head[rig.across], axes), e0 = h0 + xl, e1 = h1 + xh;   // past these the carriage never comes: the beam's idlers
+  for (let i = 0; i < n; i++) {
+   if (wy[i] !== 1) continue;
+   const v = (pos[i * 3 + rx] + t[rx]) * 1000 * sx;
+   wx[i] = v <= e0 || v >= e1 ? 0 : v < h0 ? (v - e0) / (h0 - e0) : v > h1 ? (e1 - v) / (e1 - h1) : 1;
+  }
+ }
+ return { wy, wx };
+}
+
+/** The weight of each vertex of a tube that has one end on a moving group: 1 at the end nearest `box` (where that group stands in the CAD pose), 0 at the far end, smooth between. */
+export function tubeWeights(pos, t, box) {
+ const n = pos.length / 3, w = new Float32Array(n), c = [0, 1, 2].map((k) => (box[0][k] + box[1][k]) / 2);
+ const at = (i) => [pos[i * 3] + t[0], pos[i * 3 + 1] + t[1], pos[i * 3 + 2] + t[2]];
+ let near = 0, best = Infinity;
+ for (let i = 0; i < n; i++) { const p = at(i), d = Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]); if (d < best) { best = d; near = i; } }
+ const a = at(near);
+ let far = 0;
+ for (let i = 0; i < n; i++) { const p = at(i); w[i] = Math.hypot(p[0] - a[0], p[1] - a[1], p[2] - a[2]); if (w[i] > far) far = w[i]; }
+ for (let i = 0; i < n; i++) { const s = far > 0 ? 1 - w[i] / far : 1; w[i] = s * s * (3 - 2 * s); }
+ return w;
 }

@@ -65,10 +65,6 @@ static IMAGES: &[(&str, &[u8])] = &[
         include_bytes!("../docs/guide/alert-settings.jpg"),
     ),
     ("phone.jpg", include_bytes!("../docs/guide/phone.jpg")),
-    (
-        "licence-buy.jpg",
-        include_bytes!("../docs/guide/licence-buy.jpg"),
-    ),
     ("backup.jpg", include_bytes!("../docs/guide/backup.jpg")),
     ("about.jpg", include_bytes!("../docs/guide/about.jpg")),
     (
@@ -81,12 +77,18 @@ static IMAGES: &[(&str, &[u8])] = &[
 pub fn asset(path: &str) -> Option<Response> {
     let text = |mime: &'static str, body: &str| Some(Response::text(200, mime, body));
     match path {
-        "/help" | "/help/" => text("text/html; charset=utf-8", include_str!("../web/help.html")),
+        "/help" | "/help/" => text(
+            "text/html; charset=utf-8",
+            include_str!(concat!(env!("STELLA_WEB"), "/help.html")),
+        ),
         "/help.js" => text(
             "text/javascript; charset=utf-8",
-            include_str!("../web/help.js"),
+            include_str!(concat!(env!("STELLA_WEB"), "/help.js")),
         ),
-        "/help.css" => text("text/css; charset=utf-8", include_str!("../web/help.css")),
+        "/help.css" => text(
+            "text/css; charset=utf-8",
+            include_str!(concat!(env!("STELLA_WEB"), "/help.css")),
+        ),
         "/help/guide.md" => text("text/markdown; charset=utf-8", GUIDE),
         "/help/third-party.md" => text("text/markdown; charset=utf-8", THIRD_PARTY),
         "/help/printer-models.md" => text("text/markdown; charset=utf-8", MODELS),
@@ -190,35 +192,6 @@ mod tests {
                 "{name} is a copy of another picture"
             );
         }
-    }
-
-    /// 2026-10-19: no e-Transfer address is ever shown publicly. The guide says what the licence is and who to write to, and never gives an
-    /// address to send money to.
-    #[test]
-    fn the_licence_is_in_kens_words_and_names_no_address_to_pay() {
-        let g = GUIDE.to_lowercase();
-        assert!(g.contains("free for up to five printers"), "the free five");
-        assert!(g.contains("perpetual"), "perpetual");
-        assert!(
-            g.contains("interac e-transfer") && g.contains("payment details come with the invoice"),
-            "how it is paid"
-        );
-        assert!(g.contains("info@3d3d.ca"), "who to write to");
-        for bad in [
-            "transfer to info@",
-            "transfer: info@",
-            "send an interac",
-            "send the e-transfer to",
-            "pay info@",
-            "pay to info@",
-        ] {
-            assert!(
-                !g.contains(bad),
-                "the guide gives an address to send money to: {bad}"
-            );
-        }
-        // and the notice About shows is the project's own
-        assert!(RIG_NOTICE.contains("MIT License") && RIG_NOTICE.contains("Psych0h3ad"));
     }
 
     /// Plain words, as the rest of the app: no em dash, and none of the developer words the work order names.

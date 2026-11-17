@@ -15,7 +15,7 @@ const fire=(type,e)=>{for(const f of listeners[type]||[])f({target,button:0,poin
 const click=(dx=0)=>{fire('pointerdown',{clientX:100,clientY:100});fire('pointerup',{clientX:100+dx,clientY:100});};
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 
-// 2026-10-24: "no matter where I click on the screen ... it zooms in on the printer." One click grows nothing now (a part's own pick opens it).
+// the owner 2026-10-24: "no matter where I click on the screen ... it zooms in on the printer." One click grows nothing now (a part's own pick opens it).
 click();await wait(330);assert.equal(stage.isGrown(),false,'one click grows nothing');assert.ok(!('grown' in body.dataset));assert.equal(scene.looks.length,0,'the view does not move');
 
 // two clicks in a row are still a reset of the view

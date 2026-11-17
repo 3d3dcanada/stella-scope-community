@@ -198,6 +198,11 @@ test('headerKey: the header is rewritten when something it shows changes, and no
 });
 
 // The page's scripts are served as they are and there is no build step: a bracket swallowed by a trailing comment is only found by loading the page.
+test('plan3d gives the opened tile a machine first, even with the budget spent on the tiles behind it (0.6.2 )',()=>{
+ const mk=(id,state,open=false)=>({id,want:true,visible:true,state,open});
+ assert.deepEqual(plan3d([mk('a','live'),mk('b','live'),mk('c','live'),mk('d','none',true)],3),{start:['d'],stop:['c']});
+ assert.deepEqual(plan3d([mk('a','live'),mk('b','live',true)],3),{start:[],stop:[]},'nothing moves when it already has one');
+});
 test('the wall\'s scripts parse as modules',()=>{
  for(const f of ['farm.js','farm-wall.js','model-view.js','next-fleet.js']){
   const r=spawnSync(process.execPath,['--input-type=module','--check'],{input:readFileSync(new URL('../web/'+f,import.meta.url))});

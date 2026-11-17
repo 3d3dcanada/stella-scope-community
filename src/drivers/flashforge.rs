@@ -1,6 +1,6 @@
 //! FlashForge Adventurer 5M, stock firmware 5.1.x.
 //!
-//! Written from our own measurements of his printer (`~/3d3d-printers/ad5m/`: probe.sh, ffsend.py,
+//! Written from the owner's own measurements of his printer (`~/3d3d-printers/ad5m/`: probe.sh, ffsend.py,
 //! RESEARCH.md and a real `/detail` reply captured 2026-08-30 on firmware 5.1.7, serial redacted) and
 //! the published endpoint list of Parallel-7/flashforge-api-docs (read, not copied). OrcaSlicer's
 //! Flashforge.cpp (AGPL) and ff-5mp-api-ts (licence unstated) were not copied.
@@ -140,7 +140,7 @@ pub fn normalise(t: &Telemetry, last_file: &str) -> Value {
     })
 }
 
-/// `/detail`'s object (field names as captured from our printer).
+/// `/detail`'s object (field names as captured from the owner's printer).
 pub fn from_detail(d: &Value) -> Telemetry {
     let f = |k: &str| d[k].as_f64().filter(|n| n.is_finite());
     Telemetry {
@@ -174,7 +174,7 @@ fn first_number(s: &str) -> Option<f64> {
     t.parse().ok()
 }
 
-/// The 8899 replies (formats from our probe.sh regexes and RESEARCH.md): M119 status, M105 temps,
+/// The 8899 replies (formats from the owner's probe.sh regexes and RESEARCH.md): M119 status, M105 temps,
 /// M27 progress, M114 position.
 pub fn from_tcp(m119: &str, m105: &str, m27: &str, m114: &str) -> Telemetry {
     let word = |t: &str, k: &str| {
@@ -232,7 +232,7 @@ pub fn from_tcp(m119: &str, m105: &str, m27: &str, m114: &str) -> Telemetry {
     }
 }
 
-/// A file name the printer will take: our ffsend rule, anything outside [A-Za-z0-9._-] becomes `_`.
+/// A file name the printer will take: the owner's ffsend rule, anything outside [A-Za-z0-9._-] becomes `_`.
 pub fn sanitize(name: &str) -> String {
     name.chars()
         .map(|c| {
@@ -250,7 +250,7 @@ fn printable(name: &str) -> bool {
     l.ends_with(".gcode") || l.ends_with(".gx") || l.ends_with(".3mf") || l.ends_with(".gcode.3mf")
 }
 
-/// `~M661`'s reply: binary framed, names appear as `/data/<name>` (our RESEARCH.md).
+/// `~M661`'s reply: binary framed, names appear as `/data/<name>` (the owner's RESEARCH.md).
 pub fn parse_m661(bytes: &[u8]) -> Vec<String> {
     let mut out = Vec::new();
     let marker = b"/data/";
@@ -760,9 +760,19 @@ impl Driver for FlashForge {
         if url.is_none() && self.creds().is_some() {
             // Not seen yet: ask the printer. The non-Pro 5M answers an empty address (no camera).
             if let Ok(v) = self.http("/detail", None) {
+                // the printer names its own camera; anything pointing elsewhere, or with control
+                // characters or spaces that would split the request, is not opened (a hostile printer could aim the service anywhere).
+                let own = self.host();
                 url = v["detail"]["cameraStreamUrl"]
                     .as_str()
-                    .filter(|u| u.starts_with("http://"))
+                    .filter(|u| u.starts_with("http://") && crate::config::camera_ok(u))
+                    .filter(|u| {
+                        let h = u["http://".len()..]
+                            .split(['/', '?', ':'])
+                            .next()
+                            .unwrap_or("");
+                        h == own || h == "0.0.0.0"
+                    })
                     .map(str::to_owned);
                 if let (Ok(mut s), Some(u)) = (self.st.lock(), url.clone()) {
                     s.camera_url = Some(u);
@@ -879,7 +889,7 @@ impl Driver for FlashForge {
             return Err("the file name must be a plain .gcode name".into());
         }
         let clean = sanitize(name);
-        // (2026-10-19's AD5M on firmware 5.1.9): `~M28`/`~M29` over TCP answers "Done saving file." but
+        // (2026-10-19, the owner's AD5M on firmware 5.1.9): `~M28`/`~M29` over TCP answers "Done saving file." but
         // saves an empty file ("File opened: ... Size: 0"), so a dry run was reported started while the printer stayed
         // ready. The HTTP door's `/uploadGcode` (multipart, the check code in headers) saves the file whole and can start
         // it; it is the only upload used.
@@ -931,7 +941,7 @@ impl Driver for FlashForge {
 mod tests {
     use super::*;
 
-    /// our printer, 2026-08-30, firmware 5.1.7: the `detail` object as captured (serial, MAC and name
+    /// the owner's printer, 2026-08-30, firmware 5.1.7: the `detail` object as captured (serial, MAC and name
     /// replaced by placeholders; every number and word as it was).
     fn captured_detail() -> Value {
         serde_json::from_str(r#"{"autoShutdown":"close","autoShutdownTime":5,"cameraStreamUrl":"","chamberFanSpeed":100,"chamberTargetTemp":0,
@@ -1266,7 +1276,7 @@ mod tests {
     }
 
     #[test]
-    /// the upload goes through the HTTP door (TCP `~M28` saved an empty file on our 5.1.9), whole, and
+    /// the upload goes through the HTTP door (TCP `~M28` saved an empty file on the owner's 5.1.9), whole, and
     /// starts the file only when asked; a start of a file already there uses `/printGcode`.
     fn upload_goes_over_http_whole_and_starts_only_when_asked() {
         let f = fake();

@@ -1,10 +1,10 @@
 //! PrusaLink (Prusa CORE One, MK4, XL...), . Written from Prusa's public OpenAPI
-//! (`Prusa-Link-Web/spec/openapi.yaml`, 1.0.0-draft) and from our own slicer-upload (which already
+//! (`Prusa-Link-Web/spec/openapi.yaml`, 1.0.0-draft) and from the owner's own slicer-upload (which already
 //! uploads to his CORE One L); no code from any other project. Everything it reports is what
 //! `/api/v1/status`, `/info`, `/job`, `/storage` and `/files` say; a value PrusaLink does not give is
 //! `null`, and the UI shows it as unknown.
 //!
-//! Spec facts relied on (verified against the spec text, NOT yet against our printer: it was off
+//! Spec facts relied on (verified against the spec text, NOT yet against the owner's printer: it was off
 //! when this was written, so a live capture is owed ):
 //! - HTTP digest auth (MD5, qop=auth) or `X-Api-Key`.
 //! - `GET /api/v1/status`: printer.state IDLE|BUSY|PRINTING|PAUSED|FINISHED|STOPPED|ERROR|ATTENTION|READY,
@@ -31,7 +31,7 @@ const MIN_INTERVAL_S: f64 = 1.0;
 /// How long a file transfer or a print start may take (a 5 MB file over the printer's own web server takes seconds).
 const TRANSFER_TIMEOUT_S: u64 = 180;
 
-/// 2026-10-25 ("the Prusa is on, but I can't do anything ... I can't change the nozzle"). PrusaLink's v1 API has no temperature, fan or
+/// the owner 2026-10-25 ("the Prusa is on, but I can't do anything ... I can't change the nozzle"). PrusaLink's v1 API has no temperature, fan or
 /// homing endpoint, but it starts a file it is given (`Print-After-Upload: ?1`). A one-line file is how heat, the part fan, homing and motors
 /// off reach a CORE One: the route Prusa users run themselves (Prusa-Link issue #832, a working example on a Core One). The file starts with
 /// `M862.6 P"Input shaper"`, which an input-shaper printer wants before it runs a file by itself. It only runs while the printer is idle:
@@ -625,7 +625,7 @@ impl Driver for PrusaLink {
     }
     fn cameras(&self) -> Result<Vec<CameraSource>> {
         // The CORE One's Buddy3D camera is its own device with its own address; PrusaLink does not
-        // list it (2026-08-31, CAMERA.md). The address is set per printer.
+        // list it (the owner, 2026-08-31, CAMERA.md). The address is set per printer.
         Ok(self
             .cfg
             .camera_url
@@ -768,7 +768,7 @@ impl Driver for PrusaLink {
 mod tests {
     use super::*;
 
-    /// Shapes from the OpenAPI spec (SPEC, not a capture from our printer).
+    /// Shapes from the OpenAPI spec (SPEC, not a capture from the owner's printer).
     fn status(state: &str, with_xy: bool) -> Value {
         let mut printer = json!({"state":state,"temp_bed":60.0,"target_bed":60.0,"temp_nozzle":214.7,"target_nozzle":215.0,
             "axis_z":12.4,"flow":100,"speed":100,"fan_hotend":5200,"fan_print":3100});
@@ -1132,7 +1132,10 @@ G1 X1
             let r = service.handle(
                 "GET",
                 p,
-                &BTreeMap::from([("host".into(), "127.0.0.1:7420".into())]),
+                &BTreeMap::from([
+                    ("host".into(), "127.0.0.1:7420".into()),
+                    ("sec-fetch-site".into(), "same-origin".into()),
+                ]),
                 &[],
                 IpAddr::from([127, 0, 0, 1]),
             );
@@ -1152,7 +1155,7 @@ G1 X1
         for id in ["jog", "console", "qgl", "filament_load"] {
             assert_eq!(cmd(id)["supported"], false, "{id}");
         }
-        // heat, fan, home and motors off go as a one-line file while idle (COMMAND_FILE, 2026-10-25)
+        // heat, fan, home and motors off go as a one-line file while idle (COMMAND_FILE, the owner 2026-10-25)
         for id in [
             "pause",
             "resume",
@@ -1202,7 +1205,7 @@ G1 X1
         let d = PrusaLink::new(&Config::default());
         let c = d.capabilities();
         assert!(c.pause_resume && c.cancel && c.start_print && c.upload && c.thumbnails);
-        // heat, fan, home and motors off go through a one-line file while idle (COMMAND_FILE, 2026-10-25); a hand jog and typed G-code still do not
+        // heat, fan, home and motors off go through a one-line file while idle (COMMAND_FILE, the owner 2026-10-25); a hand jog and typed G-code still do not
         for (id, want) in [
             ("set_heater", true),
             ("set_fan", true),

@@ -234,6 +234,8 @@ pub enum Source {
         port: u16,
         path: String,
     },
+    /// A demo printer's camera, drawn in this process (src/demo_camera.rs), `SNAPSHOT_FPS` a second.
+    Demo(crate::config::Config),
 }
 
 impl Source {
@@ -243,12 +245,13 @@ impl Source {
             Source::Mjpeg { host, port, path } | Source::Snapshots { host, port, path } => {
                 format!("http://{host}:{port}{path}")
             }
+            Source::Demo(cfg) => format!("demo:{}|{}", cfg.database, cfg.printer_id),
         }
     }
 }
 
 /// Stella's C920 sends its full-rate MJPEG stream, about 340 kB a frame, and that one stream
-/// alone starved the CORE One L's PrusaLink on our 2.4 GHz Wi-Fi (status reads timed out at 4 s; the farm showed the CORE
+/// alone starved the CORE One L's PrusaLink on the owner's 2.4 GHz Wi-Fi (status reads timed out at 4 s; the farm showed the CORE
 /// One L going offline and back six times a minute with the Cameras sheet open). A camera that has a snapshot address is
 /// read one still at a time instead, the next asked only when the last has arrived, at most this many a second: a slow
 /// link slows the pictures, never the printers. ponytail: fixed rate; a per-camera setting if a farm wants smoother video.
@@ -312,6 +315,31 @@ fn run_snapshots(host: String, port: u16, path: String, shared: Arc<Shared>) {
     }
 }
 
+fn run_demo(cfg: crate::config::Config, shared: Arc<Shared>) {
+    let mut idle_since: Option<Instant> = None;
+    loop {
+        let started = Instant::now();
+        match crate::demo::camera_jpeg(&cfg) {
+            Ok(f) => {
+                if shared.publish(Arc::new(f)) {
+                    idle_since = None;
+                } else {
+                    idle_since.get_or_insert_with(Instant::now);
+                }
+            }
+            Err(e) => return shared.fail(e),
+        }
+        if idle_since.is_some_and(|t| t.elapsed() > Duration::from_secs(5)) {
+            return;
+        }
+        if let Some(rest) =
+            Duration::from_secs_f64(1.0 / SNAPSHOT_FPS).checked_sub(started.elapsed())
+        {
+            thread::sleep(rest);
+        }
+    }
+}
+
 /// Subscribe to a camera, starting its upstream if nobody else has. The receiver gets whole JPEG frames
 /// (newest first on a slow link: at most two wait).
 pub fn subscribe(source: Source) -> Result<Receiver<Msg>> {
@@ -319,6 +347,7 @@ pub fn subscribe(source: Source) -> Result<Receiver<Msg>> {
         Source::Rtsp(u) => run_ffmpeg(u, shared),
         Source::Mjpeg { host, port, path } => run_http(host, port, path, shared),
         Source::Snapshots { host, port, path } => run_snapshots(host, port, path, shared),
+        Source::Demo(cfg) => run_demo(cfg, shared),
     })
 }
 

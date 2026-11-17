@@ -1,6 +1,8 @@
 // Farm licences. One file, three jobs:
 //   farm-licence keygen KEYFILE            make the private key once, outside any git work tree
-//   STELLA_FARM_LICENCE_KEY=KEYFILE farm-licence issue --name "Maple Street" --printers 10 [--issued 2026-10-12]
+//   STELLA_FARM_LICENCE_KEY=KEYFILE farm-licence issue --name "Maple Street" --email a@b.ca --machine 3F2A-91C0-7B44-0D1E (--printers 10 | --unlimited) [--trial [--days 30]] [--issued 2026-10-12] [--expiry YYYY-MM-DD]
+//   (a licence works only on the computer whose code it carries; the code is shown in Stella Scope where a licence is entered)
+//   (release-2026-11-14: a trial is a signed key that ends after --days, 30 by default; every key carries an id and the buyer's email)
 //   farm-licence verify "SFL1...."         check a licence against the key built into the program
 // The private key never goes in the repository; `keygen` refuses a path inside one, and `issue` reads
 // the key only from the file the environment variable names. Build: cargo build --release --example farm-licence
@@ -103,11 +105,16 @@ fn main() {
                 eprintln!("cannot read a private key from {keyfile}");
                 std::process::exit(1);
             };
-            let (Some(name), Some(n)) = (
-                flag("--name"),
-                flag("--printers").and_then(|n| n.parse::<u32>().ok()),
-            ) else {
-                eprintln!("usage: issue --name \"Who it is for\" --printers N [--issued YYYY-MM-DD] [--expiry YYYY-MM-DD]");
+            let has = |f: &str| args.iter().any(|a| a == f);
+            let n = if has("--unlimited") {
+                Some(licence::UNLIMITED)
+            } else {
+                flag("--printers").and_then(|n| n.parse::<u32>().ok())
+            };
+            let (Some(name), Some(n), Some(machine)) = (flag("--name"), n, flag("--machine"))
+            else {
+                eprintln!("usage: issue --name \"Who it is for\" --email ADDRESS --machine COMPUTER-CODE (--printers N | --unlimited) [--trial [--days 30]] [--issued YYYY-MM-DD] [--expiry YYYY-MM-DD]");
+                eprintln!("the computer code is shown in Stella Scope where a licence is entered or bought (four groups of four)");
                 std::process::exit(2);
             };
             if n <= licence::FREE_PRINTERS as u32 {
@@ -116,24 +123,35 @@ fn main() {
                     licence::FREE_PRINTERS
                 );
             }
-            let expiry = flag("--expiry");
-            let text = if expiry.is_some() {
-                licence::issue(
-                    &seed,
-                    &name,
-                    n,
-                    &flag("--issued").unwrap_or_else(today),
-                    Some(&expiry.unwrap()),
-                )
-            } else {
-                licence::issue(
-                    &seed,
-                    &name,
-                    n,
-                    &flag("--issued").unwrap_or_else(today),
-                    None,
-                )
-            };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            let trial = has("--trial");
+            let days: f64 = flag("--days").and_then(|d| d.parse().ok()).unwrap_or(30.0);
+            let expiry =
+                flag("--expiry").or_else(|| trial.then(|| licence::ymd(now + days * 86_400.0)));
+            let mut id = [0_u8; 6];
+            getrandom::fill(&mut id).expect("system randomness");
+            let mut payload = serde_json::json!({"id":format!("{}-{}", if trial { "T" } else { "F" }, hex(&id)),"name":name,"email":flag("--email").unwrap_or_default(),
+                "type":if trial { "trial" } else { "farm" },"machine":machine.trim().to_ascii_uppercase(),"printers":n,"issued":flag("--issued").unwrap_or_else(today)});
+            if let Some(e) = &expiry {
+                payload["expiry"] = serde_json::json!(e);
+            }
+            let text = licence::issue_with(&seed, &payload);
+            eprintln!(
+                "issued {}: {} printers{}",
+                payload["id"],
+                if n >= licence::UNLIMITED {
+                    "unlimited".to_owned()
+                } else {
+                    n.to_string()
+                },
+                expiry
+                    .as_deref()
+                    .map(|e| format!(", ends {e}"))
+                    .unwrap_or_default()
+            );
             if licence::public_key_of(&seed) != licence::PUBLIC_KEY {
                 eprintln!("warning: this key is not the one built into the program; the licence will not verify there");
             }
@@ -141,8 +159,15 @@ fn main() {
         }
         Some("verify") => match licence::verify(args.get(1).map(String::as_str).unwrap_or("")) {
             Ok(l) => println!(
-                "valid: {} ({} printers, issued {})",
-                l.name, l.printers, l.issued
+                "valid {} licence {}: {} <{}> for computer {} ({} printers, issued {}{})",
+                l.kind,
+                l.id,
+                l.name,
+                l.email,
+                l.machine,
+                l.printers,
+                l.issued,
+                l.expiry.map(|e| format!(", ends {e}")).unwrap_or_default()
             ),
             Err(e) => {
                 eprintln!("{e}");

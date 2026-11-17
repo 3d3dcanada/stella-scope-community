@@ -50,7 +50,7 @@ export function createScene(canvas,onSelect,opts={}){
  const meshes=[],entries=new Map(),hidden=new Set(['covers']),hiddenParts=new Set(),variants=new Map();let frame=0,asset=null,sourceAssets=[],bounds=null,selected=null,outline=null,grid=null,explode=0,jobModel=null,jobName='',jobState=null,sourceData=null,lastMappedPose=null,lastMappedTs=null,lastSet=null,homedSeen='',poseSkips=0,lastJobDisplay=null,lastLiveVisual=null,mini=null;
  const tip=document.getElementById('scene-tip'),caption=document.querySelector('.scene-key');
  const metrics={loads:[],frames:[]};let colors={all:null,groups:{},parts:{}},colorKey='';
- // 2026-09-21: "my print bed is now a different colour." It did not change between the two
+ // the owner 2026-09-21: "my print bed is now a different colour." It did not change between the two
  // builds — the purple was already in the 2026-09-20 binary and the evidence screenshot shows
  // the plate the same pink — what he is seeing is the heat glow washing a purple plate at 80 °C,
  // and no warm glow can read as heat over purple: orange on purple is pink at every temperature.
@@ -99,7 +99,7 @@ export function createScene(canvas,onSelect,opts={}){
  function fit(objects=meshes,view=null){const box=empty.clone();objects.filter(m=>m.visible).forEach(m=>box.expandByObject(m));if(box.isEmpty())return;const center=box.getCenter(new THREE.Vector3()),size=box.getSize(new THREE.Vector3());const dir=view?new THREE.Vector3(...(nextStage&&view==='iso'?[.85,-1,.42]:CAMERA_VIEWS[view])):camera.position.clone().sub(orbit.target);dir.normalize();const distance=size.length()*(tileMode?.43:nextStage?.5*Math.max(1,Math.sqrt(1000/Math.max(canvas.clientHeight,1))):.44)/Math.tan(camera.fov*Math.PI/360)/Math.min(1,camera.aspect);// NEXT: aim a little below the middle so the machine sits above the dock instead of behind it.
  if(nextStage&&!tileMode&&objects===meshes)center.z-=size.z*(camera.aspect>1?.16:.04);orbit.target.copy(center);camera.position.copy(center).addScaledVector(dir,distance);camera.far=distance*20;camera.updateProjectionMatrix();orbit.update();schedule();}
  function pick(e){const r=canvas.getBoundingClientRect(),ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,1-(e.clientY-r.top)/r.height*2),camera);return ray.intersectObjects(meshes.filter(m=>m.visible&&m.material.opacity>.1&&!(nextStage&&INERT.has(m.userData.colorGroup))),false)[0]?.object;}
- // NEXT : only parts worth opening answer a click or hover; extrusions, screws,
+ // NEXT (the owner 2026-09-25): only parts worth opening answer a click or hover; extrusions, screws,
  // belts and panels are scenery.
  const INERT=new Set(['fasteners','frame','belts','covers']);
  const cutPlane=new THREE.Plane(new THREE.Vector3(0,0,-1),1e6);let cutTarget=null;
@@ -114,7 +114,7 @@ export function createScene(canvas,onSelect,opts={}){
   cutPlane.normal.copy(n.clone().negate());cutPlane.constant=-cutPlane.normal.dot(cutTarget.centre)+cutTarget.radius;renderer.clippingPlanes=[cutPlane];}
  function focusPart(m){clearFocus();hidden.delete(m.userData.layer);hiddenParts.delete(m.userData.id);if(m.userData.variantGroup)variants.set(m.userData.variantGroup,m.userData.variantName);m.visible=visible(m);const center=m.geometry.boundingBox.getCenter(new THREE.Vector3()),radius=Math.max(100,m.geometry.boundingBox.getSize(new THREE.Vector3()).length()*2);for(const other of meshes)if(other!==m){const near=other.userData.center.distanceTo(center)<=radius;other.userData.focusHidden=!near;other.material.transparent=true;other.material.opacity=near?.72:.035;other.material.depthWrite=near;}canvas.dataset.inspection='focus';cutTarget={centre:center.clone(),radius:Math.max(12,m.geometry.boundingBox.getSize(new THREE.Vector3()).length()*.62)};updateCut();
   document.dispatchEvent(new CustomEvent('stella-inspection',{detail:{mode:'focus',name:m.userData.name}}));fit([m],'iso');}
- // Highlight in place (2026-09-28: "Isolate showed the motor alone with no sense of where it sits",
+ // Highlight in place (the owner 2026-09-28: "Isolate showed the motor alone with no sense of where it sits",
  // "Show the motor does not show the motor"). The part is lit and framed with the machine around it and
  // every other part is dimmed to near black: opaque, so there is no haze (a first try faded the rest to
  // 7% opacity; a few hundred overlapping parts stacked into a grey wall). Nothing is hidden, nothing
@@ -173,7 +173,7 @@ export function createScene(canvas,onSelect,opts={}){
     // rails read as chrome, belts as rubber, panels stay matte. It runs BEFORE mountRapidBurner,
     // so that function's own explicit paints (heatsink, screws, black printed parts, blowers)
     // still win, and it touches only metalness/roughness — colour stays exactly where the
-    // palette (and our own recolouring) puts it.
+    // palette (and the owner's own recolouring) puts it.
     const familyFinish=d=>{const n=(d.name||'').toLowerCase();
      if(/hfsb|extrusion/.test(n))return [.85,.38];
      if(/mgn\d|linear rail|rod|shaft/.test(n))return [1,.18];
@@ -196,11 +196,11 @@ export function createScene(canvas,onSelect,opts={}){
     if(lastSet)set(...lastSet);
   }catch(e){note(e.message);canvas.dataset.renderer='source-unavailable';canvas.dataset.error=e.message;}
  }
- // 2026-09-21: an axis that is not in homed_axes carries no information, so it holds its last
+ // the owner 2026-09-21: an axis that is not in homed_axes carries no information, so it holds its last
  // drawn value rather than taking the reported one; before anything has been drawn it holds the CAD
  // rest pose.
  function set(snapshot,id){lastSet=[snapshot,id];if(!(nextStage&&id==null))select(id);const raw=snapshot?.point?.position,datum=sourceData?.printer_frame?.source_pose,homedAxes=snapshot?.point?.homed||'';const pos=raw&&datum?raw.map((v,i)=>homedAxes.includes('xyz'[i])?v:(lastMappedPose?lastMappedPose[i]:datum[i])):raw;canvas.dataset.sampleTs=String(snapshot?.point?.ts??'');
-  // 2026-09-21: "when I pressed X− it moved the whole print head way to the side really quickly
+  // the owner 2026-09-21: "when I pressed X− it moved the whole print head way to the side really quickly
   // and back." The spike is in the data, not the render. The jog is audited at 1789999549.76 intent
   // / 1789999550.00 result as G91 / G1 X-10.00 F6000 / G90, and the recorded sample at
   // 1789999550.244 carries motion_report.live_position [0,0,0] for exactly one 253 ms tick, between
@@ -210,12 +210,12 @@ export function createScene(canvas,onSelect,opts={}){
   // the machine, so it is held rather than drawn. Scrubbing the recording has a large dt, so a
   // deliberate seek still lands.
   const ts=snapshot?.point?.ts,vmax=snapshot?.point?.max_velocity,vzmax=snapshot?.point?.max_z_velocity,limits=snapshot?.point?.limits;
-  // 2026-09-21, second look: an axis that has just become homed is reported in a coordinate
+  // the owner 2026-09-21, second look: an axis that has just become homed is reported in a coordinate
   // frame the drawn pose knows nothing about (G28 sets Z to 0 and hops, then force-sets 464), so the
   // reach test below cannot apply to it. The first pose that is inside the machine after the axis is
   // gained re-anchors that axis; the flag survives every refusal, so it is the first *drawable*
   // sample that lands, not the force position.
-  // 2026-09-21, watching a G28: "the whole gantry was drawn above the printer." The recorded
+  // the owner 2026-09-21, watching a G28: "the whole gantry was drawn above the printer." The recorded
   // sample at 1790021428.895 reports homed_axes "xyz" and Z 464.0195 on BOTH motion_report
   // live_position and toolhead.position, against axis_maximum 310 — Klipper force-sets the
   // kinematic position to position_endstop + 1.5 * (position_max - position_endstop) for a homing
@@ -236,7 +236,7 @@ export function createScene(canvas,onSelect,opts={}){
    const dt=Math.abs(ts-lastMappedTs),reach=dt*(Number.isFinite(vmax)&&vmax>0?vmax:300)*1.5+2,reachZ=dt*(Number.isFinite(vzmax)&&vzmax>0?vzmax:20)*1.5+2;
    const travel=gained.includes(0)||gained.includes(1)?0:Math.hypot(pos[0]-lastMappedPose[0],pos[1]-lastMappedPose[1]);
    const travelZ=gained.includes(2)?0:Math.abs(pos[2]-lastMappedPose[2]);
-   // 2026-09-24: a refused pose must not leave the head frozen. Drawn every animation frame,
+   // the owner 2026-09-24: a refused pose must not leave the head frozen. Drawn every animation frame,
    // the reach is a few mm, so once one frame was refused every later frame was too far from the
    // stuck pose and the head stayed put until it jumped. A single spike lasts one tick (253 ms);
    // a position that stays refused for 0.75 s of sample time is where the machine really is.
@@ -253,7 +253,7 @@ export function createScene(canvas,onSelect,opts={}){
   if(datum&&pos?.every(Number.isFinite)&&(!lastMappedPose||pos.some((v,i)=>v!==lastMappedPose[i]))){lastMappedPose=pos.slice();tweenTo(pos.slice(),gap);}
   canvas.dataset.pose=JSON.stringify({position:pos||null,mapped:Boolean(datum),basis:datum?'Mapped source joints':'Static source geometry; motion alignment not established'});
  }
- // 2026-09-21, watching the max-flow tower: the motion is "not far behind, but a little janky".
+ // the owner 2026-09-21, watching the max-flow tower: the motion is "not far behind, but a little janky".
  // The recorder ticks every 250 ms and the model used to jump a whole tick at a time. The accepted
  // pose is now a target and every animation frame walks the drawn pose toward it over the gap
  // between the two samples, so the head glides the way the machine does. Linear, because between two
@@ -261,7 +261,7 @@ export function createScene(canvas,onSelect,opts={}){
  // line. Both guards above run first, so a pose that never happened is never a tween target, and a
  // scrub (huge gap) lands at once rather than crawling there.
  let chainPath=null,refusedSince=null;const X_AXIS=new THREE.Vector3(1,0,0),Y_AXIS=new THREE.Vector3(0,1,0);
- // The rear IGUS Z chain (2026-09-24, "the cable chain in the back isn't moving"): it stands in
+ // The rear IGUS Z chain (the owner 2026-09-24, "the cable chain in the back isn't moving"): it stands in
  // the X-Z plane, its left run bolted to the frame at the bottom, its right run's end riding on the
  // gantry. Arc position s runs up the fixed run, over the bend (centre x wc, height uc, radius R)
  // and down the moving run; the bend rises half as far as the gantry. Returns [x, z, angle].
@@ -310,7 +310,7 @@ export function createScene(canvas,onSelect,opts={}){
  // Real print toolpaths (L6). The parsed G-code is Klipper coordinates, so (175,175) sits on the bed
  // centre datum. Two line objects share one geometry: `done` draws the first N segments with the
  // printed colour, `todo` the rest, and progress only moves the draw ranges.
- // 2026-09-21, watching the YOLO flow plate: "black lines all over the place… we don't need
+ // the owner 2026-09-21, watching the YOLO flow plate: "black lines all over the place… we don't need
  // that." Travel moves are not drawn at all now — only extruding segments reach the buffer — and
  // "I'd like for the color to change progressively so that we know what's beginning and what's
  // complete", plus, on the same look, he could not tell the old done-teal from the ghost while
@@ -320,7 +320,7 @@ export function createScene(canvas,onSelect,opts={}){
  // The ramp is a fixed share of the file rather than a fixed segment count, so it reads the same on
  // a 40,000-segment flow plate as on a 90,000-segment cube; the floor and cap keep the per-tick
  // repaint bounded either way.
- // 2026-09-21: the ghost at 0x3d4d55 / .34 was "way too dark now, it kind of looks like shit" —
+ // the owner 2026-09-21: the ghost at 0x3d4d55 / .34 was "way too dark now, it kind of looks like shit" —
  // the part still to come has to read as the whole part at a glance. Mid grey-blue at .6, which is
  // still nothing like the hot ramp beside it.
  const PATH_GHOST=new THREE.Color(0x93a8b4),PATH_EMBER=new THREE.Color(0x7a1c00),PATH_FRESH=new THREE.Color(0xffc24a);
@@ -362,7 +362,7 @@ export function createScene(canvas,onSelect,opts={}){
    else{const k=Math.max(0,Math.min(1,1-(at-1-i)/hot));c.copy(PATH_EMBER).lerp(PATH_FRESH,k*k);}
    for(let v=0;v<2;v++){const o=(i*2+v)*3;a[o]=c.r;a[o+1]=c.g;a[o+2]=c.b;}}
   col.needsUpdate=true;toolpath.painted=at;}
- // 2026-09-21: "it shows pieces finished that aren't." The done boundary is now the byte the
+ // the owner 2026-09-21: "it shows pieces finished that aren't." The done boundary is now the byte the
  // printer is reading (virtual_sdcard.file_position), binary-searched against each drawn segment's
  // own byte offset, instead of a layer plus an evenly-split fraction of that layer's bytes. Layer
  // and fraction still work for a scrub with no file position.
@@ -372,11 +372,11 @@ export function createScene(canvas,onSelect,opts={}){
    while(lo<hi){const mid=(lo+hi)>>1;if(b[mid]<=filePosition)lo=mid+1;else hi=mid;}at=lo;}
   else at=Math.min(toolpath.segments,Math.round((starts[layer]??0)+((starts[layer+1]??toolpath.segments)-(starts[layer]??0))*Math.max(0,Math.min(1,fraction))));
   // file_position is the byte Klipper has READ, and it runs ahead of the nozzle by whatever is in
-  // the lookahead queue — measured against our cube, 7 to 27 mm of path, which on a 30 mm cube is
+  // the lookahead queue — measured against the owner's cube, 7 to 27 mm of path, which on a 30 mm cube is
   // most of a wall drawn as done before the head gets there. The queue is bounded, so walking back
   // from the read pointer for the drawn segment that actually ends under the reported position puts
   // the boundary on the move the machine is making. Only taken when something that close exists;
-  // otherwise the byte position stands. (2026-09-21, "it shows pieces finished that aren't")
+  // otherwise the byte position stands. (the owner 2026-09-21, "it shows pieces finished that aren't")
   if(Array.isArray(live)&&live.every(Number.isFinite)&&at>0){const p=toolpath.geometry.attributes.position.array;
    let best=-1,bd=Infinity;
    for(let i=Math.max(0,at-QUEUE_SEGMENTS);i<at;i++){const o=i*6+3;
@@ -401,7 +401,7 @@ export function createScene(canvas,onSelect,opts={}){
    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('color',new THREE.BufferAttribute(col,3));g.setIndex(idx);
    meshLayer=new THREE.Mesh(g,new THREE.MeshBasicMaterial({vertexColors:true,transparent:true,opacity:.94,side:THREE.DoubleSide,depthWrite:false,toneMapped:false}));
    meshLayer.position.set(bed[0]-175,bed[1]-175,bed[2]);meshLayer.renderOrder=3;world.add(meshLayer);canvas.dataset.meshOverlay=`${rows}x${cols}`;schedule();return true;}
-  // Probe landings on the plate : each point is a square tile of the mesh on the flat
+  // Probe landings on the plate (the owner 2026-09-25): each point is a square tile of the mesh on the flat
   // bed, coloured by how far it sits from level, with a bull's-eye over it that pulses outer ring,
   // middle ring, centre, and loops, in the same colour. The newest landing is drawn larger.
   let probeRaf=0;
@@ -428,7 +428,7 @@ export function createScene(canvas,onSelect,opts={}){
    const t0=performance.now();const tick=now=>{if(probeLayer!==group)return;const ph=((now-t0)/1200)%1;
     for(const m of rings){const k=m.userData.ring,d=(ph-k/3+1)%1;m.material.opacity=.18+.72*Math.max(0,1-d*3);}schedule();probeRaf=requestAnimationFrame(tick);};
    probeRaf=requestAnimationFrame(tick);schedule();}
-  // BLTouch LED (2026-09-24: "the BL Touch is supposed to blink"). Klipper never reports the LED,
+  // BLTouch LED (the owner 2026-09-24: "the BL Touch is supposed to blink"). Klipper never reports the LED,
   // so the caller derives it from what the probe was told and said: on steady with the pin up, off
   // while the pin is down, a flash each time it touches, and fast flashing in alarm. Drawn on the
   // front of the probe body with a glow, riding with the toolhead.
@@ -467,13 +467,13 @@ export function createScene(canvas,onSelect,opts={}){
  // bracket on the LEFT seen from the front, Sherpa Mini on its printed mount, EBB42 on the chirpy
  // carrier, two 4010 blowers and one 3010 hotend fan. Parts without an STL on the drive are
  // representative primitives, labelled as such. CAD front is -Y; body centreline X=127.
- // 2026-09-20: the cowl needed "180 then mirror". Net effect is a mirror in Y, which keeps the
+ // the owner 2026-09-20: the cowl needed "180 then mirror". Net effect is a mirror in Y, which keeps the
  // BLTouch bracket at -X (left from the front) and turns the logo face to the front. Mirroring
  // reverses triangle winding, so the winding is reversed with it or every normal points inward.
- // 2026-09-20 21:10, looking at it live: the Y mirror left the cowl upside down. Rendering the
+ // the owner 2026-09-20 21:10, looking at it live: the Y mirror left the cowl upside down. Rendering the
  // STL as-is, X-, Y- and Z-mirrored side by side against his front photo: only the Z mirror puts the
  // duct mouths at the bottom, the logo on the front and the bracket on the left where his BLTouch is.
- // 2026-09-21, third time asking: the Z mirror alone left the cowl's front facing the REAR of
+ // the owner 2026-09-21, third time asking: the Z mirror alone left the cowl's front facing the REAR of
  // the printer. Mirror it in Y as well and the front comes round to the front, with the duct mouths
  // still down and the BLTouch bracket still on the left. The Y mirror is taken about the part's own
  // centre so COWL_TRANSLATION below still lands it where it already sat.
@@ -503,11 +503,11 @@ export function createScene(canvas,onSelect,opts={}){
  // of the printer is -Y) on top of the measured placements below. They are his calls by eye, not
  // measurements, so they are the two numbers to tune. BLTOUCH_AT is where printer.cfg's offsets
  // and the bracket plate put the probe before the nudge.
- // BLOWER_BACK_MM (NEXT review 2026-09-24: "the fans are still sticking out, protruding too far
+ // BLOWER_BACK_MM (NEXT review 2026-09-24, the owner: "the fans are still sticking out, protruding too far
  // forward"): his photo f31de800 shows the cowl's front wall wrapping in front of each 4010, so the
  // blower sits recessed behind it. 2 -> 5 mm; one number to tune against the machine.
  const BLTOUCH_FORWARD_MM=3,BLOWER_BACK_MM=5,BLTOUCH_AT=[94.05,120.4,48.6];
- // 2026-09-23: "About 2.5 mm from the bottom of the cowl to the nozzle tip." A hand measurement,
+ // the owner 2026-09-23: "About 2.5 mm from the bottom of the cowl to the nozzle tip." A hand measurement,
  // about ±0.5 mm: the cowl cannot come off to measure more closely. The nozzle is placed from it.
  const NOZZLE_BELOW_COWL_MM=2.5;
  // second pass : the Sherpa stands on the Rapid Burner's extruder mount,
@@ -517,7 +517,7 @@ export function createScene(canvas,onSelect,opts={}){
  // right, 10.05 mm back and 16.14 mm lower than stood it. had it standing on a tab that
  // hangs 8 mm below its feet; that tab is on one of the two front plates the Annex STEP carries
  // (SOURCE_SKIP), and it would pass through the cowl's 1.92 mm top plate, so its box centre rises 4.00 mm.
- // The EBB42 carrier and board no longer take this move: since our answer the carrier
+ // The EBB42 carrier and board no longer take this move: since the owner's answer the carrier
  // stands tower up on the carriage's ear inserts and the Sherpa's frame screws, placed absolutely.
  const SHERPA_MOVE=[1.69,10.05,-16.14];
  // Every fitted part is real published CAD. Placement is rigid and approximate: it aligns each
@@ -531,18 +531,18 @@ export function createScene(canvas,onSelect,opts={}){
   // The owner: "the electronics board is supposed to sit on the back of the piece
   // behind the extruder and it's not; it's embedded in the extruder." It sat between the carrier
   // and the Sherpa (Y 132.6..163.4 against the Sherpa's 104.8..151.2). It now follows the carrier
-  // (turned the same 180° about Z, so its components face the rear as in our video 711a9f31)
+  // (turned the same 180° about Z, so its components face the rear as in the owner's video 711a9f31)
   // and sits on the carrier's four board bosses: PCB centred on their 31 x 31 mm square at
   // X 124.94 / Z 140.85, its back face on the boss tops at Y 161.80, all measured on both CADs as
   // placed. BTT's CAD also carries four M3x20+6 standoffs for a motor mount; Stella's board is on
   // the carrier's inserts instead, so SOURCE_SKIP leaves them out.
-  // 2026-09-23 turned the carrier tower up (below), and the board turns over with it: the same
+  // the owner 2026-09-23 turned the carrier tower up (below), and the board turns over with it: the same
   // half turn about Y, so its components still face the rear. PCB back face on the four bosses'
   // tops at Y 177.06 and centred on their 31 x 31 mm square (X 111.86 / 142.86, Z 113.92 / 144.92),
   // measured on both CADs as placed; its box centre sits 0.02 mm and 0.66 mm off that square's
   // centre because of the connectors, the same offsets as before, mirrored.
   {id:'btt-ebb42-v12',name:'BTT EBB42 CAN V1.2',ops:[rx(-Math.PI/2)],at:[127.34,181.15,128.76],note:'BIGTREETECH EBB42 V1.2 CAD on the rear of the chirpy carrier, turned over with it when the owner put the tower up : PCB back face on the four board bosses\' tops at Y 177.06, centred on their 31 x 31 mm square, components facing the rear; BTT\'s four motor standoffs left out'},
-  // 2026-09-21: both of these were hand-picked points that no longer matched the cowl once it
+  // the owner 2026-09-21: both of these were hand-picked points that no longer matched the cowl once it
   // was mirrored, so they are now measured off the cowl's own geometry. Ray-cast against the same
   // /api/assets/stella-rapid-bltouch-cleaned/geometry the HUD loads, in its placed world position:
   //   front face   one round opening, 27.99 mm across, centred X 126.95 / Z 74.68
@@ -551,7 +551,7 @@ export function createScene(canvas,onSelect,opts={}){
   // The probe keeps its configured XY (nozzle X 127.0 / Y 131.1 plus printer.cfg x_offset -32.95,
   // y_offset -10.718) and now hangs from that measured plate instead of floating 2.4 mm over it.
   // Its source CAD is 42.5 mm tall, so a centre of Z 51.60 puts the body top on the plate.
-  // 2026-09-21, second look: "the BLTouch is still not in the right position, it is too high."
+  // the owner 2026-09-21, second look: "the BLTouch is still not in the right position, it is too high."
   // It was hung with its body top on the plate's TOP face (72.85), so the body passed through the
   // 3 mm plate instead of hanging under it. Measured on the probe CAD in its placed orientation
   // (1 mm Z bands over the mesh): the body is 11.53 wide and the two mounting ears open it out to
@@ -562,9 +562,9 @@ export function createScene(canvas,onSelect,opts={}){
   // the probe triggers z_offset 1.961 above the bed with the pin pushed up — so the two rules agree
   // to within 0.6 mm. The plate rule is the one used, because the probe hangs off the plate.
   {id:'bltouch-probe',name:'BLTouch probe',ops:[rx(Math.PI/2),rz(Math.PI/2)],at:[BLTOUCH_AT[0],BLTOUCH_AT[1]-BLTOUCH_FORWARD_MM,BLTOUCH_AT[2]],move:COWL_MOVE,note:'Probe body at the configured offset X -32.95 / Y -10.718 from the nozzle, brought '+BLTOUCH_FORWARD_MM+' mm forward at the owner\'s call 2026-09-23, mounting flange seated against the underside of the cowl bracket plate, and carried with the cowl onto the hotend mount'},
-  // our photo 151eddb3: the axial fan sits upright in the cowl's front opening, blowing back
+  // the owner's photo 151eddb3: the axial fan sits upright in the cowl's front opening, blowing back
   // through the heatsink. Rotated from its flat CAD pose and recessed just inside the front face.
-  // 2026-09-21, live: "recessed in just a little bit further, it's still sticking out through the
+  // the owner 2026-09-21, live: "recessed in just a little bit further, it's still sticking out through the
   // model." Measured flush at the bore ring (T4), but the cowl face steps back behind the fan
   // over the square corners of the 30 mm body — 5.1% of the probed cells — so the corners showed
   // through. Centre Y 108.70 -> 111.70 puts the body 3 mm further in, spanning Y 106.70..116.70.
@@ -574,13 +574,13 @@ export function createScene(canvas,onSelect,opts={}){
  // The toolhead umbilical: a braided loom from the top of the EBB42 carrier up to the rear of the
  // frame (photo d9f032c6). Stella has no toolhead cable chain. Redrawn whenever the head moves.
  let umbilical=null;
- // 2026-09-23: the carrier's tall tower points up, "that's where the umbilical goes", so the loom
+ // the owner 2026-09-23: the carrier's tall tower points up, "that's where the umbilical goes", so the loom
  // starts on the centre of the tower's top face: the box of the carrier's vertices within 1 mm of its
  // highest point (X 120.18, Y 173.24, Z 184.81 as placed), not the middle of the whole part.
  function towerTop(g){const p=g.attributes.position.array,z=g.boundingBox.max.z,lo=[Infinity,Infinity],hi=[-Infinity,-Infinity];for(let i=0;i<p.length;i+=3)if(p[i+2]>z-1)for(const k of [0,1]){lo[k]=Math.min(lo[k],p[i+k]);hi[k]=Math.max(hi[k],p[i+k]);}return new THREE.Vector3((lo[0]+hi[0])/2,(lo[1]+hi[1])/2,z);}
  function drawUmbilical(){if(!bounds)return;const carrier=meshes.find(m=>m.userData.id==='stella-ebb42-carrier:root:0');if(!carrier)return;
   const off=carrier.userData.motionOffset||new THREE.Vector3();carrier.userData.towerTop??=towerTop(carrier.geometry);const start=carrier.userData.towerTop.clone().add(off);
-  // 2026-09-24: the umbilical leaves the printer beside the rear cable chain, so it ends on the
+  // the owner 2026-09-24: the umbilical leaves the printer beside the rear cable chain, so it ends on the
   // rear top frame just to the right of the Z chain.
   const zcx=zChain?zChain.wc+zChain.R+26:bounds.min.x+150,end=new THREE.Vector3(zcx,zChain?zChain.y-8:bounds.max.y-60,bounds.max.z-30);
   const curve=new THREE.CatmullRomCurve3([start,start.clone().add(new THREE.Vector3(0,6,90)),new THREE.Vector3(start.x+(end.x-start.x)*.45,start.y+(end.y-start.y)*.5,end.z+35),end.clone().add(new THREE.Vector3(0,-40,10)),end],false,'centripetal');
@@ -591,14 +591,14 @@ export function createScene(canvas,onSelect,opts={}){
   root.add(umbilical);meshes.push(umbilical);entries.set(id,umbilical);installed.push(umbilical);}
  // A part the owner has installed that cannot be placed used to vanish without a word (null return,
  // paintBlack(null) swallowing it), so the head could lose a piece and the HUD would look finished.
- // Missing ids are now named in the scene note and on the canvas. (2026-09-21, item 11)
+ // Missing ids are now named in the scene note and on the canvas. (the owner 2026-09-21, item 11)
  const missingParts=[];
  async function placeSource(assetId,name,transform,note,extra={}){const source=sourceAssets.find(a=>a.id===assetId);if(!source){missingParts.push(assetId);canvas.dataset.missingParts=missingParts.join(' ');return null;}const id=await inspectSource(source.id),m=entries.get(id);transform(m.geometry);m.geometry.computeBoundingBox();
   Object.assign(m.userData,{sourceOnly:false,name,full:'Stella / Toolhead (installed) / '+name,layer:'toolhead',motion:'toolhead',center:m.geometry.boundingBox.getCenter(new THREE.Vector3()),motionOffset:new THREE.Vector3(),placement:{status:note},...extra});root.add(m);meshes.push(m);installed.push(m);return m;}
  // Centre a geometry on a world point after its own rotations, so a source model's arbitrary
  // origin never has to be guessed at. Returns the applied translation for the record.
  function centreOn(g,ops,at){for(const op of ops)op(g);g.computeBoundingBox();const c=g.boundingBox.getCenter(new THREE.Vector3());const t=new THREE.Vector3(...at).sub(c);g.translate(t.x,t.y,t.z);return t.toArray().map(v=>Number(v.toFixed(3)));}
- // our hotend is a Trianglelab CHC V6: V6 heatsink, heatbreak and nozzle (real CAD, already in the
+ // the owner's hotend is a Trianglelab CHC V6: V6 heatsink, heatbreak and nozzle (real CAD, already in the
  // assembly) with a ceramic heating core in place of the stock block and cartridge. No public CAD
  // exists for the core, so it is turned from Trianglelab's published dimensions: a 16 mm ceramic
  // cylinder tapering to the nozzle seat, 12 mm tall, on the nozzle axis.
@@ -607,7 +607,7 @@ export function createScene(canvas,onSelect,opts={}){
   const nb=nozzle.geometry.boundingBox,axis=[(nb.min.x+nb.max.x)/2,(nb.min.y+nb.max.y)/2];
   for(const m of meshes)if(/^head\.(block|cartridge)$/.test(m.userData.slot_id||''))m.userData.replacedByRapid=true;
   const profile=[[0,0],[8,0],[8,9],[6.4,12],[3.2,12.6],[3.2,13.4],[0,13.4]].map(([r,z])=>new THREE.Vector2(r,z));
-  // 2026-09-21: "the nozzle doesn't look anything like what it's supposed to." THREE revolves a
+  // the owner 2026-09-21: "the nozzle doesn't look anything like what it's supposed to." THREE revolves a
   // lathe about its own +Y, and the quarter turn that stands it on the nozzle axis was left as
   // rotateX(0) — a no-op — so the ceramic core was drawn lying on its side: 16 mm across X and Z
   // with its 13.4 mm height pointing at the back of the printer. Stood up.
@@ -622,7 +622,7 @@ export function createScene(canvas,onSelect,opts={}){
    slot_id:'head.core',layer:'toolhead',motion:'toolhead',center:g.boundingBox.getCenter(new THREE.Vector3()),motionOffset:new THREE.Vector3(),colorGroup:'toolhead',
    placement:{status:'On the measured nozzle axis of the reference V6'}};
   root.add(m);meshes.push(m);entries.set(id,m);installed.push(m);
-  // 2026-09-21: "there's also no silicone sock on my nozzle, and the nozzle doesn't look
+  // the owner 2026-09-21: "there's also no silicone sock on my nozzle, and the nozzle doesn't look
   // anything like what it's supposed to. It's supposed to be big, it's huge." Scale taken off his
   // photo 94ce96d4 (2026-09-14, the hotend from below with the cowl on) against the one known
   // dimension in the same frame: the brass V6 nozzle hex, 7.0 mm across flats, 8.08 across corners
@@ -632,9 +632,9 @@ export function createScene(canvas,onSelect,opts={}){
   // the core's own diameter stands. The sock is NOT in that photo (it is the newest hotend photo on
   // the drive and the core is bare in it), so its wall is the part type's, about 2 mm of silicone
   // around the core, giving a 20 mm outer envelope 15.4 mm tall: dark, matte, rounded, the big
-  // black block he describes. The 2 mm wall is the one number here that is not measured off our
+  // black block he describes. The 2 mm wall is the one number here that is not measured off the owner's
   // own machine and he should say if it looks wrong.
-  // NEXT review 2026-09-24: "you have images of my nozzle and the sock and have not built it properly with the
+  // NEXT review 2026-09-24, the owner: "you have images of my nozzle and the sock and have not built it properly with the
   // silicone sock." Photo 94ce96d4 IS the sock: off-white silicone, stained, hugging the core, the brass
   // top of the core showing above it and the brass hex and tip below. 17.2 mm across (core 16 plus a thin
   // skin), 16 mm tall, a rolled lip at the bottom around the nozzle hole. Replaces the guessed black 20 mm pot.
@@ -655,7 +655,7 @@ export function createScene(canvas,onSelect,opts={}){
   root.add(sock);meshes.push(sock);entries.set(sid,sock);installed.push(sock);
  }
  // The Rapid Burner's own fasteners: the reference CAD's stock-toolhead screws are suppressed with
- // the rest of that toolhead, so the cowl came out with no visible hardware at all (2026-09-21,
+ // the rest of that toolhead, so the cowl came out with no visible hardware at all (the owner 2026-09-21,
  // "no screws in the cowl"). Real M3 SHCS CAD from the reference assembly, cloned onto the holes
  // measured on the cowl's own front face: the two counterbores at X 110.6 and 143.4, Z 94.4 (
  // front-face scan) carry the cowl's mounting screws, and the 3010 sits on the standard 24 mm square
@@ -707,13 +707,13 @@ export function createScene(canvas,onSelect,opts={}){
   const orphans=[];for(const m of meshes){const d=m.userData;if(d.replacedByRapid||installed.includes(m))continue;if(gone.some(p=>(d.full||'').startsWith(p))){d.replacedByRapid=true;suppressed.push(d.name);orphans.push(d.id);}}
   canvas.dataset.orphans=JSON.stringify(orphans);
   canvas.dataset.suppressed=String(suppressed.length);window.__stellaSuppressed=suppressed;
-  // our own printed parts (his STLs, from the portable drive).
+  // the owner's own printed parts (his STLs, from the portable drive).
   const BLACK=0x1e1f22;const paintBlack=m=>{if(m){m.material.color.setHex(BLACK);m.material.roughness=.8;m.material.metalness=.05;}return m;};
   // The owner: "It's a Rapid Burner hotend. You have the front cowl, but not
   // the actual back piece that the cowl clips onto and screws onto. It's just open air there."
   // On a v2.4 the Rapid Burner rides on chirpy2605's two-part MGN12H mount, which takes the place
   // of the Afterburner X carriage frame the reference CAD carries. Rail half: the Lite with PCB
-  // lugs, the two ears standing on its top in our photos f31de800 and 151eddb3 (his chirpy PCB
+  // lugs, the two ears standing on its top in the owner's photos f31de800 and 151eddb3 (his chirpy PCB
   // carrier's lower lobes are 25.70 mm apart, the ears' insert spacing). Lower half: the Short
   // base, a guess over the Long: photo 94ce96d4 shows a printed part carrying a small board right
   // behind the nozzle, where the Short takes a probe, but no photo shows its profile.
@@ -726,7 +726,7 @@ export function createScene(canvas,onSelect,opts={}){
   const carriage=paintBlack(await placeSource('chirpy-mgn12h-x-carriage-lugs','X carriage · chirpy MGN12H Lite with PCB lugs',g=>{g.rotateX(-Math.PI/2);g.translate(...CARRIAGE_AT);},'Its four 3.4 mm holes on the X block\'s measured 20 x 20 mm pattern, seat face on the block front at Y 160; the Lugs variant from photos f31de800 and 151eddb3'));
   if(carriage)paintBlack(await placeSource('chirpy-carriage-base-short','Carriage base · chirpy short (guess)',g=>{g.rotateX(-Math.PI/2);g.translate(...CARRIAGE_BASE_AT);},'On the carriage\'s two bottom inserts; Short over Long is a guess. Its arm eyes meet the cowl\'s two rear inserts within 0.05 mm'));
   // Second pass : the part the cowl's two front screws go into, found and downloaded on
-  // our go: the Rapid Burner v8 hotend mount for a V6 and a Sherpa Mini (chirpy2605, V0/Rapid_Burner/
+  // the owner's go: the Rapid Burner v8 hotend mount for a V6 and a Sherpa Mini (chirpy2605, V0/Rapid_Burner/
   // STLs/v0.2/v6_Volcano). The first pass's V6_Mount_Rear/Front on the drive are the Dragon Burner's.
   // Rear half: a quarter turn about X; its two M3x10 holes (X 114.46 / 139.54, Z 82.00) on the
   // carriage's two toolhead holes (114.52 / 139.48), its back face on the carriage's front at
@@ -738,11 +738,11 @@ export function createScene(canvas,onSelect,opts={}){
   paintBlack(await placeSource('chirpy-rapid-burner-v6-mount-front','Hotend clamp · Rapid Burner v8, V6, front half',g=>{g.rotateX(-Math.PI/2);g.translate(...FRONT_AT);},'On the rear half\'s split face at Y 126.60, clamp holes on the rear half\'s inserts; the cowl\'s two front screws go into its two inserts'));
   // The V6 sits in the mount's 15.99 mm bore with the bore's 6.00 mm ridge in the heatsink's groove,
   // so the heatsink sits 5.83 mm higher and 0.29 mm further forward than the reference Afterburner
-  // held it. The length of our CHC V6 heat stack below the heatsink is on no drawing or photo, so
+  // held it. The length of the owner's CHC V6 heat stack below the heatsink is on no drawing or photo, so
   // the heatbreak and nozzle only come onto the bore's axis and keep their height: nozzle tip Z 28.70.
   const V6_SEAT=[0,-0.29,5.83],V6_AXIS=[0,-0.29,0];
   for(const m of meshes){const f=m.userData.full||'',d=/\/ E3D V6 All Metal Hotend:1 \/ Heatsink:1 \/|\/ E3D V6:1 \/ PTFE Tube \(40mm\):1 \//.test(f)?V6_SEAT:/\/ E3D V6 All Metal Hotend:1 \/ (Heatbreak|Nozzle):1 \//.test(f)?V6_AXIS:null;if(d){m.geometry.translate(...d);m.geometry.computeBoundingBox();m.userData.center=m.geometry.boundingBox.getCenter(new THREE.Vector3());}}
-  // 2026-09-23 measured it: the tip is NOZZLE_BELOW_COWL_MM under the cowl's lowest point. The tip
+  // the owner 2026-09-23 measured it: the tip is NOZZLE_BELOW_COWL_MM under the cowl's lowest point. The tip
   // stays the Z datum (establishMotion maps it to the printer's Z), so the mount chain keeps its place
   // on the gantry and the hotend below the heatsink is what grows: the nozzle comes down, and
   // fitHotend() builds the core and sock on it. As placed: cowl lowest point Z 28.50, tip 28.70 to
@@ -753,10 +753,10 @@ export function createScene(canvas,onSelect,opts={}){
    for(const m of nozzleParts){m.geometry.translate(0,0,-drop);m.geometry.computeBoundingBox();m.userData.center=m.geometry.boundingBox.getCenter(new THREE.Vector3());}canvas.dataset.nozzleDrop=drop.toFixed(2);}
   // With chirpy's mount on the block, the Afterburner frame is not on Stella, and nor is anything
   // the reference CAD bolts to it: both halves, the four block screws, inserts, nuts, the probe
-  // magnet, and the KW10 X endstop with its two screws (where our PG6 switch sits is in no photo).
+  // magnet, and the KW10 X endstop with its two screws (where the owner's PG6 switch sits is in no photo).
   const frameHidden=[];if(carriage)for(const m of meshes){const d=m.userData;if(!installed.includes(m)&&!d.replacedByRapid&&/\/ X Carriage:1 \/ X Carriage Frame:1 \//.test(d.full||'')){d.replacedByRapid=true;suppressed.push(d.name);frameHidden.push(d.id);}}
   canvas.dataset.suppressed=String(suppressed.length);canvas.dataset.carriageFrame=JSON.stringify(frameHidden);
-  // 2026-09-21: "the piece on top of the carriage piece that's missing, that's supposed to be
+  // the owner 2026-09-21: "the piece on top of the carriage piece that's missing, that's supposed to be
   // underneath the extruder, is not there, which is putting the extruder and the Sherpa right down
   // into the holder that stays on the rail." The mount was in the scene all along — it was stood on
   // edge. Its STL is a flat plate, 52.48 x 24.09 x 6.90 mm with the thickness on its own Z, and the
@@ -784,17 +784,17 @@ export function createScene(canvas,onSelect,opts={}){
   // onto its real mount (SHERPA_MOVE). This way up, its lower end then runs through the carriage, the
   // X block and the rail. Upside down, its two lower lobes land on the carriage's two ear inserts
   // and its other 43.9 mm pair on the frame screws, as chirpy draws it (pcb_toolhead.png), but no
-  // photo of our shows which way up his is, so it is left for him (stop report).
-  // our answer, 2026-09-23: "The tall tower points up on my printer; that's where the umbilical
+  // photo of the owner's shows which way up his is, so it is left for him (stop report).
+  // the owner's answer, 2026-09-23: "The tall tower points up on my printer; that's where the umbilical
   // goes." That overrides item 7's orientation: upside down from it, a half turn about Y, so the
   // bosses still face the rear. Measured as placed: its lower lobes' 3.4 mm holes on the carriage's
   // ear inserts (X 114.13 / 139.83, Z 98.07), its plate on their rear face at Y 168.06, its other
   // 43.90 mm pair at X 105.05 / 148.95, Z 131.96 on the Sherpa's frame screws (X 105.08 / 148.92,
   // Z 131.81), and no overlap with the carriage, the X block, the rail or the Sherpa.
   const CARRIER_AT=[-20.70,168.06,43.35];
-  paintBlack(await placeSource('stella-ebb42-carrier','EBB42 carrier · printed',g=>{g.rotateX(-Math.PI/2);g.translate(...CARRIER_AT);},'Printed 2026-09-14, carrier only, no spacers. Tall tower up, where the umbilical goes : lower lobes on the carriage\'s two ear inserts, plate on their rear face at Y 168.06, its other 43.90 mm hole pair on the Sherpa Mini\'s frame screws'));
+  paintBlack(await placeSource('stella-ebb42-carrier','EBB42 carrier · printed',g=>{g.rotateX(-Math.PI/2);g.translate(...CARRIER_AT);},'Printed 2026-09-14, carrier only, no spacers. Tall tower up, where the umbilical goes (the owner 2026-09-23): lower lobes on the carriage\'s two ear inserts, plate on their rear face at Y 168.06, its other 43.90 mm hole pair on the Sherpa Mini\'s frame screws'));
   for(const part of FITTED){const m=await placeSource(part.id,part.name,g=>{part.at&&centreOn(g,part.ops||[],part.move?shift(part.move,part.at):part.at);},part.note,part.fan?{fanKey:part.fan}:{});if(m&&/sherpa|ebb42|fan-3010/.test(part.id))paintBlack(m);if(m&&part.id==='btt-ebb42-v12')m.material.color.setHex(0x14231c);if(m&&part.fan)spinners.push({mesh:m,key:part.fan,speed:0,base:m.material.color.getHex()});}
-  // The reference CAD paints the V6 heatsink green; our is bare aluminium.
+  // The reference CAD paints the V6 heatsink green; the owner's is bare aluminium.
   for(const m of meshes)if(/^head\.(heatsink|heatbreak)$/.test(m.userData.slot_id||'')){m.material.color.setHex(0xb9bec4);m.material.metalness=.6;m.material.roughness=.35;}
   // Part cooling: two real 4010 blowers in the cowl's side windows, both driven by [fan]. the owner
   // supplied the STL on 2026-09-21 (40.00 x 40.00 x 10.00 mm, 8656 facets, measured on import).
@@ -807,7 +807,7 @@ export function createScene(canvas,onSelect,opts={}){
   const blowerSource=await inspectSource('fan-4010-blower').catch(()=>null);
   if(blowerSource){
    const donor=entries.get(blowerSource),record=sourceAssets.find(a=>a.id==='fan-4010-blower')||null;
-   // 2026-09-21, live, looking at the pair: "the outside is inside and inside is outside" — the
+   // the owner 2026-09-21, live, looking at the pair: "the outside is inside and inside is outside" — the
    // intake face pointed into the cowl on both. had mirrored the right one about its own X to
    // make a hand pair; that was the wrong correction and is gone. Both blowers now turn 180° about
    // world Z in place (a real rotation, no winding to reverse), which puts the intake face outboard
@@ -820,7 +820,7 @@ export function createScene(canvas,onSelect,opts={}){
    // world side, so only the left one came out outboard. The right one is mirrored about its own X
    // after the turn: intake outboard on both, outlet still toward the front on both. Real blowers
    // come as a handed pair, so the mirror is the physical truth, not a fudge.
-   // 2026-09-21, second look: "your fans are turned around the right way, but the exhaust of the
+   // the owner 2026-09-21, second look: "your fans are turned around the right way, but the exhaust of the
    // fan is pointing towards the front instead of down." A part cooling blower has to blow at the
    // nozzle. The outlet was at world -Y after the half turn about Z; a quarter turn about world X
    // carries -Y to -Z without touching the intake face, which stays outboard, and the 40 x 40 face
@@ -840,14 +840,14 @@ export function createScene(canvas,onSelect,opts={}){
   canvas.dataset.customToolhead=source.source_sha256;canvas.dataset.installedParts=String(installed.length);
  }
  // Reported position drives the meshes. Datum: nozzle tip in the CAD rest pose sits at (127,130.81,26.0) (on the
- // Rapid Burner mount's bore axis , NOZZLE_BELOW_COWL_MM under the cowl since our
+ // Rapid Burner mount's bore axis , NOZZLE_BELOW_COWL_MM under the cowl since the owner's
  // measurement on 2026-09-23) with the bed centre at (127,127) and the sheet top at Z≈0, so Klipper
  // (175,178.81,26.1) is the rest pose.
  // Approximate by construction (reference CAD, not a measured Stella); unhomed axes stay at rest.
  function establishMotion(){const nozzle=meshes.find(m=>m.userData.slot_id==='head.nozzle');const sheet=meshes.find(m=>m.userData.name==='Flex Sheet:1');const bed=sourceData?.printer_frame?.bed_center;if(!nozzle||!bed)return;
   const tip=nozzle.geometry.boundingBox;const z0=sheet?sheet.geometry.boundingBox.max.z:bed[2];sourceData.printer_frame.source_pose=[175+(tip.min.x+tip.max.x)/2-bed[0],175+(tip.min.y+tip.max.y)/2-bed[1],tip.min.z-z0];sourceData.printer_frame.motion_basis='Nozzle tip in reference CAD mapped to Klipper bed centre 175,175 and sheet top Z=0; approximate';
   for(const m of meshes){const d=m.userData;if(d.motion&&d.motion!=='fixed')continue;const s=d.slot_id||'';d.motion=/^head(\.|$)/.test(s)?'toolhead':s==='x_rail'?'x_axis':(d.layer==='gantry'&&/^(gantry|drive_a|drive_b)$/.test(s))?'gantry':'fixed';}
-  // 2026-09-21, watching it move: the Y rails slid along in Y with the X beam, and the Z
+  // the owner 2026-09-21, watching it move: the Y rails slid along in Y with the X beam, and the Z
   // carriages on the frame verticals stayed put while the gantry rose. Both classes come from the
   // stored asset mapping rather than from here, so they are corrected against the real machine:
   //   "MGN9 - 300mm (6)/(7)" under the XY joints ARE the gantry's Y rails. The joints slide along
@@ -857,11 +857,11 @@ export function createScene(canvas,onSelect,opts={}){
   //   ride up and down with it. They were 'fixed', so they stayed behind as the gantry moved. The
   //   vertical rails they run on stay 'fixed', which is why the path is matched and not just the name.
   for(const m of meshes){const d=m.userData,n=d.name||'',f=d.full||'';
-   // 2026-09-25: "two random screws sitting in mid-air." The rail-to-extrusion M3 screws in the
+   // the owner 2026-09-25: "two random screws sitting in mid-air." The rail-to-extrusion M3 screws in the
    // MGN9 Y rails' own subtree stayed 'x_axis' and slid along Y with the beam; they stay with the rail.
    if((/^MGN9 - 300mm/.test(n)||(/^M3x\d+ SHCS/.test(n)&&/\/ MGN9 - 300mm/.test(f)))&&/XY Joint - (Left|Right)/.test(f))d.motion='gantry';
    else if(/^MGN9H/.test(n)&&/Verticals Extrusions/.test(f))d.motion='gantry';
-   // 2026-09-21: "the print head's not staying on the piece that's on the rail." Measured in the
+   // the owner 2026-09-21: "the print head's not staying on the piece that's on the rail." Measured in the
    // loaded scene, the MGN12H block is the nine generic "PRODUCT_NAME_n" meshes under the rail,
    // X 104.3..149.7, Y 160..170, Z 64.2..91.2 — a 45 x 10 x 27 block wrapping the rail, i.e. the
    // part the toolhead is bolted to. They were 'x_axis', so they stayed on the beam while the
@@ -869,7 +869,7 @@ export function createScene(canvas,onSelect,opts={}){
    // X -13, 37, 87, 162, 212, 262 and reach up into the beam: those are the rail-to-beam screws
    // and stay 'x_axis'.
    else if(/^PRODUCT_NAME_/.test(n)&&/X Axis \(MGN12\)/.test(f)&&/MGN12 rail/.test(f))d.motion='toolhead';}
-  // 2026-09-21: "the rail and the X bar are still not moving together." The X beam is not in the
+  // the owner 2026-09-21: "the rail and the X bar are still not moving together." The X beam is not in the
   // gantry group at all — "Frame:1 / Gantry Extrusions:1" holds the whole gantry rectangle and all
   // 59 of its meshes came in 'fixed'. HFSB5-20-330 (X -88..342, Y 173..193, Z 67.7..87.7) is the X
   // beam and must travel in Y and Z with the MGN12 rail bolted to its front face; the other three
@@ -880,7 +880,7 @@ export function createScene(canvas,onSelect,opts={}){
   const beam=extrusions.map(m=>m.geometry.boundingBox).reduce((a,b)=>!a||b.max.x-b.min.x>a.max.x-a.min.x?b:a,null);
   if(beam)for(const m of extrusions){const b=m.geometry.boundingBox,pad=8;
    m.userData.motion=['x','y','z'].every(k=>b.min[k]>=beam.min[k]-pad&&b.max[k]<=beam.max[k]+pad)?'x_axis':'gantry';}
-  // 2026-09-21, live: "the belts don't move with the X beam." A Belt:1 and B Belt:1 are each a
+  // the owner 2026-09-21, live: "the belts don't move with the X beam." A Belt:1 and B Belt:1 are each a
   // single mesh carrying a whole CoreXY loop — X -107..361, Y -65..420 — arriving layer:'gantry'
   // with no slot_id, so the rule above left them 'fixed' and the entire loop stood still while the
   // beam slid out from under it. One loop cannot be one joint: the runs across the gantry travel in
@@ -908,7 +908,7 @@ export function createScene(canvas,onSelect,opts={}){
    m.userData={...belt.userData,id,record_id:instanceRecordId(id),name:belt.userData.name.replace(/:\d+$/,'')+' · gantry run',
     full:belt.userData.full+' / gantry run',motion:'x_axis',center:run.boundingBox.getCenter(new THREE.Vector3()),motionOffset:new THREE.Vector3(),
     placement:{status:'Split from the belt loop by triangle centroid Y inside the gantry band; the loop changes length in life and this half is drawn rigid'}};
-   // 2026-09-25: the belt loops at the toolhead sat still in the middle of the beam. The two
+   // the owner 2026-09-25: the belt loops at the toolhead sat still in the middle of the beam. The two
    // strands along the beam end at the carriage clamps, so they stretch and shorten as the head
    // moves and the clamp loops ride with it (strandBelts, every pose).
    m.userData.strand={orig:Float32Array.from(run.attributes.position.array),x0:run.boundingBox.min.x,x1:run.boundingBox.max.x,y0:railBox.min.y-25,y1:railBox.max.y+15};m.frustumCulled=false;
@@ -918,7 +918,7 @@ export function createScene(canvas,onSelect,opts={}){
     beam_bbox:[run.boundingBox.min.toArray(),run.boundingBox.max.toArray()].map(a=>a.map(v=>Number(v.toFixed(2)))),
     side_bbox:[g.boundingBox.min.toArray(),g.boundingBox.max.toArray()].map(a=>a.map(v=>Number(v.toFixed(2))))});}
   canvas.dataset.beltSplit=JSON.stringify(beltSplit);
-  // 2026-09-21: "the cable chain on the X rail isn't moving at all." The X chain is suppressed
+  // the owner 2026-09-21: "the cable chain on the X rail isn't moving at all." The X chain is suppressed
   // (Stella runs an umbilical), so what he is watching is the Y chain, and all eighteen of its links
   // arrived 'gantry' — Z only — so the whole chain rode up and down and never followed the beam in
   // Y. It is not one mesh: each link is its own, which is what makes the split honest. The chain is
@@ -928,7 +928,7 @@ export function createScene(canvas,onSelect,opts={}){
   // whose box starts above the fold plane is on the moving run. The U-turn between them is drawn
   // rigid and will open a gap as the gantry travels, because a link that rolls cannot be shown by a
   // rigid mesh; the owner judges whether that is better than a chain that never moves.
-  // 2026-09-24: "the cable chain is cut in half and sliding, not moving with the X bar." The
+  // the owner 2026-09-24: "the cable chain is cut in half and sliding, not moving with the X bar." The
   // split above drew the lower run 'fixed', so it stayed behind when the gantry rose, and the U-turn
   // was rigid. A drag chain rolls: every link keeps its place along the chain, the lower run lies
   // still on the gantry, the moving end travels with the XY joint and the bend travels at half that
@@ -942,7 +942,7 @@ export function createScene(canvas,onSelect,opts={}){
    const bend=links.filter(c=>c.z>zb+1&&c.z<zt-1),y0=Math.min(...links.map(c=>c.y));let yc=y0,best=Infinity;
    for(let y=y0;y<y0+2*R;y+=0.1){const d=bend.map(c=>Math.hypot(c.y-y,c.z-zc)),m=d.reduce((a,b)=>a+b,0)/Math.max(1,d.length),v=d.reduce((a,b)=>a+(b-m)**2,0);if(v<best){best=v;yc=y;}}
    const top=links.filter(c=>c.z>=zt-1),yEnd=Math.max(...top.map(c=>c.y));
-   // 2026-09-24, the front 70 mm: the reference chain is four links too short for 350 mm of
+   // the owner 2026-09-24, the front 70 mm: the reference chain is four links too short for 350 mm of
    // travel (at Y 0 the bend would have to sit behind the joint it feeds), so the drawn chain is
    // lengthened by whole links copied from its lower run, inserted where the lower run meets the
    // bend. The top run then never runs out, and the bend sits that much further forward.
@@ -985,7 +985,7 @@ export function createScene(canvas,onSelect,opts={}){
    m.userData.turning=true;spinners.push({mesh:m,key:'controller_fan',speed:0,base:m.userData.baseColor,turn:{axis,centre:b.getCenter(new THREE.Vector3())}});}
   canvas.dataset.fanRotors=String(spinners.filter(s=>s.rotor||s.turn).length);
   canvas.dataset.motion='mapped';}
- // 2026-09-24: "the fans don't move, they just flash." A fan now turns: each gets a rotor on its
+ // the owner 2026-09-24: "the fans don't move, they just flash." A fan now turns: each gets a rotor on its
  // intake (the fan STLs are one solid, so the blades are drawn), the skirt's 6020s turn their own
  // impellers, all at a visible fraction of the commanded speed, about 30 frames a second while any
  // runs. The flash is gone; a fan keeps a light cool tint while it runs.
@@ -997,13 +997,13 @@ export function createScene(canvas,onSelect,opts={}){
   if(any){schedule();spinFrame=requestAnimationFrame(spin);}}
  // A drawn rotor: hub and seven swept blades in the XY plane, turned to face along `axis`.
  function addRotor(mesh,centre,axis,radius){const g=new THREE.Group(),mat=new THREE.MeshStandardMaterial({color:0x16191c,metalness:.25,roughness:.6});
-  // Thin swept blades set inside the fan's opening, dark like the fan body (2026-09-25: the first
+  // Thin swept blades set inside the fan's opening, dark like the fan body (the owner 2026-09-25: the first
   // rotors were chunky blocks sticking out of the cowl).
   const hub=new THREE.Mesh(new THREE.CylinderGeometry(radius*.24,radius*.24,1.4,24),mat);hub.rotation.x=Math.PI/2;g.add(hub);
   for(let i=0;i<11;i++){const b=new THREE.Mesh(new THREE.BoxGeometry(radius*.46,radius*.2,.3),mat);const a=i/11*Math.PI*2;b.position.set(Math.cos(a)*radius*.74,Math.sin(a)*radius*.74,0);b.rotation.set(.65,0,a+.5);g.add(b);}
   g.position.copy(centre);g.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),axis.clone().normalize());
   const inner=new THREE.Group();while(g.children.length)inner.add(g.children[0]);g.add(inner);g.traverse(o=>{o.raycast=()=>{};});mesh.add(g);return inner;}
- // 2026-09-21: "if it's heating up, that should be glowing … the hot end should be glowing as
+ // the owner 2026-09-21: "if it's heating up, that should be glowing … the hot end should be glowing as
  // well," and separately "my print bed is now a different colour." Both are this function. Nothing
  // repainted the plate between the two builds — the purple build-plate default has been in
  // DEFAULT_GROUP_COLORS since 2026-09-20,  shipped — what changed is that the bed is at
@@ -1025,7 +1025,7 @@ export function createScene(canvas,onSelect,opts={}){
   for(const m of bedSheet)tint(m,bed,HOT_PLATE,.45,0xff2a08,.28);
   if(spinners.some(s=>s.speed>0)){if(!spinFrame)spinFrame=requestAnimationFrame(spin);}else schedule();}
  // source meshes of a fitted CAD that are not on Stella. BTT's EBB42 CAD ships
- // four M3x20+6 hex standoffs for mounting on a motor; our board sits on the chirpy carrier's
+ // four M3x20+6 hex standoffs for mounting on a motor; the owner's board sits on the chirpy carrier's
  // inserts, and those standoffs would stick 20 mm forward through the carrier, the upper two into
  // the Sherpa's motor.
  // second pass : the Annex Sherpa Mini STEP carries its front plate twice,

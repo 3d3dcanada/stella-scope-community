@@ -9,7 +9,7 @@
 //! same G-code it always did. PrusaLink and FlashForge are written against their own public specs in
 //! nothing here copies code from KX-Bridge, Bambuddy, OctoEverywhere or Klipper.
 //!
-//! Rule that outranks the rest : never present a value a printer did not report.
+//! Rule that outranks the rest (the owner, 2026-10-12): never present a value a printer did not report.
 //! A driver that cannot read something returns `null` for it, and the UI shows it as unknown.
 use crate::{
     config::Config,
@@ -227,6 +227,46 @@ pub enum Action {
     Cancel,
     StartPrint { filename: String },
     Gcode(String),
+}
+
+/// 0.6.2 (the owner 2026-10-29, the AD5M's Z-Mod; his rule for that printer is "never remove a file or a path to it"): macros
+/// that wipe the printer's storage, its password, its saved config or the mod itself, or that restart or power it. They are never offered as a
+/// button, shortcut, wheel entry or autocomplete line, and a send of one is refused by the service even with controls on. Klipper upper-cases
+/// command names, so the match is case-blind. Klipper's own RESTART and FIRMWARE_RESTART are not here (Stella has them as commands of its
+/// own); RESTART_SCREEN, which the owner's `_3d3d_helix_kick` runs, is harmless and stays.
+/// The names are Z-Mod macros the 10-28 capture of the AD5M listed (231 macros): beside the owner's five, the power and restart ones (REBOOT, SHUTDOWN), the two
+/// that flash firmware (ZFLASH, UPDATE_MCU) and the two that switch off or restart the SSH door (ZSSH_OFF, ZSSH_RESTART: a path to the printer), with the
+/// underscore twins that do the work. ponytail: a name Z-Mod adds later is caught by shape (REBOOT*, RESTART or REBOOT beside ZMOD) or added here.
+const DENIED_MACROS: &[&str] = &[
+    "REMOVE_ZMOD",
+    "CLEAR_EMMC",
+    "RESET_PASSWD",
+    "RESTORE_TAR_CONFIG",
+    "NEW_SAVE_CONFIG",
+    "REBOOT",
+    "_REBOOT",
+    "SHUTDOWN",
+    "_SHUTDOWN",
+    "_RESET_ZMOD",
+    "ZFLASH",
+    "UPDATE_MCU",
+    "ZSSH_OFF",
+    "ZSSH_RESTART",
+];
+pub fn is_denied_macro(name: &str) -> bool {
+    let n = name.trim().to_ascii_uppercase();
+    DENIED_MACROS.contains(&n.as_str())
+        || n.starts_with("SDCARD_")
+        || n.starts_with("REBOOT")
+        || (n.contains("ZMOD") && (n.contains("RESTART") || n.contains("REBOOT")))
+}
+/// The refusal for a typed or macro line: every line of the script is looked at by its first word. None means it may go.
+pub fn denied_command(script: &str) -> Option<String> {
+    script
+        .lines()
+        .filter_map(|l| l.split_whitespace().next())
+        .find(|w| is_denied_macro(w))
+        .map(|w| format!("{} is on the do-not-send list: it wipes or restarts the printer or removes its mod, so Stella Scope never sends it. Run it on the printer yourself if you mean it.", w.to_ascii_uppercase()))
 }
 
 /// One camera a driver offers.
@@ -448,8 +488,13 @@ impl Driver for MoonrakerDriver {
         bridged(self.cfg.printer_model.as_deref()).map_or("Klipper", |b| b.brand)
     }
     fn capabilities(&self) -> Capabilities {
-        bridged(self.cfg.printer_model.as_deref())
-            .map_or_else(Capabilities::klipper, |b| (b.caps)())
+        bridged(self.cfg.printer_model.as_deref()).map_or_else(
+            || Capabilities {
+                camera: crate::moonraker::has_webcam(&self.cfg.moonraker_url).unwrap_or(true),
+                ..Capabilities::klipper()
+            },
+            |b| (b.caps)(),
+        )
     }
     fn bed_hint(&mut self) -> Option<[f64; 2]> {
         bridged(self.cfg.printer_model.as_deref()).map(|b| b.bed)
@@ -594,6 +639,10 @@ impl Driver for MoonrakerDriver {
             }
             other => {
                 let script = Self::script_for(other).ok_or("that action has no Klipper script")?;
+                // the queue and any other caller reach the printer through here too: the do-not-send list holds on this path as well
+                if let Some(why) = denied_command(&script) {
+                    return Err(why);
+                }
                 self.client
                     .post("/printer/gcode/script", Some(&json!({"script": script})))
             }
@@ -754,5 +803,68 @@ mod tests {
             filename: "a.gcode".into()
         })
         .is_none());
+    }
+
+    /// A Moonraker that answers the discovery GETs and a webcam list of the test's choosing; returns its address.
+    fn moonraker_with_webcams(webcams: Value) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten().take(8) {
+                let mut stream = stream;
+                let mut buf = [0_u8; 2048];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let head = String::from_utf8_lossy(&buf[..n]).into_owned();
+                let result = if head.starts_with("GET /server/webcams/list") {
+                    json!({"result":{"webcams":webcams}})
+                } else {
+                    json!({"result":{"objects":["gcode_move","toolhead"]}})
+                };
+                let body = result.to_string();
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            }
+        });
+        format!("http://{address}")
+    }
+
+    /// 0.6.2 the 10-28 AD5M had no webcam and the page still drew a camera panel and asked for snapshots (502 each).
+    /// The capability is what Moonraker's webcam list says: an empty list is no camera, a listed enabled webcam is one.
+    #[test]
+    fn camera_capability_comes_from_the_moonraker_webcam_list() {
+        let none = Config {
+            moonraker_url: moonraker_with_webcams(json!([])),
+            ..Config::default()
+        };
+        assert!(
+            MoonrakerDriver::new(&none).capabilities().camera,
+            "true until Moonraker has answered"
+        );
+        crate::moonraker::Moonraker::new(&none).discover();
+        assert!(
+            !MoonrakerDriver::new(&none).capabilities().camera,
+            "an empty list is no camera"
+        );
+        let off = Config {
+            moonraker_url: moonraker_with_webcams(
+                json!([{"name":"video","enabled":false,"service":"mjpegstreamer"}]),
+            ),
+            ..Config::default()
+        };
+        crate::moonraker::Moonraker::new(&off).discover();
+        assert!(
+            !MoonrakerDriver::new(&off).capabilities().camera,
+            "a disabled webcam is no camera"
+        );
+        let some = Config {
+            moonraker_url: moonraker_with_webcams(
+                json!([{"name":"video","enabled":true,"service":"mjpegstreamer"}]),
+            ),
+            ..Config::default()
+        };
+        crate::moonraker::Moonraker::new(&some).discover();
+        assert!(MoonrakerDriver::new(&some).capabilities().camera);
+        // the rest of a Klipper printer's capabilities are untouched
+        assert!(MoonrakerDriver::new(&none).capabilities().klipper);
     }
 }

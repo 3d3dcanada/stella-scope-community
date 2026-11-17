@@ -9,7 +9,7 @@ const require=createRequire(import.meta.url),{chromium}=require(process.env.PLAY
 const base=process.env.HUD_URL;
 if(!base||!/^http:\/\/127\.0\.0\.1:\d+$/.test(base))throw Error('HUD_URL must be a loopback replay or demo instance.');
 const out=path.resolve(process.env.VALIDATION_DIR||'validation/hud');await fs.mkdir(out,{recursive:true});
-// a check that needs our September replay recording (a printer that is off, axes not yet homed, the head at
+// a check that needs the owner's September replay recording (a printer that is off, axes not yet homed, the head at
 // the CAD pose) runs only with HUD_FIXTURE=replay-2026-09; on a demo instance it is skipped, in words. HUD_CONTINUE=1 lists every failure instead of stopping.
 const fixture=async(name,run)=>process.env.HUD_FIXTURE==='replay-2026-09'?check(name,await run()):console.log('SKIP (needs the 2026-09 replay recording) '+name);
 const checks=[],failed=[],errors=[],requests=[];const check=(name,condition)=>{if(!condition&&process.env.HUD_CONTINUE==='1'){failed.push(name);console.log('FAIL '+name);return;}assert.ok(condition,name);checks.push(name);console.log('PASS '+name);};

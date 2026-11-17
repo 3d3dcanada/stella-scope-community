@@ -348,8 +348,11 @@ mod tests {
     fn refuses_path_separators_and_traversal_without_calling_moonraker() {
         for name in [
             "..%2Fprinter.cfg",
-            "sub%2Fpart.gcode",
             "..%5Cprinter.cfg",
+            "%2Fetc%2Fx.gcode",
+            "a%2F%2Fb.gcode",
+            "a%5Cb.gcode",
+            "sub%2F..%2Fx.gcode",
             "a..b.gcode",
             "",
         ] {
@@ -463,6 +466,87 @@ mod tests {
             "the largest thumbnail must be fetched, request was {:?}",
             requests[1].lines().next()
         );
+    }
+
+    // 0.6.2 Orca's upload to a Z-Mod AD5M lands in `3mf_print/`. The name with a folder and a space is accepted
+    // (the real job name from the 10-28 run), the picture is fetched from that folder's `.thumbs/`, and the toolpath proxy asks for the same path.
+    const SUBFOLDER_JOB: &str = "3mf_print/Demo R30 bracket(01)_PETG_0.2_1h48m.gcode";
+    #[test]
+    fn a_file_in_a_subfolder_has_its_thumbnail_in_that_folders_thumbs() {
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        png.extend_from_slice(b"subfolder-thumbnail");
+        let (url, worker) = fake_raw(vec![
+            (
+                "application/json",
+                json!({"result":{"thumbnails":[{"width":300,"height":300,"relative_path":".thumbs/Demo R30 bracket(01)-300x300.png"}]}})
+                    .to_string()
+                    .into_bytes(),
+            ),
+            ("image/png", png.clone()),
+        ]);
+        let target = format!(
+            "/api/print/thumbnail?filename={}",
+            crate::moonraker::encode(SUBFOLDER_JOB)
+        );
+        let response = thumbnail_handle("GET", &target, &cfg(url));
+        let requests = worker.join().unwrap();
+        assert_eq!(response.code, 200);
+        assert_eq!(response.body, png);
+        assert!(
+            requests[0].starts_with("GET /server/files/metadata?filename=3mf_print%2FDemo%20R30%20bracket%2801%29_PETG_0.2_1h48m.gcode "),
+            "metadata request was {:?}",
+            requests[0].lines().next()
+        );
+        assert!(
+            requests[1].starts_with("GET /server/files/gcodes/3mf_print/.thumbs/Demo%20R30%20bracket%2801%29-300x300.png "),
+            "thumbnail request was {:?}",
+            requests[1].lines().next()
+        );
+    }
+
+    #[test]
+    fn a_file_in_a_subfolder_is_proxied_by_its_path() {
+        let gcode = ";LAYER_CHANGE\n;Z:0.2\nG1 X10 Y10 E1\n".to_owned();
+        let (url, worker) = fake(vec![
+            (
+                "application/json",
+                json!({"result":{"size":gcode.len()}}).to_string(),
+            ),
+            ("text/plain", gcode.clone()),
+        ]);
+        let target = format!(
+            "/api/print/gcode?filename={}",
+            crate::moonraker::encode(SUBFOLDER_JOB)
+        );
+        let response = handle("GET", &target, &cfg(url));
+        let requests = worker.join().unwrap();
+        assert_eq!(response.code, 200);
+        assert_eq!(response.body, gcode.as_bytes());
+        assert!(
+            requests[1].starts_with("GET /server/files/gcodes/3mf_print/Demo%20R30%20bracket%2801%29_PETG_0.2_1h48m.gcode "),
+            "file request was {:?}",
+            requests[1].lines().next()
+        );
+    }
+
+    #[test]
+    fn the_name_check_takes_a_relative_path_and_refuses_the_rest() {
+        assert!(check_gcode_name(SUBFOLDER_JOB).is_ok());
+        assert!(check_gcode_name("cube.gcode").is_ok());
+        for bad in [
+            "../x.gcode",
+            "/etc/x",
+            "a//b.gcode",
+            "a\\b.gcode",
+            "a/",
+            "a/../b.gcode",
+            "a/b\n.gcode",
+            "a/\0.gcode",
+            "a.gcode?x=1",
+            "",
+        ] {
+            assert!(check_gcode_name(bad).is_err(), "{bad:?} must be refused");
+        }
     }
 
     // the picture of a dry run is the original file's, asked for by the original's name; a copy has none of its own.
@@ -1037,9 +1121,18 @@ pub fn history_handle(
                             "filament_used":s.filament_used,"metadata":{}})
                     })
                     .collect();
+                // the totals of every print this recorder saw, as Moonraker's history gives them. They were
+                // null on every printer that is not Klipper, so the Maintenance page had no print hours and no job ever came due.
+                let all = db
+                    .print_sessions(0.0, f64::MAX, 1_000_000)
+                    .unwrap_or_default();
+                let time: f64 = all.iter().filter_map(|s| s.duration_s).sum();
+                let filament: f64 = all.iter().filter_map(|s| s.filament_used).sum();
+                let longest = all.iter().filter_map(|s| s.duration_s).fold(0.0, f64::max);
                 Response::json(
                     200,
-                    json!({"source":"prints this recorder saw","jobs":jobs,"totals":null}),
+                    json!({"source":"prints this recorder saw","jobs":jobs,"totals":{"total_jobs":all.len(),"total_time":time,
+                        "total_print_time":time,"total_filament_used":filament,"longest_job":longest,"longest_print":longest}}),
                 )
             }
             Err(e) => Response::json(
@@ -1104,7 +1197,7 @@ pub fn history_handle(
     }
 }
 
-/// `GET /api/print/mesh-profiles`: the meshes Klipper has saved (2026-09-25: the bed panel only
+/// `GET /api/print/mesh-profiles`: the meshes Klipper has saved (the owner 2026-09-25: the bed panel only
 /// showed the newest adaptive mesh, a small rectangle over the last print, never the full saved one).
 pub fn mesh_profiles_handle(method: &str, cfg: &Config, ask_printer: bool) -> Response {
     if method != "GET" {

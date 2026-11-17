@@ -1,4 +1,4 @@
-// The farm's floor (2026-10-13: "better than Watchtower, by far ... the pop-ups the same way, clean,
+// The farm's floor (2026-10-13, the owner: "better than Watchtower, by far ... the pop-ups the same way, clean,
 // pro"): in-app pop-ups for every farm event, the alarm feed, every camera on one screen, spools, analytics
 // and the farm backup. Our own look (NEXT UI, docs/next-ui/BLUEPRINT.md) and words. Every figure is read
 // from the service, which reads it from the printers' own recordings: nothing here is estimated.
@@ -100,7 +100,7 @@ export function sheetFeed(){
 // ---- every camera on one screen ------------------------------------------------------------------
 // Browsers open about six connections to one host: the first four play, the rest show a picture every
 // 3 s. A cell shows the latest picture at once and swaps to the stream when its first frame lands.
-// Opened on demand only: no stream runs when this view is closed (Kobra X rule, 2026-10-12).
+// Opened on demand only: no stream runs when this view is closed (Kobra X rule, the owner 2026-10-12).
 export function camerasView(){
  if($('fl-cams'))return;
  const root=el('div','fl-cams');root.id='fl-cams';root.setAttribute('role','dialog');root.setAttribute('aria-label','Cameras');
@@ -156,6 +156,25 @@ export function camerasView(){
 
 // ---- spools --------------------------------------------------------------------------------------
 const MATERIALS=['PETG','ASA','PLA','ABS','TPU','PC','PA'];
+// (the owner: "spool colours ... select them with a little spool there, so people know what they're using"): a spool drawn in
+// its own colour; a press opens the common filament colours and "any colour", and the pick is the spool's colour at once.
+const SPOOL_COLOURS=[['#111111','Black'],['#F2F2F2','White'],['#8A8F94','Grey'],['#C7CCD1','Silver'],['#E0262B','Red'],['#FF6A00','Orange'],['#FFD21F','Yellow'],
+ ['#18A84A','Green'],['#04D9C4','Teal'],['#1F5FD6','Blue'],['#7A3FD1','Purple'],['#FF2D92','Pink'],['#8B5A2B','Brown'],['#C9A227','Gold']];
+const spoolSvg=()=>{const n='http://www.w3.org/2000/svg',svg=document.createElementNS(n,'svg');svg.setAttribute('viewBox','0 0 40 40');svg.setAttribute('aria-hidden','true');svg.classList.add('fl-spool-svg');
+ svg.innerHTML='<rect x="9" y="11" width="22" height="18" rx="2" class="fl-sp-fil"/><path d="M9 14h22M9 18h22M9 22h22M9 26h22" class="fl-sp-wind"/><rect x="5" y="6" width="5" height="28" rx="2.5" class="fl-sp-flange"/><rect x="30" y="6" width="5" height="28" rx="2.5" class="fl-sp-flange"/><circle cx="20" cy="20" r="2.4" class="fl-sp-hub"/>';return svg;};
+/** The spool button and its colour row. `value` is #rrggbb; `onPick(hex)` is called with the colour chosen (it may be async). */
+function spoolPicker(value,onPick,label='Spool colour'){
+ const wrap=el('div','fl-sp');let cur=value||'#9AA4B2';
+ const b=el('button','fl-sp-btn');b.type='button';b.style.setProperty('--sc',cur);b.append(spoolSvg());
+ const named=hex=>(SPOOL_COLOURS.find(([h])=>h.toLowerCase()===String(hex).toLowerCase())||[0,'custom colour'])[1];
+ const say=()=>{b.setAttribute('aria-label',`${label}: ${named(cur)}. Change it`);b.title=`${label}: ${named(cur)}`;};say();
+ const row=el('div','fl-sp-row');row.hidden=true;row.setAttribute('role','group');row.setAttribute('aria-label','Choose the spool colour');
+ const pick=async hex=>{const was=cur;cur=hex;b.style.setProperty('--sc',hex);say();row.hidden=true;b.setAttribute('aria-expanded','false');
+  try{await onPick(hex);}catch(e){cur=was;b.style.setProperty('--sc',was);say();toast(e.message,'alarm');}};
+ for(const [hex,name] of SPOOL_COLOURS){const sw=el('button','fl-sp-sw');sw.type='button';sw.style.setProperty('--c',hex);sw.title=name;sw.setAttribute('aria-label',name);sw.addEventListener('click',()=>pick(hex));row.append(sw);}
+ const any=el('input','fl-sp-any');any.type='color';any.value=/^#[0-9a-f]{6}$/i.test(cur)?cur:'#9AA4B2';any.title='Any colour';any.setAttribute('aria-label','Any colour');any.addEventListener('change',()=>pick(any.value));row.append(any);
+ b.setAttribute('aria-expanded','false');b.addEventListener('click',()=>{row.hidden=!row.hidden;b.setAttribute('aria-expanded',String(!row.hidden));});
+ wrap.append(b,row);wrap.get=()=>cur;return wrap;}
 export function sheetSpools(){
  openSheet({title:'Spools',icon:'i-spool',wide:true,eyebrow:'Filament',build:body=>{
   const msg=el('p','nx-note');msg.setAttribute('role','status');
@@ -171,7 +190,8 @@ export function sheetSpools(){
    for(const s of list){
     const c=el('article','fl-spool nx-glass');c.style.setProperty('--sc',s.colour||'#9AA4B2');if(s.low)c.dataset.low='';
     const ring=el('div','fl-spool-ring');const frac=Math.max(0,Math.min(1,(s.grams_left||0)/(s.grams_total||1)));ring.style.setProperty('--f',String(frac));ring.append(el('b','',kg(s.grams_left||0)),el('small','',`of ${kg(s.grams_total||0)}`));
-    const info=el('div','fl-spool-info');info.append(el('b','',[s.brand,s.material].filter(Boolean).join(' ')||s.material),el('span','',s.name||' '),
+    const head=el('div','fl-spool-head');head.append(can?spoolPicker(s.colour,async hex=>{await write('PATCH','/api/spools/'+s.id,{colour:hex});c.style.setProperty('--sc',hex);toast('Spool colour saved.','ok');}):(()=>{const v=el('span','fl-sp-btn fl-sp-view');v.style.setProperty('--sc',s.colour||'#9AA4B2');v.append(spoolSvg());return v;})(),el('b','',[s.brand,s.material].filter(Boolean).join(' ')||s.material));
+    const info=el('div','fl-spool-info');info.append(head,el('span','',s.name||' '),
      el('small','',s.printer_name?`On ${s.printer_name}`:'Not on a printer'),el('small','',`${kg(s.used_g||0)} used${s.price_per_kg?` · $${s.price_per_kg}/kg`:''}`));
     c.append(ring,info);
     if(s.low)c.append(el('span','fl-spool-low','LOW'));
@@ -197,16 +217,16 @@ function addForm(pl,after,msg){
  const mat=el('select','nx-input');mat.setAttribute('aria-label','Material');for(const m of MATERIALS)mat.append(new Option(m,m));
  const brand=el('input','nx-input');brand.placeholder='Brand';brand.setAttribute('aria-label','Brand');
  const name=el('input','nx-input');name.placeholder='Colour name';name.setAttribute('aria-label','Colour name');
- const col=el('input','fl-colour');col.type='color';col.value='#FF6A00';col.setAttribute('aria-label','Colour');
+ const col=spoolPicker('#FF6A00',()=>{},'New spool colour');
  // grams on a full spool and the price are the kit's gauges; the price is sent only if it was turned (a spool without one takes the farm price)
  const total=numberInput({label:'Grams on a full spool',unit:'g',min:100,max:5000,step:50,turn:300,value:1000,color:'var(--accent)',color2:'var(--accent-2)',size:92});
  let priced=false;const price=numberInput({label:'Price per kg',prefix:'$',min:0,max:150,step:.5,turn:300,value:25,color:'#FF6A00',color2:'#FFB067',size:92,onSet:()=>{priced=true;}});
  const on=el('select','nx-input');on.setAttribute('aria-label','Printer');on.append(new Option('Not on a printer',''));for(const p of pl.printers||[])on.append(new Option(p.name||p.id,p.id));
  const lab=(t,i)=>{const l=el('label','fl-field');l.append(el('span','',t),i);return l;};
  const nums=el('div','nx-numrow fl-numrow');nums.append(total,price);
- f.append(lab('Material',mat),lab('Brand',brand),lab('Colour',name),lab('',col),lab('On',on),nums,
+ f.append(lab('Material',mat),lab('Brand',brand),lab('Colour',name),lab('Spool',col),lab('On',on),nums,
   button({icon:'i-plus',label:'Add spool',kind:'primary',size:'row',title:'Add spool',does:'Adds this spool; if it is on a printer, that printer\'s prints count from now.',onPress:async b=>{busy(b,true);
-   try{await write('POST','/api/spools',{material:mat.value,brand:brand.value,name:name.value,colour:col.value,grams_total:total.get(),price_per_kg:priced?price.get():null,printer:on.value||null});toast('Spool added.','ok');after();}catch(x){msg.textContent=x.message;}finally{busy(b,false);}}}));
+   try{await write('POST','/api/spools',{material:mat.value,brand:brand.value,name:name.value,colour:col.get(),grams_total:total.get(),price_per_kg:priced?price.get():null,printer:on.value||null});toast('Spool added.','ok');after();}catch(x){msg.textContent=x.message;}finally{busy(b,false);}}}));
  return f;}
 function priceForm(d,after,msg){
  const f=el('div','fl-inline fl-priceform');let turned=false;const p=numberInput({label:'Farm price per kg',prefix:'$',min:0,max:150,step:.5,turn:300,value:d.price_per_kg??0,color:'#FF6A00',color2:'#FFB067',size:92,onSet:()=>{turned=true;}});
@@ -264,7 +284,7 @@ export function sheetBackup(){
 // ---- slicer upload -------------------------------------------------------------------------------
 // OrcaSlicer, PrusaSlicer and Bambu Studio send to an "OctoPrint" printer: this farm answers as one
 // and puts the file in the queue. The slicer gets its own key by default; the owner can also let the
-// farm key work there, or turn slicer uploads off .
+// farm key work there, or turn slicer uploads off (the owner 2026-10-13).
 export function sheetSlicer(){
  openSheet({title:'Slicer upload',icon:'i-key',eyebrow:'The queue',build:body=>{
   const msg=el('p','nx-note');msg.setAttribute('role','status');const host=el('div','fl-slicer');body.append(host,msg);

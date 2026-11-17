@@ -32,6 +32,13 @@ const MAX_FILE: usize = 64 * 1024 * 1024;
 /// How long a finished demo print sits on the plate before the demo prints it again, seconds.
 const REPEAT_AFTER_S: f64 = 90.0;
 
+#[path = "demo_camera.rs"]
+mod camera;
+#[path = "demo_klipper.rs"]
+mod klipper;
+pub use camera::jpeg as camera_jpeg;
+pub use klipper::{download_config, moonraker, resonance_hz, upload_config};
+
 static VASE: &[u8] = include_bytes!("../demo/stella-twist-vase.gcode.gz");
 static BOWL: &[u8] = include_bytes!("../demo/core-one-l-twist-bowl.gcode.gz");
 static SMALL: &[u8] = include_bytes!("../demo/small-twist-vase.gcode.gz");
@@ -164,6 +171,14 @@ impl Spec {
         let mut spec = Spec::catalogue(id);
         if !name.is_empty() {
             spec.model = name.to_owned();
+            // 0.6.2 : a demo with no model of its own borrows the Voron's machine, never its maker's name
+            // ("FlashForge Adventurer 5M" was shown as "VORON · FLASHFORGE ADVENTURER 5M").
+            if id == "voron_v24_350_printed"
+                && cfg.cad_model.as_deref() != Some(id)
+                && !name.to_ascii_uppercase().contains("VORON")
+            {
+                spec.brand = brand_of("", name);
+            }
         }
         // A tool bank chosen for the machine gives it that many tools, each waiting at the dock the bank puts it at
         // (the head's printer coordinates there): the data is the catalogue's, so the demo plays with the bank's files
@@ -358,6 +373,22 @@ fn demo_bank() -> Value {
     json!([{"option":"stealthchanger_bank","tools":["jabberwocky_jabberwocky_drive_conch","jabberwocky_jabberwocky_drive_conch","jabberwocky_jabberwocky_drive_conch"],"active":0}])
 }
 
+/// A demo Trident saved before its toolhead was drawn gets it (0.6.2 2026-10-30): a farm added with an older build, and the film's. A real printer's choices are its owner's.
+pub fn upgrade_entry(e: &mut PrinterEntry) {
+    if e.driver != "demo" || e.cad_model.as_deref() != Some("voron_trident_300") {
+        return;
+    }
+    if let Some(list) = e.cad_options.as_mut().and_then(Value::as_array_mut) {
+        if list.iter().any(|o| o["option"] == "trident_r2_gantry")
+            && !list
+                .iter()
+                .any(|o| o["option"] == "trident_r2_stealthburner")
+        {
+            list.push(json!({"option":"trident_r2_stealthburner"}));
+        }
+    }
+}
+
 const DEMO_ACCENTS: [&str; 6] = [
     "#04D9C4", "#FF6A00", "#FF2D92", "#18E36B", "#3D8BFF", "#B58CFF",
 ];
@@ -384,7 +415,7 @@ pub fn demo_farm() -> Vec<PrinterEntry> {
                 // it a head that moves in X and Y.
                 cad_options: match *id {
                     "demo-toolchanger" => Some(demo_bank()),
-                    "demo-trident" => Some(json!([{"option":"trident_r2_gantry"}])),
+                    "demo-trident" => Some(json!([{"option":"trident_r2_gantry"},{"option":"trident_r2_stealthburner"}])),
                     _ => None,
                 },
                 demo_start_at: Some(*start),
@@ -438,6 +469,8 @@ struct Move {
     layer: u32,
     /// Head speed during the move, mm/s.
     speed: f32,
+    /// Filament pushed through since the start of the file, mm (what `filament_used` reports and the spools are charged).
+    e: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -461,6 +494,8 @@ struct Plan {
     estimate_s: Option<f64>,
     first_nozzle: f64,
     first_bed: f64,
+    /// Where the printing moves lie: x min, y min, x max, y max (the one object a demo file has, for object exclusion).
+    bounds: [f64; 4],
 }
 
 /// `;estimated printing time (normal mode) = 1h 46m 20s` (PrusaSlicer) or `;TIME:6380` (Cura-style).
@@ -504,6 +539,11 @@ fn macro_param(line: &str, key: &str) -> Option<f64> {
     })
 }
 
+/// The XY distance between two points (a move that only changes Z or E is not a printing line).
+fn d0(a: &[f64; 3], b: &[f64; 3]) -> f64 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
+}
+
 /// `T0`, `T12`: a tool change (a macro named T... with letters is not one).
 fn tool_change(head: &str) -> Option<usize> {
     head.strip_prefix('T')
@@ -518,6 +558,8 @@ impl Plan {
         let mut pos = [0.0f64; 3];
         let (mut t, mut layer) = (0.0f64, 0u32);
         let mut offset = 0usize;
+        let (mut e_rel, mut e_pos, mut e_total) = (false, 0.0f64, 0.0f64);
+        let mut bounds = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
         for raw in bytes.split(|&b| b == b'\n') {
             offset += raw.len() + 1;
             let Ok(line) = std::str::from_utf8(raw) else {
@@ -556,6 +598,19 @@ impl Plan {
                     } else {
                         word(code, 'E').map_or(0.0, f64::abs)
                     };
+                    if let Some(e) = word(code, 'E') {
+                        let d = if e_rel { e } else { e - e_pos };
+                        e_pos = if e_rel { e_pos + e } else { e };
+                        e_total += d;
+                        if d > 0.0 && d0(&to, &pos) > 0.0 {
+                            bounds = [
+                                bounds[0].min(to[0]),
+                                bounds[1].min(to[1]),
+                                bounds[2].max(to[0]),
+                                bounds[3].max(to[1]),
+                            ];
+                        }
+                    }
                     if len <= 0.0 {
                         continue;
                     }
@@ -569,10 +624,18 @@ impl Plan {
                         z: pos[2] as f32,
                         layer,
                         speed: feed as f32,
+                        e: e_total.max(0.0) as f32,
                     });
                 }
                 "G90" => abs = true,
                 "G91" => abs = false,
+                "M82" => e_rel = false,
+                "M83" => e_rel = true,
+                "G92" => {
+                    if let Some(e) = word(code, 'E') {
+                        e_pos = e;
+                    }
+                }
                 "G28" => pos = [0.0, 0.0, 0.0],
                 "G4" => {
                     t += word(code, 'P').map_or(0.0, |ms| ms / 1000.0)
@@ -608,6 +671,11 @@ impl Plan {
             }
         }
         plan.layers = layer;
+        plan.bounds = if bounds[0] <= bounds[2] {
+            bounds
+        } else {
+            [0.0; 4]
+        };
         // Moves at raw feed rates ignore acceleration, so they run fast; stretch the clock to the
         // slicer's own estimate when the file has one.
         if let Some(est) = plan.estimate_s.filter(|e| *e > 0.0 && t > 0.0) {
@@ -885,6 +953,8 @@ struct State {
     start_at: Option<f64>,
     /// Start part way but paused.
     start_paused: bool,
+    /// Klipper's side: levelling, the mesh, the console, restarts (src/demo_klipper.rs).
+    k: klipper::Klip,
 }
 
 /// Where a demo that joins part way is in its sample print: `at` when it was added (0 to 1), moved on by the time since
@@ -900,6 +970,7 @@ fn joined_at(at: f64, paused: bool, since: Option<f64>, now: f64, total_s: f64) 
 
 struct Machine {
     spec: Spec,
+    kit: klipper::Kit,
     brand: &'static str,
     model: String,
     bed: [f64; 2],
@@ -936,7 +1007,10 @@ impl Machine {
         let start_at =
             start_at.map(|at| joined_at(at, paused, since, crate::model::now(), plan.total_s));
         let bed = spec.bed;
+        let kit = klipper::kit(&spec);
+        let k = klipper::Klip::new(&spec, &kit);
         Machine {
+            kit,
             brand: spec.brand,
             model: spec.model.clone(),
             bed,
@@ -969,6 +1043,7 @@ impl Machine {
                 last_ts: None,
                 start_at: start_at.map(|f| f.clamp(0.0, 1.0)),
                 start_paused: paused,
+                k,
             }),
         }
     }
@@ -980,6 +1055,13 @@ impl Machine {
     /// Load `index` and start it: homed, heaters to the file's first temperatures, waiting for heat.
     fn start(&self, s: &mut State, index: usize, ts: f64, at: f64) {
         let plan = s.files[index].plan.clone();
+        // what Klipper says when a file starts, so the console of a demo printer is not blank through a print
+        let opened = format!(
+            "File opened:{} Size:{}\nFile selected",
+            s.files[index].name,
+            s.files[index].bytes.len()
+        );
+        s.k.info(ts, &opened);
         s.current = Some(index);
         s.clock = plan.total_s * at;
         s.next_set = 0;
@@ -1045,8 +1127,13 @@ impl Machine {
         }
     }
 
-    /// Advance to sample time `ts`: heaters, the print clock, the repeat.
+    /// Advance to sample time `ts`: heaters, the print clock, the repeat, then Klipper's side (a routine moves the head).
     fn advance(&self, s: &mut State, ts: f64) {
+        self.advance_print(s, ts);
+        klipper::tick(self, s, ts);
+    }
+
+    fn advance_print(&self, s: &mut State, ts: f64) {
         if let Some(at) = s.start_at.take() {
             if s.job == Job::Idle {
                 if at >= 1.0 {
@@ -1117,13 +1204,32 @@ impl Machine {
     fn report(&self, s: &State, ts: f64) -> Value {
         let file = s.current.map(|i| &s.files[i]);
         let name = file.map_or("", |f| f.name.as_str());
+        let mut used = Value::Null;
+        // filament per mm of the move under way (the Print page's flow rate read "nothing reported" on every demo)
+        let mut e_per_mm = 0.0;
         let (progress, byte, size, layer, total_layers, velocity) = match file {
             Some(f) => {
                 let plan = &f.plan;
                 let total = plan.total_s.max(1e-9);
                 let (byte, layer, speed) = match (s.job, plan.moves.get(plan.index_at(s.clock))) {
                     (Job::Heating, _) | (_, None) => (0, 0, 0.0),
-                    (_, Some(m)) => (m.byte as usize, m.layer, m.speed as f64),
+                    (_, Some(m)) => {
+                        used = json!((m.e as f64 * 10.0).round() / 10.0);
+                        if let Some(p) = plan
+                            .index_at(s.clock)
+                            .checked_sub(1)
+                            .and_then(|i| plan.moves.get(i))
+                        {
+                            let d = d0(
+                                &[p.x as f64, p.y as f64, p.z as f64],
+                                &[m.x as f64, m.y as f64, m.z as f64],
+                            );
+                            if d > 0.0 {
+                                e_per_mm = ((m.e - p.e) as f64 / d).max(0.0);
+                            }
+                        }
+                        (m.byte as usize, m.layer, m.speed as f64)
+                    }
                 };
                 let moving = s.job == Job::Printing;
                 (
@@ -1157,7 +1263,7 @@ impl Machine {
         };
         let mut v = json!({
             "print_stats":{"state":s.job.word(),"filename":name,"total_duration":total_duration,
-                "print_duration":if s.current.is_some() { s.clock } else { 0.0 },"filament_used":Value::Null,
+                "print_duration":if s.current.is_some() { s.clock } else { 0.0 },"filament_used":used,
                 "message":if s.job == Job::Heating {"Heating up"} else {""},
                 "info":{"total_layer":if total_layers > 0 { json!(total_layers) } else { Value::Null },
                         "current_layer":if layer > 0 { json!(layer) } else { Value::Null }}},
@@ -1165,7 +1271,7 @@ impl Machine {
             "display_status":{"progress":progress,"message":Value::Null},
             "idle_timeout":{"state":idle},
             "webhooks":{"state":if s.job == Job::Error {"shutdown"} else {"ready"}},
-            "motion_report":{"live_position":p,"live_velocity":velocity,"live_extruder_velocity":Value::Null},
+            "motion_report":{"live_position":p,"live_velocity":velocity,"live_extruder_velocity":if s.job == Job::Printing { json!(velocity * e_per_mm * s.flow / 100.0) } else { Value::Null }},
             "toolhead":{"position":p,"homed_axes":homed,"max_velocity":self.spec.max_velocity,
                 "extruder":if s.tool == 0 { "extruder".to_owned() } else { format!("extruder{}", s.tool) },
                 "axis_minimum":[0.0,0.0,0.0,0.0],"axis_maximum":[self.bed[0],self.bed[1],self.max_z,0.0]},
@@ -1177,6 +1283,8 @@ impl Machine {
                 "power":if s.bed.1 > 0.0 { ((s.bed.1 - s.bed.0) / 15.0 + 0.25).clamp(0.0, 1.0) } else { 0.0 }},
             "fan":{"speed":s.fan},
             "heater_fan hotend_fan":{"speed":if s.nozzle.0 > 50.0 {1.0} else {0.0}},
+            // 0.6.2 (the owner 2026-10-30, "every fan the printer has"): a demo printer has the fans a real one has; the board fan runs while the motors or heaters are on, as Klipper's controller_fan does.
+            "controller_fan controller_fan":{"speed":if s.homed || s.nozzle.1 > 0.0 || s.bed.1 > 0.0 {0.6} else {0.0}},
         });
         // A toolchanger names its tools the way the Klipper toolchanger module does.
         if matches!(self.spec.tools, Tools::Changer(_)) {
@@ -1184,6 +1292,7 @@ impl Machine {
             v["toolchanger"] =
                 json!({"tool_number":s.tool,"tool_numbers":numbers,"status":"ready"});
         }
+        klipper::extend(self, s, &mut v, ts);
         v
     }
 }
@@ -1234,36 +1343,10 @@ impl Driver for Demo {
     fn brand(&self) -> &'static str {
         self.m.brand
     }
+    /// A demo printer is a Klipper machine of its kind (2026-11-01): it does everything the service does with
+    /// one, acted out by src/demo_klipper.rs.
     fn capabilities(&self) -> Capabilities {
-        Capabilities {
-            heat: true,
-            fan: true,
-            speed: true,
-            flow: true,
-            jog: true,
-            home: true,
-            motors_off: true,
-            extrude: true,
-            filament: false,
-            pause_resume: true,
-            cancel: true,
-            start_print: true,
-            upload: true,
-            console: false,
-            macros: false,
-            level: false,
-            mesh: false,
-            z_offset: false,
-            klipper: false,
-            restart: false,
-            emergency_stop: true,
-            camera: false,
-            thumbnails: true,
-            gcode_file: true,
-            live_xy: true,
-            xy: true,
-            push: false,
-        }
+        Capabilities::klipper()
     }
     fn bed_hint(&mut self) -> Option<[f64; 2]> {
         Some(self.m.bed)
@@ -1275,7 +1358,32 @@ impl Driver for Demo {
     fn sample(&mut self, ts: f64) -> Result<(Value, Vec<String>)> {
         let mut s = self.m.lock();
         self.m.advance(&mut s, ts);
+        // While Klipper restarts, Moonraker has nothing but its state to give: the readings drop out until it is back.
+        if s.k.klippy == "startup" {
+            return Ok((
+                json!({"webhooks":{"state":"startup","state_message":s.k.message}}),
+                Vec::new(),
+            ));
+        }
         Ok((self.m.report(&s, ts), Vec::new()))
+    }
+    fn fetch_config(&mut self) -> Result<Value> {
+        let s = self.m.lock();
+        Ok(klipper::settings(&s))
+    }
+    fn console(&self) -> Result<(Vec<crate::store::Event>, bool)> {
+        let mut s = self.m.lock();
+        Ok((klipper::console_since(&mut s), false))
+    }
+    fn print_context(&self, filename: &str) -> Result<(Value, Value)> {
+        Ok((self.file_metadata(filename)?, json!({})))
+    }
+    fn cameras(&self) -> Result<Vec<CameraSource>> {
+        Ok(vec![CameraSource {
+            name: "Demo camera".into(),
+            kind: "demo",
+            url: String::new(),
+        }])
     }
 
     fn snapshot(&self) -> Result<StateSnapshot> {
@@ -1284,7 +1392,7 @@ impl Driver for Demo {
             state: if s.job == Job::Error {
                 "shutdown"
             } else {
-                "ready"
+                s.k.klippy
             }
             .into(),
             homed_axes: if s.homed { "xyz" } else { "" }.into(),
@@ -1297,7 +1405,7 @@ impl Driver for Demo {
                 "idle"
             }
             .into(),
-            help: Default::default(),
+            help: klipper::help_names(&self.m.kit),
         })
     }
 
@@ -1382,7 +1490,13 @@ impl Driver for Demo {
                 s.repeat = index == 0;
                 self.m.start(&mut s, index, ts, 0.0);
             }
-            Action::Gcode(_) => return Err("the demo printer takes no typed G-code".into()),
+            Action::Gcode(script) => {
+                drop(s);
+                if let Some(why) = denied_command(script) {
+                    return Err(why);
+                }
+                klipper::run_script(&self.m, script)?;
+            }
         }
         Ok(json!({"result":"ok"}))
     }
@@ -1473,6 +1587,7 @@ impl Driver for Demo {
 
     fn emergency_stop(&self) -> Result<Value> {
         let mut s = self.m.lock();
+        klipper::emergency(&mut s, Demo::now());
         s.job = Job::Error;
         s.repeat = false;
         s.homed = false;
@@ -1714,7 +1829,9 @@ mod tests {
                 filename: "/etc/passwd".into()
             })
             .is_err());
-        assert!(d.act(&Action::Gcode("G28".into())).is_err());
+        // typed G-code is Klipper's now; an unknown command and a do-not-send macro are refused.
+        assert!(d.act(&Action::Gcode("NOT_A_COMMAND".into())).is_err());
+        assert!(d.act(&Action::Gcode("REMOVE_ZMOD".into())).is_err());
         d.emergency_stop().unwrap();
         assert_eq!(d.snapshot().unwrap().state, "shutdown");
     }
@@ -1782,7 +1899,8 @@ mod tests {
         assert_eq!(d.kind(), "demo");
         assert_eq!(d.brand(), "Prusa");
         let caps = d.capabilities();
-        assert!(caps.start_print && caps.upload && caps.live_xy && !caps.klipper && !caps.camera);
+        // a demo printer is a Klipper machine with a camera
+        assert!(caps.start_print && caps.upload && caps.live_xy && caps.klipper && caps.camera);
     }
 
     // ---- a demo printer for any catalogue machine ----------------------------------
@@ -1815,9 +1933,73 @@ mod tests {
     }
 
     #[test]
+    fn a_demo_trident_saved_before_its_head_was_drawn_gets_it_and_a_real_one_is_left_alone() {
+        let saved = || PrinterEntry {
+            driver: "demo".into(),
+            cad_model: Some("voron_trident_300".into()),
+            cad_options: Some(json!([{"option":"trident_r2_gantry"}])),
+            ..PrinterEntry::default()
+        };
+        let mut e = saved();
+        upgrade_entry(&mut e);
+        assert_eq!(
+            e.cad_options,
+            Some(json!([{"option":"trident_r2_gantry"},{"option":"trident_r2_stealthburner"}]))
+        );
+        upgrade_entry(&mut e);
+        assert_eq!(
+            e.cad_options.as_ref().unwrap().as_array().unwrap().len(),
+            2,
+            "once"
+        );
+        let mut real = saved();
+        real.driver = "moonraker".into();
+        upgrade_entry(&mut real);
+        assert_eq!(real.cad_options, saved().cad_options);
+        let mut bare = PrinterEntry {
+            driver: "demo".into(),
+            cad_model: Some("voron_trident_300".into()),
+            ..PrinterEntry::default()
+        };
+        upgrade_entry(&mut bare);
+        assert!(
+            bare.cad_options.is_none(),
+            "one with no gantry chosen has nothing to hang it on"
+        );
+    }
+
+    /// 0.6.2 (the owner 2026-10-30, "every fan the printer has"): a demo printer reports the three fans a real one has, under the names the page finds them by; the part fan is the file's, the hotend fan runs on a hot nozzle, the board fan with the motors or heaters.
+    #[test]
+    fn a_demo_printer_reports_every_fan_a_printer_has() {
+        let c = cfg("three-fans", "Voron 2.4 350", Some(0.5));
+        let (v, _) = Demo::open(&c).sample(1000.0).unwrap();
+        assert!(crate::model::part_fan(&v)["speed"].is_number());
+        assert_eq!(
+            crate::model::hotend_fan(&v)["speed"],
+            json!(1.0),
+            "a hot nozzle"
+        );
+        assert!(
+            crate::model::controller_fan(&v)["speed"].as_f64().unwrap() > 0.0,
+            "it is printing"
+        );
+        let cold = cfg("three-fans-cold", "Voron 2.4 350", None);
+        let (v, _) = Demo::open(&cold).sample(1000.0).unwrap();
+        assert_eq!(
+            (
+                crate::model::hotend_fan(&v)["speed"].clone(),
+                crate::model::controller_fan(&v)["speed"].clone()
+            ),
+            (json!(0.0), json!(0.0)),
+            "a cold idle printer has them off, and still has them"
+        );
+    }
+
+    #[test]
     fn a_demo_printer_takes_its_bed_travel_and_kinematics_from_its_machine() {
         // (catalogue id, bed, Z travel, what moves). The V2.4's gantry climbs, the Trident's, V0's and CORE's
-        // beds drop, the Ender's bed slides in Y; the DoomCube has no registered motion, so nothing is claimed.
+        // beds drop, the Ender's bed slides in Y; the half-Z Trident has no registered motion, so nothing is claimed. (0.6.2 2026-10-30: the DoomCube held that place until its motion was
+        // measured off its model, the owner: every demo machine moves; it climbs like the V2.4.)
         let table = [
             ("voron_v24_350_printed", 350.0, 330.0, Frame::GantryZ),
             ("voron_v24_300_printed", 300.0, 280.0, Frame::GantryZ),
@@ -1828,7 +2010,13 @@ mod tests {
             // the SV08's travel now reaches its plate, from the nozzle and plate measured in its model
             // (printer-print-frames.json): Z runs from -8.0 to the registered 300, so 308 (it was 300 from the pose).
             ("sovol_sv08_350", 350.0, 308.0, Frame::GantryZ),
-            ("doomcube2_350_reference", 350.0, 350.0, Frame::Unregistered),
+            ("doomcube2_350_reference", 350.0, 350.0, Frame::GantryZ),
+            (
+                "voron_trident_350_half_z",
+                350.0,
+                350.0,
+                Frame::Unregistered,
+            ),
             ("ender3_stock_220", 220.0, 244.0, Frame::BedY),
         ];
         for (id, bed, z, frame) in table {
@@ -2424,6 +2612,9 @@ mod tests {
             (d.brand(), d.model_hint().as_deref(), d.bed_hint()),
             ("Prusa", Some("CORE One L"), Some([300.0, 300.0]))
         );
+        // A demo with no model of its own is not called a Voron.
+        let d = Demo::open(&cfg("legacy-c", "FlashForge Adventurer 5M", None));
+        assert_eq!(d.brand(), "FlashForge");
     }
 }
 

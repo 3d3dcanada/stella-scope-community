@@ -1,4 +1,4 @@
-//! Stella for phones . The app keeps a list of printers (each a Stella Scope link
+//! Stella for phones (the owner 2026-09-25). The app keeps a list of printers (each a Stella Scope link
 //! id, scanned from the desktop's QR code). Opening one starts a stella-link tunnel on a loopback
 //! port fixed for that printer and loads Stella Scope through it; pairing and every control check
 //! happen on the desktop exactly as on the home network.

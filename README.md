@@ -4,11 +4,7 @@
 
 ![The farm wall: every printer at a glance](docs/screenshots/farm.webp)
 
-Built by [3D3D](https://3d3d.ca) in New Brunswick, Canada, on and for our own farm: a Voron 2.4 R2 350, a Prusa CORE One L, a FlashForge Adventurer 5M and an Anycubic Kobra X.
-
-> **This is the open-source edition: Stella Scope 0.6.1, under the AGPL-3.0, with no printer models included.** Build it, change it, add
-> your own printer models in the app (Printer models, then Install a file I downloaded) or wire in whatever your machine needs. The current app (0.6.3 and later) is
-> 3D3D's own software, free for up to five printers, at [3d3d.ca/software/stella](https://3d3d.ca/software/stella).
+Built by [3D3D](https://3d3d.ca) in New Brunswick, Canada, on and for our own farm: a Voron 2.4 R2 350, a Prusa CORE One L, a FlashForge Adventurer 5M and an Anycubic Kobra X. Downloads and a plain-language overview: [3d3d.ca/software/stella](https://3d3d.ca/software/stella).
 
 ## What it does
 
@@ -34,8 +30,11 @@ Stella Scope is a recorder first. Printer controls are **off** unless you set `c
 
 ## Install
 
-This edition is built from source. Ready-made installers for Linux, Windows and Android are the current app, at
-[3d3d.ca/software/stella](https://3d3d.ca/software/stella#download).
+**Linux (Debian, Ubuntu and derivatives):** download the `.deb` from [3d3d.ca/software/stella](https://3d3d.ca/software/stella#download), then `sudo apt install ./stella-scope_0.6.3_amd64.deb`.
+
+**Windows 10 and 11:** download `stella-scope_0.6.3_x64-setup.exe` from the same page and run it.
+
+**Android:** download the `.apk` from the same page, sideload it, then scan the pairing code shown on your computer.
 
 **From source** (Rust stable, Git, a C compiler):
 
@@ -63,11 +62,9 @@ More printers are added from the farm wall (Add a printer) or under `printers` i
 
 To run it as a service on the printer's host, see [deploy/README.md](deploy/README.md). Nothing there is installed automatically.
 
-## Printer models
+## Free, with no printer limit
 
-None are included. The 3D view works with any model you give it: open Printer models from the farm wall, pick the machine, then Install a file
-I downloaded (a `.glb` or `.glb.gz`), or download one from its maker's published file where the catalogue lists one. Without a model, the printer's
-dials, recorder, calibration and reports all work; only the 3D drawing is empty.
+Stella Scope is open source under the AGPL-3.0, with no limit on printers and no licence key. Simulated demo printers run alongside real ones. Contributions are welcome (issues and pull requests); donations are welcome and never expected.
 
 ## What is in this repository
 
@@ -78,7 +75,7 @@ dials, recorder, calibration and reports all work; only the 3D drawing is empty.
 | `mobile/` | The Android app. It dials a paired Stella Scope by key and shows it. |
 | `link/` | The phone link: an end-to-end encrypted pipe over [iroh](https://www.iroh.computer/) with NAT traversal and relay fallback. |
 | `eye/` | Print-failure detection with Obico's open model, run locally with [tract](https://github.com/sonos/tract). |
-| `demo/` | The demo farm's sample prints. |
+| `demo/` | The demo farm's sample prints. No printer 3D model is in this repository: the app downloads them on request. |
 | `deploy/` | An optional, hand-installed systemd service template. |
 | `scripts/`, `tools/` | Test, smoke and evidence scripts. |
 | `docs/` | The user guide, release notes, licences and notices. Start with [docs/RELEASE-NOTES-0.6.md](docs/RELEASE-NOTES-0.6.md). |
@@ -92,7 +89,7 @@ for t in scripts/*-tests.mjs; do node "$t" || break; done
 
 ## Status
 
-Version 0.6.1, open-source edition, published 2026-11-15 without printer models. It is not updated with the current app; fixes and new versions ship at 3d3d.ca. It is run daily on a Voron 2.4 R2 350 (Klipper), a Prusa CORE One L (PrusaLink) and a FlashForge Adventurer 5M; other printers of those families should work but have not all been tested. Bambu Lab printers are not supported yet. Known gaps are listed in the release notes.
+Version 0.6.3. Linux (x86-64), Windows (x64) and Android builds are current; macOS is not available yet. The Windows build is new and has had less use than Linux: use Feedback inside the app to tell us what goes wrong. It is run daily on a Voron 2.4 R2 350 (Klipper), a Prusa CORE One L (PrusaLink) and a FlashForge Adventurer 5M; other printers of those families should work but have not all been tested. Bambu Lab printers are not supported yet. The 3D models are drawn from open-licence files where they exist and are schematic elsewhere. Known gaps are listed in the release notes.
 
 ## Licence
 

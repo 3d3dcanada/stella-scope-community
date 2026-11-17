@@ -13,6 +13,11 @@ pub fn encode(s: &str) -> String {
     }
     out
 }
+/// A relative path for a URL path: each segment percent-encoded, the `/` between them kept (files in
+/// Moonraker sub-folders, 2026-10-29).
+pub fn encode_path(p: &str) -> String {
+    p.split('/').map(encode).collect::<Vec<_>>().join("/")
+}
 pub fn object_query(objects: &[String]) -> String {
     objects
         .iter()
@@ -24,21 +29,39 @@ pub fn object_query(objects: &[String]) -> String {
         .join("&")
 }
 
-/// One plain file name in Moonraker's gcodes root. Path separators and `..` are refused outright,
-/// so a request can only ever name a file the printer already lists.
+/// One file in Moonraker's gcodes root, as `GET /api/files` lists it: a plain name, or a relative path inside
+/// the root (the owner, 2026-10-29: Orca's upload to a Z-Mod AD5M lands in `3mf_print/`, and the old plain-name rule
+/// gave those prints no thumbnail and no toolpath). `..` anywhere, a leading `/`, `\`, an empty segment and
+/// control characters are refused, so a request can still only name a file under the root.
 pub fn check_gcode_name(filename: &str) -> Result<()> {
     if filename.is_empty()
         || filename.len() > 200
-        || filename.contains(['/', '\\', '?', '#'])
+        || filename.contains(['\\', '?', '#'])
         || filename.contains("..")
+        || filename.starts_with('/')
+        || filename.split('/').any(str::is_empty)
         || filename.chars().any(char::is_control)
     {
         return Err(
-            "filename must be one plain file in Moonraker's gcodes root, with no path separators; take a name from GET /api/files"
+            "filename must be a plain file or a relative path inside Moonraker's gcodes root (no `..`, no leading or doubled `/`, no `\\`); take a name from GET /api/files"
                 .into(),
         );
     }
     Ok(())
+}
+
+type WebcamCache = std::sync::Mutex<std::collections::HashMap<String, bool>>;
+fn webcam_cache() -> &'static WebcamCache {
+    static C: std::sync::OnceLock<WebcamCache> = std::sync::OnceLock::new();
+    C.get_or_init(Default::default)
+}
+/// Whether the Moonraker at this address listed an enabled webcam the last time discovery asked; None until it has answered once.
+pub fn has_webcam(url: &str) -> Option<bool> {
+    webcam_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(url)
+        .copied()
 }
 
 /// every "Moonraker did not answer at all" error starts with this, so the
@@ -91,7 +114,15 @@ impl Moonraker {
             next_host: 0.0,
         }
     }
+    /// A demo printer's Klipper lives in this process (src/demo_klipper.rs, ): every call of a demo
+    /// printer is answered there, so each page and command that reads or drives a Klipper printer works on it unchanged.
+    fn demo(&self) -> bool {
+        self.cfg.driver == "demo"
+    }
     pub fn get(&self, path: &str) -> Result<Value> {
+        if self.demo() {
+            return crate::demo::moonraker(&self.cfg, "GET", path, None);
+        }
         if self.cfg.moonraker_url.trim().is_empty() {
             return Err(crate::config::NO_PRINTER.into());
         }
@@ -133,6 +164,9 @@ impl Moonraker {
         v.get("result").cloned().ok_or_else(||"Moonraker response has no result; check that moonraker_url points to Moonraker, not another service".into())
     }
     pub fn post(&self, path: &str, body: Option<&Value>) -> Result<Value> {
+        if self.demo() {
+            return crate::demo::moonraker(&self.cfg, "POST", path, body);
+        }
         if self.cfg.moonraker_url.trim().is_empty() {
             return Err(crate::config::NO_PRINTER.into());
         }
@@ -160,6 +194,9 @@ impl Moonraker {
     /// DELETE with the command timeout, for the job queue. Same failure wording as `post`:
     /// a DELETE that does not confirm leaves the outcome unknown, and nothing is retried.
     pub fn delete(&self, path: &str) -> Result<Value> {
+        if self.demo() {
+            return crate::demo::moonraker(&self.cfg, "DELETE", path, None);
+        }
         if self.cfg.moonraker_url.trim().is_empty() {
             return Err(crate::config::NO_PRINTER.into());
         }
@@ -222,6 +259,9 @@ impl Moonraker {
         if path.contains(['?', '#', '\r', '\n']) || path.contains("..") || path.len() > 200 {
             return Err("config path has unexpected characters; refusing the download".into());
         }
+        if self.demo() {
+            return crate::demo::download_config(&self.cfg, path);
+        }
         let url = format!(
             "{}/server/files/config/{}",
             self.cfg.moonraker_url.trim_end_matches('/'),
@@ -267,6 +307,9 @@ impl Moonraker {
             return Err(
                 "config file contains the upload boundary marker; refusing to upload it".into(),
             );
+        }
+        if self.demo() {
+            return crate::demo::upload_config(&self.cfg, path, content);
         }
         let mut body = String::new();
         for (name, value) in [("root", "config"), ("path", path)] {
@@ -386,9 +429,27 @@ impl Moonraker {
             .cloned()
             .collect()
     }
+    /// 0.6.2 whether this printer has a camera is what Moonraker's own webcam list says, not an
+    /// assumption (an AD5M with no camera showed a camera panel and made 502 snapshot calls). Remembered per address for
+    /// `driver::capabilities`; a bridge that answers as Moonraker (`Kobra X`) keeps its table entry and is not asked.
+    fn note_webcams(&self) {
+        if crate::driver::bridged(self.cfg.printer_model.as_deref()).is_some() {
+            return;
+        }
+        if let Ok(v) = self.get("/server/webcams/list") {
+            let any = v["webcams"]
+                .as_array()
+                .is_some_and(|rows| rows.iter().any(|c| c["enabled"].as_bool() != Some(false)));
+            webcam_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(self.cfg.moonraker_url.clone(), any);
+        }
+    }
     pub fn discover(&mut self) {
         self.missing.clear();
         self.capture = Value::Null;
+        self.note_webcams();
         match self.get("/printer/objects/list") {
             Ok(v) => {
                 if let Some(names) = v["objects"].as_array() {
@@ -415,6 +476,11 @@ impl Moonraker {
     }
     pub fn manifest(&self) -> Value {
         self.capture.clone()
+    }
+    /// The objects this printer will be asked for: after `discover`, what it really reports (configured
+    /// names it has, plus the extras discovery adds); before, or when discovery fails, the configured list.
+    pub fn available(&self) -> &[String] {
+        &self.available
     }
     // Opt-in host statistics on their own cadence; shared by the poll path and the push path.
     pub fn host_tick(&mut self, ts: f64) -> Value {
@@ -521,7 +587,7 @@ impl Moonraker {
         let url = format!(
             "{}/server/files/gcodes/{}",
             self.cfg.moonraker_url.trim_end_matches('/'),
-            encode(filename)
+            encode_path(filename)
         );
         let size = self.file_metadata(filename)?["size"]
             .as_f64()
@@ -559,7 +625,7 @@ impl Moonraker {
         let url = format!(
             "{}/server/files/gcodes/{}",
             self.cfg.moonraker_url.trim_end_matches('/'),
-            encode(filename)
+            encode_path(filename)
         );
         let mut request = self
             .agent
@@ -635,7 +701,11 @@ impl Moonraker {
         {
             return Err("thumbnail name is not a plain .png in the gcodes root".into());
         }
-        let encoded_path = thumb.split('/').map(encode).collect::<Vec<_>>().join("/");
+        // Moonraker gives `relative_path` relative to the file's own folder, so a file in `3mf_print/` has its picture in `3mf_print/.thumbs/`.
+        let dir = filename
+            .rsplit_once('/')
+            .map_or(String::new(), |(d, _)| format!("{d}/"));
+        let encoded_path = encode_path(&format!("{dir}{thumb}"));
         let url = format!(
             "{}/server/files/gcodes/{}",
             self.cfg.moonraker_url.trim_end_matches('/'),

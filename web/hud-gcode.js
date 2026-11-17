@@ -135,7 +135,7 @@ export function parseGcode(text, { maxSegments = 2_000_000 } = {}) {
  const closeLayer = () => {
   if (!cur || cur.count === 0) return;
   const from = cur.start, to = cur.start + cur.count;
-  // 2026-09-21: the done ramp ran ahead of the head inside a layer. The layer was right to
+  // the owner 2026-09-21: the done ramp ran ahead of the head inside a layer. The layer was right to
   // 0.02 mm in Z, but the segment inside it was found by splitting the layer's byte span evenly
   // over its segments, which put the boundary up to 29 mm away in XY. Each segment now carries the
   // byte it starts at, so the drawn boundary is the move the printer is actually reading.

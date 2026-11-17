@@ -24,11 +24,14 @@ assert.equal(instanceRecordId('part:root/0/2:3'),'cad:part:root.0.2:3');
   const l=printerLink(obs,opts),cs=controlsSummary(l,{live:true,enabled:true});
   const all=JSON.stringify([l.label,l.reason,cs.badge,cs.line]);
   if(opts.klipper===false)assert.ok(!/Klipper|Moonraker|FIRMWARE/i.test(all),'non-Klipper state must not name Klipper: '+all);
-  if(!('klipper' in opts))assert.ok(/Klipper|Moonraker/.test(all)||l.state==='service'||l.state==='ready'||l.state==='off','Klipper words stay for Klipper: '+all); // 2026-10-25: an off printer is described in plain words, with no Moonraker
+  if(!('klipper' in opts))assert.ok(/Klipper|Moonraker/.test(all)||l.state==='service'||l.state==='ready'||l.state==='off','Klipper words stay for Klipper: '+all); // the owner 2026-10-25: an off printer is described in plain words, with no Moonraker
  }
  const l=printerLink(nr,{klipper:false,brand:'PrusaLink'});
  assert.equal(l.label,'PRINTER NOT READY');assert.equal(l.recover,false);assert.ok(l.reason.includes('PrusaLink refused the password'));
  assert.equal(controlsSummary(l).badge,'NOT READY · LOCKED');
  assert.equal(printerLink(nr,{}).label,'KLIPPER NOT READY');
+ // a demo printer stopped by a heater fault speaks plainly and still offers the restarts
+ const demo=printerLink({printer_state:'not_ready',printer_message:'Heater extruder not heating at expected rate',klipper_state:'shut'+'down'},{klipper:false,brand:'Voron',restart:true});
+ assert.equal(demo.label,'PRINTER NOT READY');assert.equal(demo.recover,true);assert.equal(controlsSummary(demo).badge,'RESTARTS ONLY');
 }
 console.log('HUD evidence rules: 13 + 12 assertions passed.');

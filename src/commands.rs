@@ -61,7 +61,7 @@ enum Params {
     /// `speed` = mm/s of filament; the length is fixed per command
     Filament,
     /// `value` = nozzle °C. Runs the printer's own LOAD_FILAMENT / UNLOAD_FILAMENT macro with it
-    /// (2026-09-28: the macros park, heat and purge; the raw G1 above is only a hand feed).
+    /// (the owner 2026-09-28: the macros park, heat and purge; the raw G1 above is only a hand feed).
     FilamentMacro,
     /// Handled inside Stella Scope; nothing is sent to the printer
     Local,
@@ -127,6 +127,102 @@ const EXTRUDE_MAX_MM: f64 = 200.0;
 const ZOFFSET_STEP_MAX_MM: f64 = 1.0;
 const CONSOLE_MAX_CHARS: usize = 256;
 const BED_MAX_C: f64 = 120.0;
+
+/// the nozzle and bed limits hold on a typed G-code line and on a macro's parameters too, not only on
+/// the heat dials. Reads M104/M109 (nozzle), M140/M190 (bed), SET_HEATER_TEMPERATURE and PID_CALIBRATE (by heater: extruders take the
+/// nozzle limit, every other heater the bed limit), and a macro parameter whose name says what it heats (BED, CHAMBER: the bed limit;
+/// EXTRUDER, HOTEND, NOZZLE, TEMP: the nozzle limit). Klipper's own max_temp still applies underneath.
+fn heat_over_limit(line: &str) -> Option<String> {
+    let up = line.to_ascii_uppercase();
+    let mut words = up.split_whitespace();
+    let cmd = words.next().unwrap_or("");
+    let rest: Vec<&str> = words.collect();
+    let num = |w: &str| w.trim().parse::<f64>().ok().filter(|v| v.is_finite());
+    let arg = |key: &str| {
+        rest.iter().find_map(|w| {
+            w.strip_prefix(key)
+                .and_then(|v| num(v.trim_start_matches('=')))
+        })
+    };
+    let over = |what: &str, v: f64, max: f64| {
+        (v > max).then(|| {
+            format!("{what} {v:.0} °C is above Stella Scope's {max:.0} °C limit; nothing was sent")
+        })
+    };
+    let heater_max = |h: &str| {
+        if h.starts_with("EXTRUDER") {
+            ("the nozzle", NOZZLE_MAX_C)
+        } else {
+            ("the bed or heater", BED_MAX_C)
+        }
+    };
+    // -11-14: Klipper reads `M104 S 320` and `M104S320` as M104 S320, so the M-codes are read with every space taken
+    // out (and any comment dropped): the code, then the number after S or R wherever it stands.
+    let compact: String = up
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    for (code, what, max) in [
+        ("M104", "the nozzle", NOZZLE_MAX_C),
+        ("M109", "the nozzle", NOZZLE_MAX_C),
+        ("M140", "the bed", BED_MAX_C),
+        ("M190", "the bed", BED_MAX_C),
+    ] {
+        if let Some(args) = compact
+            .strip_prefix(code)
+            .filter(|a| !a.starts_with(|c: char| c.is_ascii_digit() || c == '.'))
+        {
+            let value = |key: char| {
+                args.char_indices()
+                    .filter(|(_, c)| *c == key)
+                    .find_map(|(i, _)| {
+                        let digits: String = args[i + 1..]
+                            .chars()
+                            .take_while(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+'))
+                            .collect();
+                        num(&digits)
+                    })
+            };
+            return value('S')
+                .or_else(|| value('R'))
+                .and_then(|v| over(what, v, max));
+        }
+    }
+    match cmd {
+        "M104" | "M109" => arg("S")
+            .or_else(|| arg("R"))
+            .and_then(|v| over("the nozzle", v, NOZZLE_MAX_C)),
+        "M140" | "M190" => arg("S")
+            .or_else(|| arg("R"))
+            .and_then(|v| over("the bed", v, BED_MAX_C)),
+        "SET_HEATER_TEMPERATURE" | "PID_CALIBRATE" => {
+            let heater = rest
+                .iter()
+                .find_map(|w| w.strip_prefix("HEATER="))
+                .unwrap_or("EXTRUDER");
+            let (what, max) = heater_max(heater);
+            arg("TARGET=").and_then(|v| over(what, v, max))
+        }
+        _ => rest.iter().find_map(|w| {
+            let (k, v) = w.split_once('=')?;
+            let v = num(v)?;
+            if k.contains("BED") || k.contains("CHAMBER") {
+                over("the bed or chamber", v, BED_MAX_C)
+            } else if k.contains("EXTRUDER")
+                || k.contains("HOTEND")
+                || k.contains("NOZZLE")
+                || k.contains("TEMP")
+            {
+                over("the nozzle", v, NOZZLE_MAX_C)
+            } else {
+                None
+            }
+        }),
+    }
+}
 const JOG_MAX_MM: f64 = 50.0;
 /// Filament feed in mm/s. The existing defaults are F180 and F300, i.e. 3 and 5 mm/s; 25 mm/s is
 /// faster than any sane hand feed and well under what a Clockwork2 will skip at.
@@ -165,13 +261,13 @@ const NO_REVIEW: [&str; 12] = [
     "filament_unload",
     "filament_shake",
 ];
-/// Tuning commands that never wait for a running macro. 2026-09-28: bed heat was refused while a
+/// Tuning commands that never wait for a running macro. the owner 2026-09-28: bed heat was refused while a
 /// quad gantry level ran, because the level's own request holds the "one ordinary command" slot until
 /// Klipper finishes the macro (minutes). Klipper takes a heater, fan, speed or flow change at any
 /// time, so these use their own slot: two of them still never overlap, but a long macro cannot
 /// lock them out.
 const LIGHT: [&str; 4] = ["set_heater", "set_fan", "speed_factor", "extrude_factor"];
-/// 2026-10-22 (filament board): after a load the head gives a quick shake to flick the filament tail off the nozzle. Small fast moves along X, in place: +2 -4 +4 -4 +4 -4 +2 is
+/// the owner 2026-10-22 (filament board): after a load the head gives a quick shake to flick the filament tail off the nozzle. Small fast moves along X, in place: +2 -4 +4 -4 +4 -4 +2 is
 /// net zero, relative moves, and the printer's own G-code state (absolute or relative, units) is saved first and put back after.
 const SHAKE_SCRIPT: &str = "SAVE_GCODE_STATE NAME=STELLA_SHAKE\nG91\nG1 X2 F12000\nG1 X-4 F12000\nG1 X4 F12000\nG1 X-4 F12000\nG1 X4 F12000\nG1 X-4 F12000\nG1 X2 F12000\nRESTORE_GCODE_STATE NAME=STELLA_SHAKE";
 /// The shake's moves for a head at `x` on travel `min..max`: SHAKE_SCRIPT when there are 2 mm (and a half) each side, else six 4 mm moves on the side
@@ -554,7 +650,7 @@ const COMMANDS: &[Command] = &[
         requires_homed: false,
         params: Params::Filament,
     },
-    // 2026-09-28: Load filament never reached the printer. These are the named, fixed actions
+    // the owner 2026-09-28: Load filament never reached the printer. These are the named, fixed actions
     // the dock's Load and Unload buttons and the filament page send: LOAD_FILAMENT TEMP=<n>. T3, so
     // they are refused mid-print, and in NO_REVIEW like Home: the macro name is fixed, the only
     // operand is a bounded temperature, and a dialog in front of it buys nothing.
@@ -866,7 +962,7 @@ fn render(command: Command, input: &CommandInput) -> Result<Sent> {
             }
             Sent::Gcode(format!("SET_PRESSURE_ADVANCE ADVANCE={v:.4}"))
         }
-        // Calibration (2026-10-26: "you likely don't even have calibration ... pre-calibration setup").
+        // Calibration (the owner 2026-10-26: "you likely don't even have calibration ... pre-calibration setup").
         Params::Pid => {
             let (heater, lo, hi) = match input.target.as_deref() {
                 Some("extruder") => ("extruder", 150.0, NOZZLE_MAX_C),
@@ -915,6 +1011,9 @@ fn render(command: Command, input: &CommandInput) -> Result<Sent> {
             {
                 return Err("macro name must be the exact uppercase name from gcode/help".into());
             }
+            if let Some(why) = driver::denied_command(name) {
+                return Err(why);
+            }
             // Two ways in: `params` as a map, which is what the HUD sends now, or the older
             // pre-formatted `script` line. A request may use one or the other, never both, so
             // there is never a question of which one produced the script that was sent.
@@ -956,6 +1055,9 @@ fn render(command: Command, input: &CommandInput) -> Result<Sent> {
             if args.len() > CONSOLE_MAX_CHARS || args.contains('\n') {
                 return Err("macro parameters must be one short line".into());
             }
+            if let Some(why) = heat_over_limit(&format!("{name} {args}")) {
+                return Err(why);
+            }
             Sent::Gcode(if args.is_empty() {
                 name.to_owned()
             } else {
@@ -976,6 +1078,12 @@ fn render(command: Command, input: &CommandInput) -> Result<Sent> {
             }
             if line.contains('\n') || line.contains('\r') {
                 return Err("send one line at a time".into());
+            }
+            if let Some(why) = driver::denied_command(line) {
+                return Err(why);
+            }
+            if let Some(why) = heat_over_limit(line) {
+                return Err(why);
             }
             Sent::Gcode(line.to_owned())
         }
@@ -1345,6 +1453,16 @@ impl FreshState {
                 self.print_state, self.idle_state
             ));
         }
+        // pushing, loading or unloading filament moves the extruder by tens of millimetres; while a
+        // print runs that ruins the part. Allowed while paused, which is when a filament change is made.
+        if ["extrude", "load_filament", "unload_filament"].contains(&command.id)
+            && print_state == "printing"
+        {
+            return Some(
+                "The printer is printing. Pause the print first to push, load or unload filament."
+                    .into(),
+            );
+        }
         if command.requires_homed
             && !['x', 'y', 'z']
                 .iter()
@@ -1565,7 +1683,16 @@ impl Service {
             return failure(403, &error, "not_sent", None);
         }
         if path == "/api/controls" {
-            return self.controls();
+            let mut r = self.controls();
+            // the owner 2026-11-14: the token goes only to Stella Scope's own page, which its browser engine marks same-origin;
+            // a script or another program asking directly gets the controls without it.
+            if !crate::server::own_page(headers) {
+                if let Ok(mut v) = serde_json::from_slice::<Value>(&r.body) {
+                    v["token"] = Value::Null;
+                    r.body = serde_json::to_vec(&v).unwrap_or_default();
+                }
+            }
+            return r;
         }
         if path == "/api/macros" || path == "/api/files" {
             return self.printer_list(path);
@@ -1589,7 +1716,8 @@ impl Service {
                         return Err(format!("{} keeps its calibration inside the printer", self.brand));
                     }
                     let v = Moonraker::new(&self.cfg).get("/printer/objects/query?configfile=settings,save_config_pending,save_config_pending_items")?;
-                    Ok(calibration_view(&v["result"]["status"]["configfile"]))
+                    // `get` hands back Moonraker's `result` already: the page was given nothing on every printer (found on the demo, )
+                    Ok(calibration_view(&v["status"]["configfile"]))
                 }),
                 "/api/print/queue" => self.enabled_then(|| self.print_queue()),
                 "/api/print/objects" => self.enabled_then(|| self.print_objects()),
@@ -1706,7 +1834,7 @@ impl Service {
                 Some(other) => Value::String(other.describe()),
             };
             // Another brand is sent the action, not the Klipper G-code it was rendered from: the review says the action.
-            let other_brand = self.cfg.driver != "moonraker" && command.id != "dry_run";
+            let other_brand = !self.klipper_api() && command.id != "dry_run";
             let (script, action) = match sent
                 .as_ref()
                 .filter(|_| other_brand)
@@ -1744,7 +1872,7 @@ impl Service {
                     None,
                 );
             };
-            let fresh = if self.cfg.driver == "moonraker" {
+            let fresh = if self.klipper_api() {
                 FreshState::fetch(&Moonraker::new(&self.cfg))
             } else {
                 self.fresh_other()
@@ -1801,7 +1929,7 @@ impl Service {
                 path: "/printer/emergency_stop".into(),
                 body: None,
             }
-        } else if command.id == "filament_shake" && self.cfg.driver == "moonraker" {
+        } else if command.id == "filament_shake" && self.klipper_api() {
             match self.shake_here() {
                 Ok(script) => Sent::Gcode(script),
                 Err(error) => return failure(409, &error, "refused", None),
@@ -1814,7 +1942,7 @@ impl Service {
         };
         // Another brand does not take Klipper G-code: the bounded request is carried as a neutral
         // action. Built from the rendered script, so every driver gets the same validation.
-        let action = (self.cfg.driver != "moonraker")
+        let action = (!self.klipper_api())
             .then(|| action_from_sent(command, &sent, &input))
             .flatten();
         self.execute_with(command, &sent, action)
@@ -1928,6 +2056,7 @@ impl Service {
             .as_object()
             .ok_or("Klipper returned no gcode/help; is Klippy ready?")?
             .iter()
+            .filter(|(name, _)| !driver::is_denied_macro(name))
             .map(|(name, help)| json!({"name":name,"help":help}))
             .collect();
         commands.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
@@ -2173,7 +2302,8 @@ impl Service {
                         .map(|map| {
                             map.iter()
                                 .filter(|(name, _)| {
-                                    name.len() > 1
+                                    !driver::is_denied_macro(name)
+                                        && name.len() > 1
                                         && name.bytes().all(|b| {
                                             b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_'
                                         })
@@ -2204,6 +2334,16 @@ impl Service {
         }
     }
 
+    /// What the printer can do now. Everything but the camera is fixed for the driver; whether a Klipper printer has a webcam is
+    /// learned from Moonraker after this was built (0.6.2 ), so the camera flag is asked again each time.
+    fn caps_now(&self) -> Capabilities {
+        let mut caps = self.caps.clone();
+        if let Ok(d) = driver::open(&self.cfg) {
+            caps.camera = d.capabilities().camera;
+        }
+        caps
+    }
+
     fn controls(&self) -> Response {
         if !self.enabled() {
             let reason = self.disabled_reason();
@@ -2213,7 +2353,7 @@ impl Service {
                     "enabled": false,
                     "reason": reason,
                     "token": Value::Null,
-                    "driver": self.cfg.driver, "brand": self.brand, "capabilities": self.caps,
+                    "driver": self.cfg.driver, "brand": self.brand, "capabilities": self.caps_now(),
                     "commands": COMMANDS.iter().map(|command| json!({
                         "id": command.id, "allowed": false, "reason": reason, "tier": command.tier, "params": params_name(command.params),
                         "supported": self.caps.allows(command.id, self.brand).is_ok()
@@ -2221,7 +2361,7 @@ impl Service {
                 }),
             );
         }
-        let fresh = if self.cfg.driver == "moonraker" {
+        let fresh = if self.klipper_api() {
             FreshState::fetch(&Moonraker::new(&self.cfg))
         } else {
             self.fresh_other()
@@ -2261,14 +2401,14 @@ impl Service {
                 "token": self.token,
                 "driver": self.cfg.driver,
                 "brand": self.brand,
-                "capabilities": self.caps,
+                "capabilities": self.caps_now(),
                 "commands": commands
             }),
         )
     }
 
     fn execute_with(&self, command: Command, sent: &Sent, action: Option<Action>) -> Response {
-        let other = self.cfg.driver != "moonraker";
+        let other = !self.klipper_api();
         let script = sent.describe();
         let script = script.as_str();
         let _permit = if command.id == "emergency_stop" {
@@ -2367,6 +2507,8 @@ impl Service {
                 // moves; it returns a run id and finishes on its own thread (~130 s a leg).
                 Sent::Resonance { axis, .. } => crate::resonance::start(&self.cfg, axis)
                     .map(|run_id| json!({ "run_id": run_id })),
+                // a demo printer's Klipper is in this process: there is no connection to drop, and it is always connected
+                Sent::Local(_) if self.cfg.driver == "demo" => Ok(json!({"reconnect":"done"})),
                 Sent::Local(_) => {
                     if crate::ws_source::request_reconnect(&self.cfg.moonraker_url) {
                         Ok(json!({"reconnect":"requested"}))
@@ -2533,6 +2675,12 @@ impl Service {
         failure(code, &message, outcome, Some(audit_id))
     }
 
+    /// The printer is driven through Moonraker's API: a Klipper printer, or a demo printer, whose Klipper answers that API
+    /// inside this process (src/demo_klipper.rs, ). Every other brand takes driver actions.
+    fn klipper_api(&self) -> bool {
+        matches!(self.cfg.driver.as_str(), "moonraker" | "demo")
+    }
+
     fn enabled(&self) -> bool {
         self.token.is_some() && !self.licence_locked.load(Ordering::Relaxed)
     }
@@ -2557,6 +2705,7 @@ impl Service {
 
     /// Set by the farm: whether this printer's controls are locked by the farm licence (past trial,
     /// beyond the free five) and the plain-words reason. A running print is never interrupted.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_licence_locked(&self, locked: bool, reason: String) {
         self.licence_locked.store(locked, Ordering::Relaxed);
         let mut r = self
@@ -2802,6 +2951,47 @@ fn failure(code: u16, error: &str, status: &str, audit_id: Option<&str>) -> Resp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// the console and macros went straight past the nozzle and bed limits.
+    #[test]
+    fn typed_gcode_and_macros_cannot_pass_the_heat_limits() {
+        for bad in [
+            "M104 S320",
+            "m109 s300",
+            "M140 S130",
+            "M190 R125",
+            "M104 S 320",
+            "M104S320",
+            "m109 t0 r 300",
+            "M140  S 130 ; warm",
+            "M104 T1 S291.5",
+            "SET_HEATER_TEMPERATURE HEATER=extruder TARGET=330",
+            "set_heater_temperature heater=heater_bed target=150",
+            "PID_CALIBRATE HEATER=extruder TARGET=300",
+            "PRINT_START BED=130 EXTRUDER=245",
+            "PRINT_START BED=110 EXTRUDER=300",
+            "HEAT_SOAK CHAMBER_TEMP=140",
+        ] {
+            assert!(heat_over_limit(bad).is_some(), "{bad} must be refused");
+        }
+        for ok in [
+            "M104 S240",
+            "M140 S110",
+            "SET_HEATER_TEMPERATURE HEATER=extruder TARGET=290",
+            "PRINT_START BED=110 EXTRUDER=250",
+            "G28",
+            "M106 S255",
+            "SET_FAN_SPEED FAN=nevermore SPEED=1",
+            "M104 S0",
+            "M104 S 290",
+            "M1040 S900",
+            "M140S110",
+            "M104 ; S320",
+        ] {
+            assert!(heat_over_limit(ok).is_none(), "{ok} must pass");
+        }
+        assert!(heat_over_limit("M104 S320").unwrap().contains("290"));
+    }
     use std::{
         fs,
         io::{Read, Write},
@@ -2938,7 +3128,7 @@ mod tests {
             "SHAPER_CALIBRATE":"", "SET_HEATER_TEMPERATURE":"", "SET_VELOCITY_LIMIT":"",
             "SET_PRESSURE_ADVANCE":"", "Z_OFFSET_APPLY_PROBE":"", "PAUSE":"", "RESUME":"",
             "CANCEL_PRINT":"", "FIRMWARE_RESTART":"", "RESTART":"", "EXCLUDE_OBJECT":"",
-            // Stella's own macros ; filament_load / filament_unload are gated on them.
+            // Stella's own macros (the owner 2026-09-28); filament_load / filament_unload are gated on them.
             "LOAD_FILAMENT":"", "UNLOAD_FILAMENT":"",
             // the calibrations Klipper offers
             "PID_CALIBRATE":"", "PROBE_CALIBRATE":"", "Z_ENDSTOP_CALIBRATE":"", "TUNING_TOWER":"", "SAVE_CONFIG":""
@@ -3260,7 +3450,10 @@ mod tests {
         let response = service.handle(
             "GET",
             "/api/controls",
-            &BTreeMap::from([("host".into(), "127.0.0.1:7420".into())]),
+            &BTreeMap::from([
+                ("host".into(), "127.0.0.1:7420".into()),
+                ("sec-fetch-site".into(), "same-origin".into()),
+            ]),
             &[],
             IpAddr::from([127, 0, 0, 1]),
         );
@@ -3467,6 +3660,110 @@ mod tests {
         }
         assert!(listener.accept().is_err());
         assert!(!std::path::Path::new(&format!("{database}.commands.sqlite3")).exists());
+    }
+
+    /// 0.6.2 (the owner 2026-10-29): the Z-Mod macros that wipe, restart or remove the mod are listed by the AD5M's gcode/help.
+    /// They never reach a button, shortcut or wheel entry, and a send is refused whatever the way in, with controls on.
+    #[test]
+    fn destructive_zmod_macros_are_refused_listed_nowhere_and_never_sent() {
+        let cmd = |id: &str| COMMANDS.iter().copied().find(|c| c.id == id).unwrap();
+        let inp = |j: &str| serde_json::from_str::<CommandInput>(j).unwrap();
+        for name in [
+            "REMOVE_ZMOD",
+            "CLEAR_EMMC",
+            "RESET_PASSWD",
+            "RESTORE_TAR_CONFIG",
+            "NEW_SAVE_CONFIG",
+            "SDCARD_PRINT_FILE",
+            "SDCARD_RESET_FILE",
+            "REBOOT",
+            "RESTART_ZMOD",
+            "SHUTDOWN",
+            "ZFLASH",
+            "UPDATE_MCU",
+            "ZSSH_OFF",
+            "_REBOOT",
+        ] {
+            let m = format!(r#"{{"id":"macro","target":"{name}"}}"#);
+            assert!(
+                render(cmd("macro"), &inp(&m))
+                    .unwrap_err()
+                    .contains("do-not-send"),
+                "macro {name}"
+            );
+            for typed in [
+                name.to_owned(),
+                name.to_ascii_lowercase(),
+                format!("{name} FILENAME=x"),
+            ] {
+                let c = serde_json::json!({"id":"console","script":typed}).to_string();
+                assert!(
+                    render(cmd("console"), &inp(&c))
+                        .unwrap_err()
+                        .contains("do-not-send"),
+                    "console {typed}"
+                );
+            }
+        }
+        // what stays: Klipper's own restarts, the screen restart the owner's kick uses, and ordinary macros
+        for ok in [
+            "FIRMWARE_RESTART",
+            "RESTART",
+            "RESTART_SCREEN",
+            "AUTO_FULL_BED_LEVEL",
+            "SCREWS_TILT_CALCULATE",
+            "G28",
+        ] {
+            let c = serde_json::json!({"id":"console","script":ok}).to_string();
+            assert!(render(cmd("console"), &inp(&c)).is_ok(), "{ok}");
+        }
+        // through the service, with controls on and a printer address nothing answers at: refused before any send
+        let database = path("denied-macro");
+        let svc = service("http://127.0.0.1:9".into(), database.clone(), "live");
+        let response = svc.handle(
+            "POST",
+            "/api/commands",
+            &headers(&svc),
+            br#"{"id":"console","script":"REMOVE_ZMOD","confirm":true}"#,
+            IpAddr::from([127, 0, 0, 1]),
+        );
+        assert_eq!(response.code, 400, "{:?}", body(&response));
+        assert!(
+            body(&response)["error"]
+                .as_str()
+                .unwrap()
+                .contains("do-not-send"),
+            "{:?}",
+            body(&response)
+        );
+        cleanup(&database);
+        // the macro list and the console's autocomplete list leave them out
+        let help = json!({"result":{"LOAD_FILAMENT":"Park, heat, purge","REMOVE_ZMOD":"Remove Z-Mod","CLEAR_EMMC":"Wipe storage","SDCARD_PRINT_FILE":"Print a file","AUTO_FULL_BED_LEVEL":"Level the bed"}});
+        let (url, worker) = fake(vec![
+            Some(help.clone()),
+            Some(json!({"result":{"status":{"configfile":{"settings":{}}}}})),
+            Some(help),
+        ]);
+        let database = path("denied-macro-list");
+        let svc2 = service(url, database.clone(), "live");
+        let macros = body(&svc2.handle("GET", "/api/macros", &get_headers(), &[], LOOPBACK));
+        let names: Vec<&str> = macros["macros"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["AUTO_FULL_BED_LEVEL", "LOAD_FILAMENT"]);
+        let helped = body(&svc2.handle("GET", "/api/console/help", &get_headers(), &[], LOOPBACK));
+        let names: Vec<&str> = helped["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["AUTO_FULL_BED_LEVEL", "LOAD_FILAMENT"]);
+        let _ = worker.join();
+        cleanup(&database);
     }
 
     #[test]
@@ -3781,7 +4078,10 @@ mod tests {
     }
 
     fn get_headers() -> BTreeMap<String, String> {
-        BTreeMap::from([("host".into(), "127.0.0.1:7420".into())])
+        BTreeMap::from([
+            ("host".into(), "127.0.0.1:7420".into()),
+            ("sec-fetch-site".into(), "same-origin".into()),
+        ])
     }
     const LOOPBACK: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
 
@@ -4569,7 +4869,7 @@ mod tests {
         worker.join().unwrap();
     }
 
-    // ---- our 2026-09-28 list, items 1-3 and 11 --------------------
+    // ---- the owner's 2026-09-28 list, items 1-3 and 11 --------------------
     // These run against the fake Moonraker in src/fakes.rs, which records every request it gets, so
     // each assertion is on the exact bytes that left the service.
 
@@ -4623,7 +4923,7 @@ mod tests {
         cleanup(&database);
     }
 
-    /// 2026-10-22 (filament board): the shake after a load is a named command with fixed moves. It goes out only when the printer is homed and not printing or paused, with no
+    /// the owner 2026-10-22 (filament board): the shake after a load is a named command with fixed moves. It goes out only when the printer is homed and not printing or paused, with no
     /// review dialog; it is net zero (+2 -4 +4 -4 +4 -4 +2 mm along X), and the printer's own G-code state is saved and put back around it.
     #[test]
     fn the_filament_shake_is_homed_only_never_mid_print_and_leaves_the_head_where_it_was() {
@@ -4747,7 +5047,7 @@ mod tests {
         cleanup(&database);
     }
 
-    /// 2026-10-22 (Stella): CANCEL in the paused bar sent nothing, so Klipper got PAUSE and never CANCEL_PRINT. The page's completed hold posts exactly this, and it reaches the
+    /// the owner 2026-10-22 (Stella): CANCEL in the paused bar sent nothing, so Klipper got PAUSE and never CANCEL_PRINT. The page's completed hold posts exactly this, and it reaches the
     /// printer as CANCEL_PRINT, which (as Mainsail's macro on Stella) cancels the print and turns both heaters off. Without confirm it is refused and nothing is sent.
     #[test]
     fn a_confirmed_cancel_while_paused_reaches_klipper_as_cancel_print_and_the_heaters_go_off() {

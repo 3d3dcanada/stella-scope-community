@@ -37,10 +37,10 @@ pub fn is_resonance(message: &str) -> bool {
 // BLTouch alarm, from Stella's own recording of 2026-09-21 (11:19:52-54, live DB): the
 // console shows "// Failed to verify BLTouch probe is raised; retrying." and then
 // "!! BLTouch failed to deploy".
-// (2026-09-22 approved): only the hard failures are the alarm. In Klipper's bltouch.py
+// (2026-09-22, the owner approved): only the hard failures are the alarm. In Klipper's bltouch.py
 // the "; retrying." lines are respond_info inside a three-try loop; the command_error after the
 // last try is "BLTouch failed to raise probe" / "BLTouch failed to verify sensor state" (no
-// retrying). "BLTouch failed to deploy" is what our Klipper printed on 2026-09-21 and stays hard.
+// retrying). "BLTouch failed to deploy" is what the owner's Klipper printed on 2026-09-21 and stays hard.
 const SENSOR_STATE: &str = "bltouch failed to verify sensor state";
 fn sensor_state(m: &str, retrying: bool) -> bool {
     m.match_indices(SENSOR_STATE).any(|(i, _)| {
@@ -213,6 +213,20 @@ fn harvest_probe(
 
 /// the notice text for a finished print. The summary is one word of outcome; the body
 /// carries what the owner can act on without opening the window.
+/// The alert for a print that paused: why, when a run-out sensor says it lost the filament.
+pub(crate) fn pause_text(label: &str, sample: Option<&Value>) -> String {
+    let runout = sample.and_then(Value::as_object).is_some_and(|o| {
+        o.iter().any(|(k, v)| {
+            k.starts_with("filament_switch_sensor") && v["filament_detected"] == json!(false)
+        })
+    });
+    if runout {
+        format!("{label}: ran out of filament. The print is paused; load filament and resume.")
+    } else {
+        format!("{label}: the print is paused.")
+    }
+}
+
 fn print_notice(session: &crate::store::PrintSession) -> (&'static str, String, bool) {
     let file = session
         .filename
@@ -231,7 +245,7 @@ fn print_notice(session: &crate::store::PrintSession) -> (&'static str, String, 
         _ => {
             let body = match session.duration_s {
                 Some(d) => {
-                    // 2026-10-23: one plain line under the title, the time as a person says it
+                    // the owner 2026-10-23: one plain line under the title, the time as a person says it
                     let m = (d / 60.0).round() as u64;
                     let took = if m >= 60 { format!("{} h {} min", m / 60, m % 60) } else { format!("{m} min") };
                     format!("{file} took {took}.")
@@ -283,6 +297,7 @@ pub fn run(
     let mut last_health = String::new();
     let mut last_flags = Value::Null;
     let mut last_demo_round: Option<(u64, u64)> = None;
+    let mut last_job = String::new();
     let mut last_disk_error = String::new();
     let mut lost_backlog = false;
     let mut writes = 0_u64;
@@ -302,7 +317,7 @@ pub fn run(
     let mut push_keepalive_ms: Option<f64> = None;
     let mut activity_cache: Option<(f64, Value)> = None;
     let mut last_poll_ok = 0.0_f64;
-    // b (2026-10-20: "it said back online, the wall did not change"): the newest poll's failure is kept until a poll, a push frame or a
+    // b (2026-10-20, the owner: "it said back online, the wall did not change"): the newest poll's failure is kept until a poll, a push frame or a
     // fresh connection succeeds. A cycle that polls nothing (the push source's silence probe arrives every 5 s while it cannot reconnect, and a
     // cycle that falls between two polls) used to carry no error at all, so for the 10 s after the last good poll such a cycle read "connected":
     // a printer that had been switched off flickered to Ready for half a second every few seconds, and the farm's watcher, seeing it leave offline,
@@ -318,6 +333,10 @@ pub fn run(
     let mut last_zeros: Vec<f64> = Vec::new();
     let mut last_print: Option<(String, Option<f64>)> = None;
     let mut context_captured = false;
+    // 0.6.2 and what the slicer says about the print being watched (its estimate, filament type, nozzle),
+    // read with its context and stamped on every sample of that file after, so the time left can lean on it while progress is small and the
+    // printer's material and nozzle read from it when nobody typed them. Kept after the print ends, until the next print replaces it.
+    let mut print_estimate: Option<(String, Value)> = None;
     // A failed capture (no Moonraker metadata for the file, a write error) retries every 30 s, not
     // every poll: each try asks the printer for metadata and 64 KiB of G-code.
     let mut context_retry = Instant::now();
@@ -448,6 +467,13 @@ pub fn run(
                     if manifest.is_object() {
                         obj.insert("_scope_capture".into(), manifest.clone());
                     }
+                    if let Some((file, facts)) = &print_estimate {
+                        if obj.get("print_stats").and_then(|p| p["filename"].as_str())
+                            == Some(file.as_str())
+                        {
+                            obj.insert("_scope_file".into(), facts.clone());
+                        }
+                    }
                     if cfg.telemetry.host_stats {
                         let host = source.host_tick(attempt);
                         if let Some(e) = host["error"].as_str() {
@@ -563,6 +589,7 @@ pub fn run(
             }
             match &cfg.klippy_log_path {
                 // plain words (audit 2026-10-26: the timeline's first line was "Recording via poll with limitations ... klippy_log_path on the Pi")
+                None if source.kind() == "demo" => {} // a demo printer has no log anywhere; nothing is missing
                 None=>degraded.push("It cannot read Klipper's own log from this computer, so a few motor warnings that only appear there are not kept.".into()),
                 Some(path) if attempt>=next_log=>{
                     next_log=attempt+1.0;
@@ -591,7 +618,7 @@ pub fn run(
             degraded.push("This computer's clock moved backward during this reading; check its time settings before trusting timestamps.".into());
         }
         if let Some(data) = &sample {
-            // Open-load bits at standstill are not flags (model::reportable_flags, 2026-09-28).
+            // Open-load bits at standstill are not flags (model::reportable_flags, the owner 2026-09-28).
             let flags = json!(MOTORS
                 .iter()
                 .map(|(n, _)| {
@@ -653,7 +680,9 @@ pub fn run(
         } else if connected {
             link_error = None;
         }
-        let klipper = source.capabilities().klipper;
+        // README rule 8: Klipper's own words only for a real Klipper printer; a demo printer (a Klipper of its own since the final build
+        // ) still says it stopped in plain words.
+        let klipper = source.capabilities().klipper && source.kind() != "demo";
         let (printer_state, printer_message) = if demo {
             ("ready", None)
         } else {
@@ -669,6 +698,22 @@ pub fn run(
             printer_message.as_deref(),
             klipper,
         );
+        // a print that pauses is announced, with the run-out when the sensor lost the filament
+        // (a pause on the printer's own screen or a run-out happens away from the page; the phone hears it).
+        if let Some(job) = sample
+            .as_ref()
+            .and_then(|d| d["print_stats"]["state"].as_str())
+        {
+            if last_job == "printing" && job == "paused" {
+                crate::notify::event(
+                    "attention",
+                    &cfg.printer_id,
+                    &label,
+                    &pause_text(&label, sample.as_ref()),
+                );
+            }
+            last_job = job.to_owned();
+        }
         let health=json!({"connected":connected,"transport":transport,"last_error":error,"degraded":degraded,"mode":if demo {"demo"}else{"live"}}).to_string();
         if health != last_health {
             add_pending(
@@ -744,14 +789,17 @@ pub fn run(
                     let duration = data["print_stats"]["total_duration"].as_f64();
                     if new_print(&last_print, filename, duration) {
                         context_captured = false;
+                        print_estimate = None;
                         context_retry = Instant::now();
                         context_error = None;
                     }
                     if !context_captured && Instant::now() >= context_retry {
                         match source.print_context(filename).and_then(|(meta, orca)| {
-                            db.write_print_context(captured, filename, &meta, &orca)
+                            db.write_print_context(captured, filename, &meta, &orca)?;
+                            Ok(workspace::file_facts(&meta))
                         }) {
-                            Ok(()) => {
+                            Ok(facts) => {
+                                print_estimate = facts.map(|f| (filename.to_string(), f));
                                 context_captured = true;
                                 context_error = None;
                             }
@@ -1117,7 +1165,7 @@ mod tests {
     }
 }
 
-/// WhatsApp words for a driver warning (2026-09-25: the first one listed every motor as raw
+/// WhatsApp words for a driver warning (the owner 2026-09-25: the first one listed every motor as raw
 /// JSON). Only motors with a flag, by name, in plain words. Open-load alone (ola/olb) is not sent:
 /// TMC2209s report it falsely at standstill and slow moves, and Klipper does not treat it as a fault.
 pub fn driver_message(flags: &serde_json::Value) -> Option<String> {

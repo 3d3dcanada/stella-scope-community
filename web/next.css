@@ -646,7 +646,7 @@ body{--bar-w:72px;--bar-h:min(250px,calc((100vh - var(--top) - var(--dockzone) -
 .nxk-mark[data-set]::before{background:var(--col)}
 .nxk-mark[data-on]::before{background:#fff;box-shadow:0 0 10px var(--col),0 0 4px #fff}
 /* ---- B. bar ---- */
-/* Bars : the compact style. Slim upright bars standing side by side, one row a
+/* Bars (the owner 2026-09-25): the compact style. Slim upright bars standing side by side, one row a
    side: nozzle and bed on the left; speed, flow and the three fans on the right. Slide up and
    down; the fill is what is set, the white line the reading, the thin line on the left edge the
    actual speed or flow. */
@@ -897,10 +897,10 @@ body[data-layout=phone] .nx-alerts{top:calc(var(--top) + var(--safe-t) + 4px)}
 @keyframes nx-ledflash{0%{background:#ff2a1a;box-shadow:0 0 12px #ff2a1a,0 0 26px rgba(255,42,26,.5)}50%{background:#3a1512;box-shadow:none}}
 .nx-led>div{display:flex;flex-direction:column;gap:3px}.nx-led b{font:650 14px/1.2 var(--sans)}.nx-led span{font:500 12.5px/1.4 var(--sans);color:var(--ink-2)}
 .nx-led[data-state=alarm]{border-color:rgba(255,45,146,.5)}.nx-led[data-state=alarm] b{color:var(--alarm)}
-/* 2026-09-25: the compact style keeps the round gauges' layout exactly (nozzle above bed,
+/* the owner 2026-09-25: the compact style keeps the round gauges' layout exactly (nozzle above bed,
    speed above flow, the small fan rings under flow); only each gauge becomes a slim upright bar. */
 body[data-inst=bar] .nx-cluster{gap:12px}
-/* 2026-09-25: compact means a narrow column pressed against each wall. The right column is the
+/* the owner 2026-09-25: compact means a narrow column pressed against each wall. The right column is the
    width of one bar, flush to the right edge, and the three fans stand in it one under the other,
    small, in line with speed and flow; the left column sits flush beside the rail. */
 body[data-inst=bar] #nx-right{align-items:flex-end;right:calc(12px + var(--safe-r))}
@@ -994,7 +994,7 @@ body:is([data-layout=desktop],[data-layout=tablet]){--dial:clamp(130px,calc((100
 .nx-swatch--any::-webkit-color-swatch-wrapper{padding:0;opacity:0}
 .nx-swatch--any::-moz-color-swatch{opacity:0}
 
-/* part panels in tabs (2026-09-25: no long scrolls) */
+/* part panels in tabs (the owner 2026-09-25: no long scrolls) */
 .nx-sheet-body--tabs{gap:14px}
 .nx-tabs{position:sticky;top:0;z-index:2;flex:none;display:flex;width:100%;background:rgba(21,27,35,.98)}   /* solid, so the note scrolling under the tabs does not show through them */
 .nx-tabs>button{flex:1;white-space:nowrap}
@@ -1017,7 +1017,7 @@ body:is([data-layout=desktop],[data-layout=tablet]){--dial:clamp(130px,calc((100
 #nx-eye[data-v=warning]{color:var(--heat-warm);box-shadow:inset 0 0 0 1px rgba(255,156,85,.5),0 0 18px rgba(255,106,0,.25)}
 #nx-eye[data-v=failing]{color:#fff;background:rgba(255,45,146,.25);box-shadow:inset 0 0 0 1px var(--alarm),0 0 24px rgba(255,45,146,.45);animation:nx-attn 1.6s var(--ease) infinite}
 
-/* ---------- Move: jog console ---------- */
+/* ---------- Move: jog console (the owner 2026-09-25) ---------- */
 .nx-mv-pos{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .nx-mv-axis{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:var(--r-l);background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.015));border:1px solid var(--glass-line);box-shadow:var(--glass-rim)}
 .nx-mv-axis small{font:650 12px/1 var(--sans);letter-spacing:.18em;color:var(--ink-3)}
@@ -1081,7 +1081,7 @@ body[data-layout=phone] .nx-mv-z{flex-wrap:wrap}body[data-layout=phone] .nx-mv-z
 body[data-layout=phone] .nx-mv-zbtn small{text-align:center}
 body[data-layout=phone] .nx-mv-acts{grid-template-columns:repeat(2,1fr)}
 
-/* ---------- filament ---------- */
+/* ---------- filament (the owner 2026-09-25) ---------- */
 .nx-matcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .nx-matcard{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:14px 14px 12px;min-height:92px;border-radius:var(--r-l);cursor:pointer;text-align:left;color:var(--ink-1);
  border:1px solid var(--glass-line);background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.015));box-shadow:var(--glass-rim);transition:box-shadow var(--t-hover),border-color var(--t-hover)}
@@ -1098,7 +1098,7 @@ body[data-layout=phone] .nx-mv-acts{grid-template-columns:repeat(2,1fr)}
 .nx-filsteps li{counter-increment:s;position:relative;padding:10px 12px 10px 40px;border-radius:12px;background:rgba(0,0,0,.25);border:1px solid var(--glass-line);font:650 12.5px/1.2 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
 .nx-filsteps li::before{content:counter(s);position:absolute;left:10px;top:50%;transform:translateY(-50%);width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:700 12px/1 var(--mono);background:rgba(255,255,255,.08);color:var(--ink-2)}
 .nx-filsteps li[data-state=now]{color:var(--ink-1);border-color:rgba(var(--accent-hi-rgb),.55);box-shadow:0 0 18px rgba(var(--accent-rgb),.25)}
-/* 2026-09-28: "a step number blinks below / in the middle of the button". The marker used nx-attn, a ring
+/* the owner 2026-09-28: "a step number blinks below / in the middle of the button". The marker used nx-attn, a ring
    animation that fades to 0 and sets its own transform, which dropped the circle half its height and made
    it disappear. This one only breathes a halo; the circle never moves and never goes out. */
 .nx-filsteps li[data-state=now]::before{background:var(--accent);color:var(--accent-ink);animation:nx-stepglow 2s var(--ease) infinite}
@@ -1241,7 +1241,7 @@ body[data-layout=phone] .nx-pairgrid{grid-template-columns:1fr}
 .nx-lv-track em{position:absolute;top:-4px;bottom:-4px;width:2px;background:#fff;box-shadow:0 0 6px #fff}
 body[data-layout=phone] .nx-lv-now{grid-template-columns:1fr}
 
-/* Show me : the part circled on the 3D view, with a label that opens its panel. */
+/* Show me (the owner 2026-09-28): the part circled on the 3D view, with a label that opens its panel. */
 .nx-spot{position:absolute;left:0;top:0;z-index:5;pointer-events:none;transform:translate(var(--x,0px),var(--y,0px))}
 .nx-spot[hidden]{display:none}
 .nx-spot-ring{position:absolute;left:calc(var(--r,40px) * -1);top:calc(var(--r,40px) * -1);width:calc(var(--r,40px) * 2);height:calc(var(--r,40px) * 2);border-radius:50%;border:2px solid var(--accent);box-shadow:0 0 0 1px rgba(3,26,23,.7),0 0 26px rgba(var(--accent-rgb),.55),inset 0 0 18px rgba(var(--accent-rgb),.22);animation:nx-spot-in .45s var(--ease) both}
@@ -1256,7 +1256,7 @@ button.nx-idle-item{background:none;border:0;border-radius:10px;cursor:pointer;h
 button.nx-idle-item:hover{background:rgba(255,255,255,.07)}
 button.nx-idle-item:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 
-/* Levelling, the starting state : a run is live before its first round is in. */
+/* Levelling, the starting state (the owner 2026-09-28): a run is live before its first round is in. */
 .nx-lv-verdict[data-tone=live]{color:var(--accent)}
 .nx-lv-corner[data-hit] b{color:var(--accent)}
 .nx-lv-round[data-prev]{opacity:.62}
@@ -1302,7 +1302,7 @@ button.nx-idle-item:focus-visible{outline:2px solid var(--accent);outline-offset
 .nx-fm-sw{width:44px;height:44px;border-radius:50%;border:2px solid transparent;background:var(--c);box-shadow:0 0 0 1px rgba(255,255,255,.14) inset;cursor:pointer}
 .nx-fm-sw[aria-pressed=true]{border-color:var(--ink-1);box-shadow:0 0 16px var(--c)}
 .nx-fm-remove{display:flex;flex-direction:column;gap:10px;padding-top:6px;border-top:1px solid var(--glass-line)}
-/* A short window (our 1568x751): the rail is centred between the top bar and the bottom, never under the logo. */
+/* A short window (the owner's 1568x751): the rail is centred between the top bar and the bottom, never under the logo. */
 @media (max-height:820px){#nx-rail{gap:4px;padding:6px}#nx-rail .nx-btn[data-size=icon]{width:42px;height:42px;min-height:0;min-width:0}#nx-rail hr{margin:3px auto}}
 @media (max-height:700px){#nx-rail{gap:2px}#nx-rail .nx-btn[data-size=icon]{width:38px;height:38px}}
 /* Printer switcher: a caret on the identity block, a dot per printer in its list */
@@ -1793,7 +1793,7 @@ body[data-grown] #nx-ui::before,body[data-grown] #nx-ui::after{opacity:0}
 .nx-grown-hint{position:fixed;left:50%;bottom:calc(18px + var(--safe-b));transform:translateX(-50%);z-index:3;max-width:calc(100vw - 32px);text-align:center;padding:9px 16px;border:1px solid var(--glass-line);
  background:var(--glass-1);-webkit-backdrop-filter:var(--blur-1);backdrop-filter:var(--blur-1);font:600 10.5px/1.4 var(--mono);letter-spacing:.12em;color:var(--ink-2);opacity:0;pointer-events:none;transition:opacity .4s var(--ease)}
 body[data-grown] .nx-grown-hint{opacity:1;transition-delay:.45s}
-/* over the camera the glass is light: frosted white, dark text, so the picture stays bright */
+/* over the camera the glass is light: frosted white, dark text, so the picture stays bright (the owner 2026-10-20) */
 body[data-bg=camera]{--glass-1:rgba(255,255,255,.7);--glass-2:rgba(255,255,255,.84);--glass-edge:rgba(255,255,255,.8);--glass-line:rgba(14,19,25,.16);
  --ink-1:#0E1319;--ink-2:#26313C;--ink-3:#44505C;--neutral-arc:rgba(14,19,25,.2);--accent-ink:#031A17;color-scheme:light}
 body[data-bg=camera] #nx-ui::before,body[data-bg=camera] #nx-ui::after{background:none}
@@ -1914,11 +1914,11 @@ body[data-layout=phone] .nx-state{flex-shrink:1;min-width:64px}
 /* the state's word shortens on a phone ("NO LINK") so it is never cut with an ellipsis; the name keeps its room () */
 body[data-layout=phone] .nx-id{min-width:96px}
 
-/* the line above a key that has to be held : what holding does, and "not sent" if the hand lets go early */
+/* the line above a key that has to be held (the owner 2026-10-22): what holding does, and "not sent" if the hand lets go early */
 .nx-holdline{position:fixed;z-index:90;max-width:min(320px,calc(100vw - 16px));padding:10px 14px;font:600 13px/1.3 var(--sans);color:var(--ink-1);pointer-events:none;border-left:3px solid var(--alarm)}
 .nx-holdline[data-tone=warn]{border-left-color:var(--heat)}
 
-/* ---- filament board : the picker, the settings, the longer step list ---- */
+/* ---- filament board (the owner 2026-10-22): the picker, the settings, the longer step list ---- */
 .nx-filsteps{grid-template-columns:repeat(auto-fit,minmax(112px,1fr))}
 .nx-fil-set{display:flex;flex-wrap:wrap;align-items:flex-start;gap:18px 22px}
 .nx-fil-set>.nxkey{align-self:center}
@@ -1939,3 +1939,19 @@ body[data-layout=phone] .nx-id{min-width:96px}
 @media (max-width:520px){.nx-filpick-other{gap:12px 8px;padding:10px}.nx-filpick-other .nx-numi{flex:1 1 0;min-width:0}.nx-filpick-other .nx-numi-row{width:100%}
  .nx-filpick-other .nx-numi-v{flex:1;width:auto;min-width:0;padding:0 2px;font-size:17px;letter-spacing:-.02em}.nx-filpick-other .nx-numi .nx-numi-k{min-width:36px;width:36px}.nx-filpick-namew{flex-basis:100%}
  .nx-filpick.nx-ledscope .nx-matcards,.nx-filpick .nx-matcards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.nx-filpick.nx-ledscope .nx-matcard,.nx-filpick .nx-matcard{min-height:78px;padding:11px 11px 10px}}
+/* the spool drawn in its own colour, and its colour row (web/next-fleet.js spoolPicker) */
+.fl-spool-head{display:flex;align-items:center;gap:10px;min-width:0}
+.fl-sp{position:relative;display:inline-flex;flex-direction:column;gap:8px}
+.fl-sp-btn{--sc:#9AA4B2;width:44px;height:44px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:12px;border:1px solid var(--glass-line);background:rgba(255,255,255,.04);cursor:pointer;padding:0}
+.fl-sp-btn:hover,.fl-sp-btn[aria-expanded=true]{border-color:var(--sc);box-shadow:0 0 0 2px color-mix(in srgb,var(--sc) 35%,transparent)}
+.fl-sp-view{cursor:default}
+.fl-spool-svg{width:32px;height:32px}
+.fl-sp-fil{fill:var(--sc)}
+.fl-sp-wind{stroke:rgba(0,0,0,.25);stroke-width:1}
+.fl-sp-flange{fill:#2A2F35;stroke:rgba(255,255,255,.35);stroke-width:1}
+.fl-sp-hub{fill:#0B0D10;stroke:rgba(255,255,255,.35);stroke-width:1}
+.fl-sp-row{display:flex;flex-wrap:wrap;gap:6px;max-width:260px;padding:8px;border-radius:12px;background:rgba(10,12,15,.92);border:1px solid var(--glass-line);z-index:5}
+.fl-sp-row[hidden]{display:none}
+.fl-sp-sw{--c:#888;width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,.25);background:var(--c);cursor:pointer;padding:0}
+.fl-sp-sw:hover,.fl-sp-sw:focus-visible{border-color:#fff;outline:none}
+.fl-sp-any{width:26px;height:26px;border:0;padding:0;background:none;cursor:pointer}

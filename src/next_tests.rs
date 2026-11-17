@@ -250,8 +250,8 @@ fn next_ui_u01_control_kit_is_served() {
     }
 }
 
-/// 2026-09-24: style A knob (default) and B bar shared one control; speed and flow clicked into detents with 100% at the top; the choice was a setting.
-/// (2026-10-20: a number is one piece, the LED gauge that becomes a knob when held) replaced both styles and the setting. The old dial stays exported for
+/// the owner 2026-09-24: style A knob (default) and B bar shared one control; speed and flow clicked into detents with 100% at the top; the choice was a setting.
+/// (2026-10-20, the owner: a number is one piece, the LED gauge that becomes a knob when held) replaced both styles and the setting. The old dial stays exported for
 /// the pages that still use it (next-ui.js); the printer page uses the kit, each gauge with its own step from the kit's CONTROLS table; nothing offers a knob/bar choice.
 #[test]
 fn next_controls_knob_and_bar() {
@@ -296,7 +296,7 @@ fn next_review_round_three_is_served() {
         (
             &js,
             "scene=createScene($('nx-scene'),id=>openPart(id),",
-            "2026-10-24: a click on a part opens that part",
+            "the owner 2026-10-24: a click on a part opens that part",
         ),
         (
             &js,
@@ -308,7 +308,7 @@ fn next_review_round_three_is_served() {
             "btn?.hasAttribute('data-showing')",
             "a second press closes what the dock opened",
         ),
-        // 2026-10-23: the GAUGES key is gone; the gauges always stand on the machine.
+        // the owner 2026-10-23: the GAUGES key is gone; the gauges always stand on the machine.
         (
             &js,
             "let gaugesFolded=false;",
@@ -482,7 +482,7 @@ fn next_review_round_six_is_served() {
     }
 }
 
-/// Round seven : NEXT opens at "/", Z babystep, the filament wizard, print history,
+/// Round seven (the owner 2026-09-24): NEXT opens at "/", Z babystep, the filament wizard, print history,
 /// maintenance, input shaper and belts, and the camera passed through as a real stream.
 #[test]
 fn next_round_seven_is_served() {
@@ -495,41 +495,21 @@ fn next_round_seven_is_served() {
     for (file, marker, what) in [
         (&pages, "export function babystep(", "Z babystep"),
         (&pages, "export function pageFilament(", "filament wizard"),
-        (
-            &pages,
-            "Hot. Push the",
-            "a load asks before it feeds filament (an unload runs by itself once hot, 2026-09-25)",
-        ),
+        (&pages, "Hot. Push the", "a load asks before it feeds filament (an unload runs by itself once hot, the owner 2026-09-25)"),
         (&pages, "export function pageHistory(", "print history"),
-        (
-            &pages,
-            "export function pageMaintenance(",
-            "maintenance reminders",
-        ),
+        (&pages, "export function pageMaintenance(", "maintenance reminders"),
         (&pages, "export function pageShaper(", "input shaper"),
-        (
-            &pages,
-            "export function shaperResponse(",
-            "shaper response curves",
-        ),
+        (&pages, "export function shaperResponse(", "shaper response curves"),
         (&pages, "export function pageCamera(", "camera page"),
-        (
-            &ui,
-            "export function openModal(",
-            "command review over the open page",
-        ),
-        (
-            &js,
-            "openModal({title:'Review command'",
-            "review no longer replaces the page",
-        ),
+        (&ui, "export function openModal(", "command review over the open page"),
+        (&js, "openModal({title:'Review command'", "review no longer replaces the page"),
         (&js, "'sheet:shaper'", "input shaper on the rail"),
     ] {
         assert!(file.contains(marker), "{what}: {marker} not served");
     }
 }
 
-/// Round nine/ten : compact bars stand upright and stack exactly like the knobs,
+/// Round nine/ten (the owner 2026-09-25): compact bars stand upright and stack exactly like the knobs,
 /// dock choices open as radials, and the phone has its own page on the rail.
 #[test]
 fn next_round_nine_is_served() {
@@ -591,10 +571,10 @@ fn next_ui_u02_printer_page_is_on_the_kit() {
         (&js, "const fanOf=f=>stale||!f||f.speed===null||f.speed===undefined?{value:null}:", "a printer that is off shows no fan speed"),
         (&js, "function renderBar(", "the keys are the kit's square keys in the one bar"),
         (&js, "function foldGauges(", "the gauges fold into the bar"),
-        (&js, "the GAUGES key is gone", "no Gauges key "),
+        (&js, "the GAUGES key is gone", "no Gauges key (the owner 2026-10-23)"),
         (&js, "ui.back=nxkey({label:", "Back to the farm is a key"),
         (&js, "location.href='/farm'", "and it goes to the farm"),
-        (&js, "scene=createScene($('nx-scene'),id=>openPart(id),", "2026-10-24: a click on a part opens that part; a click on empty space does nothing"),
+        (&js, "scene=createScene($('nx-scene'),id=>openPart(id),", "the owner 2026-10-24: a click on a part opens that part; a click on empty space does nothing"),
         (&js, "initStage({scene:()=>scene", "the stage's click, zoom and reset are wired"),
         (&js, "function show3d(){", "the 3D machine on every device"),
         (&js, "id='nx-bgcam'", "Camera fills the whole background"),
@@ -625,7 +605,7 @@ fn next_ui_u02_printer_page_is_on_the_kit() {
     );
     // the pill for the position lives in the bar, not as a second glass capsule
     assert!(!js.contains("pos.classList.add('nx-glass')"));
-    // and no little arrow in the corner of a key that opens something : the pressed key says what is open
+    // and no little arrow in the corner of a key that opens something (the owner 2026-10-20): the pressed key says what is open
     assert!(!js.contains("el('i','nx-caret')"));
 }
 
@@ -700,7 +680,7 @@ fn next_ui_u06_the_printers_pages_are_on_the_kit() {
         (&js, "ledscope(body);const list", "Macros are in the page language"),
         (&js, "ledscope(body);const log=el('div','nx-console')", "and the Console"),
         (&css, ".nx-ledscope .nx-btn{", "the page's buttons are square keys with a depth edge"),
-        (&css, ".nx-ledscope .nx-btn:active", "a press eats the key's depth (corners: look A, 2026-10-23, in next-look.css)"),
+        (&css, ".nx-ledscope .nx-btn:active", "a press eats the key's depth (corners: look A, the owner 2026-10-23, in next-look.css)"),
         (&css, ".nx-ledscope .nx-stat-v{", "a number that is read is an LED figure"),
         (&css, ".nx-ledscope .nx-seg button", "tabs and choices are separate square keys"),
         (&css, ".nx-ledscope .nx-filring::before", "the filament ring is LED chiclets"),
@@ -800,7 +780,7 @@ fn next_ui_u05_u07_nothing_pops_up_and_the_alarm_takes_the_screen() {
     );
 }
 
-/// 2026-10-22 (Stella): CANCEL in the paused bar did nothing and said nothing; Klipper got PAUSE and never CANCEL_PRINT. A key that has to be held says so from the first touch
+/// the owner 2026-10-22 (Stella): CANCEL in the paused bar did nothing and said nothing; Klipper got PAUSE and never CANCEL_PRINT. A key that has to be held says so from the first touch
 /// (a line and a filling ring), says "not sent" when the hand lets go early, and a completed hold is itself the confirmation: it goes with confirm:true, without a review dialog,
 /// and the HUD says "Print cancelled, heaters off" only when the printer's own state reads cancelled with both heater targets at 0.
 #[test]
@@ -921,7 +901,7 @@ fn next_filament_asks_first_waits_then_cools_and_shakes() {
     }
 }
 
-/// Look A : the glass cockpit is one stylesheet loaded last on the printer page and the farm wall. It keeps the 10-20 layout (the sidebar,
+/// Look A (the owner, 2026-10-23): the glass cockpit is one stylesheet loaded last on the printer page and the farm wall. It keeps the 10-20 layout (the sidebar,
 /// the gauges on the machine, the dock) and changes the surface: the sidebar names its pages under their icons, each gauge stands on a solid holographic disc,
 /// the panels are the same glass, the GAUGES key is gone and a right click on a gauge types its value.
 #[test]
@@ -958,4 +938,126 @@ fn look_a_glass_cockpit_is_loaded_everywhere_and_keeps_the_layout() {
         !next_html.contains("next-shell.css"),
         "the rejected rebuild's shell is not loaded"
     );
+}
+
+/// 0.6.2 and the HUD wiring of the AD5M fixes is in the bytes it serves. The data side is tested where it is built
+/// (workspace, signals, driver); these markers keep the page from losing the other half.
+#[test]
+fn the_machine_fit_and_klipper_data_fixes_are_wired_into_the_served_hud() {
+    let get = |p: &str| String::from_utf8(crate::api::asset("GET", p).unwrap().body).unwrap();
+    let (next, core, pages, calib, health, hud) = (
+        get("/next.js"),
+        get("/next-core.js"),
+        get("/next-pages.js"),
+        get("/next-calibrate.js"),
+        get("/next-health.js"),
+        get("/hud-core.js"),
+    );
+    for (file, marker, what) in [
+        (
+            &core,
+            "layerZ:number(point?.layer_z)",
+            "the bottom bar's Z is the layer Z",
+        ),
+        (
+            &next,
+            "const lz=v=>finite(state.readings?.layerZ)??v",
+            "paintPos shows the layer Z",
+        ),
+        (
+            &core,
+            "sections:point?.sections||null",
+            "the readings carry the printer's config sections",
+        ),
+        (
+            &next,
+            "noCamera:!has('camera')",
+            "no camera key on a printer without a webcam",
+        ),
+        (
+            &next,
+            "hide($('nx-camtoggle'),!has('camera'))",
+            "no camera button either",
+        ),
+        (
+            &next,
+            "has('camera')?cameras():[]",
+            "no camera call when the printer has none",
+        ),
+        (
+            &next,
+            "function fitMachine()",
+            "the words follow the machine",
+        ),
+        (
+            &next,
+            "'BOARD FAN'",
+            "a one-Z printer's controller fan is the board fan",
+        ),
+        (&next, "There is no 3D model for ", "the no-model message"),
+        (
+            &pages,
+            "qgl=sec?.quad_gantry_level!==false",
+            "the gantry only where there is a quad_gantry_level",
+        ),
+        (
+            &pages,
+            "SCREWS_TILT_CALCULATE",
+            "the levelling macros the printer has",
+        ),
+        (
+            &pages,
+            "Bed load cell (weight)",
+            "the load cell is named for what it is",
+        ),
+        (
+            &calib,
+            "ctx.tick?.()?.point?.sections",
+            "Calibrate follows the reported sections when controls are off",
+        ),
+        (
+            &health,
+            "'current setting'",
+            "Health shows a driver's set current when it reports no load",
+        ),
+        (
+            &health,
+            "shaper_freq_",
+            "Health's X and Y cards take the configured input shaper",
+        ),
+        (
+            &hud,
+            "(weight|load)",
+            "the load cell's reading has no degree sign",
+        ),
+    ] {
+        assert!(file.contains(marker), "{what}: {marker} not served");
+    }
+}
+
+/// 0.6.2 to (the owner 2026-10-30): what the page must carry for the gauges, the opened tile, the knob and the belts. Layout is proved by the screens in the evidence folders; this keeps the rules from being lost.
+#[test]
+fn the_gauge_stacks_the_opened_tile_the_knob_and_the_belts_are_in_the_served_bytes() {
+    let text = |p: &str| String::from_utf8(crate::api::asset("GET", p).unwrap().body).unwrap();
+    let (pro, kit, kitcss, js, view, follow) = (
+        text("/next-pro.css"),
+        text("/next-control.js"),
+        text("/next-control.css"),
+        text("/next.js"),
+        text("/model-view.js"),
+        text("/model-follow.js"),
+    );
+    for (body, what, why) in [
+        (&pro, "#nx-right .nxctl{--nxctl-size:var(--rr)!important}", "the right stack's rings are sized by how many stand in it"),
+        (&pro, ".nx-stagecard .nx-md-tools{right:calc(24px + var(--safe-r) + var(--rr) + 14px)!important}", "the cube and the model key stand to the left of the stack"),
+        (&pro, "body[data-layout=phone] .nx-fans{display:flex!important;flex-direction:column", "the phone's fans are a stack on the right edge"),
+        (&pro, ".fm-tile[data-open]{top:50%;bottom:auto;left:0;right:0;translate:0 -50%;", "the opened tile is sized to what is in it, in WebKitGTK too"),
+        (&js, "const fanHere=k=>", "a fan gauge stands when the printer has that fan"),
+        (&kit, "export function heldPlace(", "the held knob's place is one tested rule"),
+        (&kitcss, ".nxctl.held.under{opacity:0}", "a knob on its gauge replaces it"),
+        (&view, "moveFlex(g)", "the belts move with the pose"),
+        (&follow, "export function beltWeights(", "the belts' rule is one pure function"),
+    ] {
+        assert!(body.contains(what), "{why}: {what}");
+    }
 }

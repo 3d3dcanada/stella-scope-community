@@ -275,6 +275,29 @@
     "model_sha256": "e91d0d08b09bd8134142c80d4d33ba7611189788d5cb396351bad1068be73892",
     "stored_model_sha256": "5b783a2e59d58787fc11d72ca3df381bdb883d12965bf9d8ecb41be1a7b9b292"
    }
+  },
+  "trident_r2_stealthburner": {
+   "bytes": 6355615,
+   "id": "trident_r2_stealthburner",
+   "kind": "part",
+   "label": "Trident R2 Stealthburner",
+   "licence": {
+    "author": "VoronDesign",
+    "basis": "Cut from 3D Print Rig's voron_trident_500_custom (its Toolhead_SB_Revo and Toolhead_CW2 parts, unchanged, by tools/printer-part-extract.mjs): docs/THIRD_PARTY_NOTICES.md, VoronDesign, GPL-3.0; embedded components keep their own terms.",
+    "class": "gpl",
+    "source": "https://github.com/VoronDesign/Voron-Stealthburner",
+    "text": "GPL-3.0"
+   },
+   "location": {
+    "kind": "bundled",
+    "upstream": "https://psych0h3ad.github.io/3d-print-rig-large-voron-models/trident-deck-v103/voron_trident_500_custom/model.glb.gz",
+    "note": "Ships inside Stella Scope (models/trident-r2-stealthburner.glb.gz) and is put in the library when the service starts. The address is the model it was cut from, where its author publishes that; this file itself is published nowhere else, so it is never fetched."
+   },
+   "parts": 90,
+   "pin": {
+    "model_sha256": "37b666dc2aecb33f43419a14ae3ee0b09e1ff1a2f1a819baea2cfac29b19664c",
+    "stored_model_sha256": "cd63c28220ebecbbea3d3e661d7e3be92eea63ab66b8321667bc560e33e31fa4"
+   }
   }
  },
  "options": [
@@ -330,6 +353,52 @@
    "source": [
     {
      "registry": "viewer-models.zip modules/trident_r2_gantry_300.json, trident_r2_sb_carriage.json"
+    }
+   ]
+  },
+  {
+   "id": "trident_r2_stealthburner",
+   "kind": "addon",
+   "category": "toolhead",
+   "label": "Stealthburner on the Trident R2 carriage",
+   "bytes": 6355615,
+   "attach": {
+    "exclusive_group": null,
+    "kind": "place",
+    "note": "The toolhead that hangs from the R2 X carriage, so the Trident has a nozzle on the part (0.6.2 2026-10-30). It rides with the head. Goes with the Trident R2 gantry and X carriage."
+   },
+   "fits": {
+    "voron_trident_300": {
+     "exclusive_group": null,
+     "hide_machine_keys": [],
+     "place": [
+      {
+       "follows": "head",
+       "hidden_keys": [],
+       "part": "trident_r2_stealthburner",
+       "translation_mm": [
+        0,
+        0,
+        0
+       ]
+      }
+     ]
+    }
+   },
+   "licence": {
+    "author": "VoronDesign",
+    "basis": "strictest of its parts",
+    "class": "gpl",
+    "source": "https://github.com/VoronDesign/Voron-Stealthburner",
+    "text": "GPL-3.0"
+   },
+   "parts": [
+    "trident_r2_stealthburner"
+   ],
+   "scope": "Geometry at the registered place: the toolhead of 3D Print Rig's Trident 500, whose carriage frames stand exactly where the 300's R2 carriage does. Firmware and collisions are not simulated.",
+   "source": [
+    {
+     "registry": "voron_trident_500_custom Toolhead_SB_Revo and Toolhead_CW2, cut by tools/printer-part-extract.mjs"
     }
    ]
   }

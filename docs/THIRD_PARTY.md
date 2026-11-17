@@ -1,14 +1,13 @@
 # What is inside Stella Scope, and under what terms
 
-Stella Scope is free and open source under the **GNU Affero General Public License 3.0 (AGPL-3.0)**, made by 3D3D Canada (info@3d3d.ca). A farm
-licence for more than five printers is a separate, commercial right sold by 3D3D (see `FARM-LICENCE-TERMS.md`). This page lists the code, fonts and
+Stella Scope is made by 3D3D Canada (info@3d3d.ca) and is open source under the **GNU Affero General Public License 3.0** (`LICENSE`), with no printer limit. This page lists the code, fonts and
 data made by other people that Stella Scope carries, and the terms each one is shared under. In the app it is under More, About, Licences.
 Prusa Research, Voron Design, 3D Print Rig and the other makers named here are not connected with Stella Scope and have not approved it.
 
 ## The program
 
 Stella Scope is written in Rust. It is built from 97 Rust crates (libraries), every one under a permissive licence: **none is GPL or AGPL**. The licence
-of each is read from the crate's own `Cargo.toml`, at the exact version in `Cargo.lock` (tool: `the project notes`).
+of each is read from the crate's own `Cargo.toml`, at the exact version in `Cargo.lock`.
 Where a crate offers a choice ("MIT OR Apache-2.0") Stella Scope takes the permissive one.
 
 | crate | version | licence |

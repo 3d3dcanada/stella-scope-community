@@ -10,7 +10,6 @@ use crate::{
     collector::{self, Shared},
     commands,
     config::{Config, PrinterEntry},
-    licence::FREE_PRINTERS,
     model::{self, CollectorStatus},
     store::Store,
     Result,
@@ -28,6 +27,171 @@ use std::{
     },
     thread,
 };
+
+/// A temporary file beside `path` that no other write of this process uses (two saves at once shared one
+/// `.tmp-<pid>` file and could interleave into a corrupt settings file).
+pub fn unique_temp(path: &Path) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    PathBuf::from(format!(
+        "{}.tmp-{}-{}",
+        path.display(),
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+/// Write a file only its owner can read (the licence names its buyer and is the key itself).
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut o = OpenOptions::new();
+    o.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    o.open(path)?.write_all(bytes)
+}
+
+/// Should the heaters go off now? `on_since` is when a heater was first seen on with no print, with the targets then; it is
+/// started, kept, restarted (a new target) or cleared here. Pure, so the rule is tested without a printer.
+fn idle_heat_due(
+    tick: &Value,
+    on_since: &mut Option<(f64, [f64; 2])>,
+    now: f64,
+    limit_s: f64,
+) -> bool {
+    let target = |k: &str| {
+        tick["point"][k]["target"]
+            .as_f64()
+            .filter(|t| t.is_finite())
+            .unwrap_or(0.0)
+    };
+    let targets = [target("nozzle"), target("bed")];
+    let state = tick["job"]["state"]
+        .as_str()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    // -11-14: "no print" must be certain before a heater is turned off. A print sent by another host, a long macro or a
+    // heat soak leaves the job state at standby while the printer works (the tick's `busy`), and so does a FlashForge or Prusa that says
+    // heating or busy; a head or an extruder that is moving is working too. Any of these counts as printing: turning the heat off then
+    // would ruin the part.
+    let moving = ["velocity", "extruder_velocity"]
+        .iter()
+        .any(|k| tick["point"][*k].as_f64().is_some_and(|v| v.abs() > 0.01));
+    let printing = state == "printing" || state == "paused" || tick["busy"] == true || moving;
+    if printing || targets.iter().all(|t| *t <= 0.0) {
+        *on_since = None;
+        return false;
+    }
+    match on_since {
+        Some((_, was)) if *was == targets => {}
+        _ => *on_since = Some((now, targets)),
+    }
+    on_since.is_some_and(|(since, _)| now - since >= limit_s)
+}
+
+/// the owner 2026-11-14: the time is the person's to change ("people might want to heat soak longer"), "maybe an hour would be the maximum, and
+/// then it automatically shuts off". So there is no "never": the shortest is 5 minutes, the longest 60.
+pub const IDLE_MIN: u32 = 5;
+pub const IDLE_MAX: u32 = 60;
+
+/// The minutes in force for what the settings file says: inside 5..60. An older file's 0 ("off") or anything over the hour is the hour.
+pub fn idle_minutes(raw: u32) -> u32 {
+    if raw == 0 {
+        IDLE_MAX
+    } else {
+        raw.clamp(IDLE_MIN, IDLE_MAX)
+    }
+}
+
+/// One thread per live printer: a heater left on with no print for `minutes` is turned off (both nozzle and bed), through the same
+/// door a page uses, so every rule still applies. A print starting, or the person changing a target, starts the count again.
+fn spawn_idle_heat_off(
+    controls: Arc<commands::Service>,
+    state: Shared,
+    stop: Arc<AtomicBool>,
+    setting: Arc<std::sync::atomic::AtomicU32>,
+    id: String,
+) {
+    let _ = thread::Builder::new().name("idle-heat-off".into()).spawn(move || {
+        let mut on_since = None;
+        while !stop.load(Ordering::Relaxed) {
+            thread::sleep(std::time::Duration::from_secs(15));
+            // the time is read on every pass, so a change on the Heat page counts at once (the owner 2026-11-14: changeable, an hour at most)
+            let minutes = setting.load(Ordering::Relaxed);
+            let limit_s = f64::from(minutes) * 60.0;
+            let (tick, at) = state.lock().ok().map(|s| (s.last_tick.clone().unwrap_or(Value::Null), s.last_tick_ts)).unwrap_or((Value::Null, None));
+            // -11-14: only a reading from the last minute says what the printer is doing now; with the link down the old
+            // reading may show a hot, idle printer that has since started a print. No fresh reading: the count starts again, nothing is sent.
+            let now = now_secs();
+            if tick.is_null() || at.is_none_or(|t| now - t > 60.0) {
+                on_since = None;
+                continue;
+            }
+            if !idle_heat_due(&tick, &mut on_since, now, limit_s) {
+                continue;
+            }
+            on_since = None;
+            for target in ["extruder", "heater_bed"] {
+                if let Err(e) = controls.run(&json!({"id":"set_heater","target":target,"value":0})) {
+                    eprintln!("{id}: heaters left on {minutes} min with no print; {target} could not be turned off: {e}");
+                }
+            }
+            eprintln!("{id}: heaters were on {minutes} min with no print running; turned them off");
+        }
+    });
+}
+
+/// This computer's code for a farm licence (the owner 2026-11-14: one licence, one computer), from the operating system's own machine id,
+/// hashed so nothing about the computer is shown: four groups of four, like `3F2A-91C0-7B44-0D1E`. Read once.
+pub fn machine_code() -> String {
+    static CODE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CODE.get_or_init(|| {
+        let raw = machine_id().unwrap_or_else(|| {
+            std::env::var("HOSTNAME")
+                .or_else(|_| std::env::var("COMPUTERNAME"))
+                .unwrap_or_default()
+        });
+        let h = crate::sha256::hex(format!("stella-scope-machine|{}", raw.trim()).as_bytes())
+            .to_ascii_uppercase();
+        format!("{}-{}-{}-{}", &h[0..4], &h[4..8], &h[8..12], &h[12..16])
+    })
+    .clone()
+}
+
+fn machine_id() -> Option<String> {
+    #[cfg(windows)]
+    {
+        let out = std::process::Command::new("reg")
+            .args([
+                "query",
+                r"HKLM\SOFTWARE\Microsoft\Cryptography",
+                "/v",
+                "MachineGuid",
+            ])
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        return text
+            .split_whitespace()
+            .last()
+            .filter(|g| g.len() >= 32)
+            .map(str::to_owned);
+    }
+    #[cfg(not(windows))]
+    ["/etc/machine-id", "/var/lib/dbus/machine-id"]
+        .iter()
+        .find_map(|p| fs::read_to_string(p).ok().filter(|t| t.trim().len() >= 16))
+}
+
+/// The loopback port whose listener is the machine-wide lock (the owner 2026-11-14: two copies on one computer must not each run five
+/// printers). `main` holds it for the life of a live service; a second live copy cannot take it and does not start.
+pub const MACHINE_LOCK_PORT: u16 = 47419;
+
+/// Now in epoch seconds, for the licence's end date.
+fn now_secs() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
 
 pub struct Printer {
     pub id: String,
@@ -50,10 +214,8 @@ impl Printer {
 pub struct Farm {
     /// The configuration as read: shared limits and intervals, and the process-wide extras.
     pub base: Config,
-    /// When the farm's one thirty-day trial started (epoch seconds). `base` holds what the file said at the start; this is what is true now (
-    /// the sixth printer wrote the start into the file but the running service went on reading none, so it said "a licence is asked for" with no trial running,
-    /// and every printer added after it wrote a newer start, so the trial could be stretched for as long as the service ran).
-    trial_started: Mutex<Option<f64>>,
+    /// The key farm licences are checked against: the built-in one, or a test's own (`set_licence_key`).
+    licence_key: RwLock<[u8; 32]>,
     /// `live`, `demo` or `replay`. A demo or replay is always a farm of one.
     pub mode: String,
     pub config_path: Option<PathBuf>,
@@ -71,6 +233,13 @@ pub struct Farm {
     /// The job queue and the plate flow, when this service can run one.
     queue: Option<Arc<crate::queue::Queue>>,
     queue_error: Option<String>,
+    /// adding printers is one at a time, so the count checked against the licence and the
+    /// configuration written after it can never be raced by a second add arriving at the same moment.
+    adding: Mutex<()>,
+    /// The newest moment in the printers' recordings when the licence was first checked (`licence_now`).
+    recorded_high: std::sync::OnceLock<f64>,
+    /// Minutes a heater may stay on with no print before both are turned off (`idle_minutes`); changed on the Heat page, read by every printer.
+    idle_off_min: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl Farm {
@@ -119,7 +288,7 @@ impl Farm {
         let placeholder =
             (base.unconfigured && mode == "live").then(|| crate::config::PLACEHOLDER_ID.to_owned());
         let farm = Arc::new(Farm {
-            trial_started: Mutex::new(base.licence_trial_started),
+            licence_key: RwLock::new(crate::licence::PUBLIC_KEY),
             base,
             mode,
             config_path,
@@ -130,12 +299,38 @@ impl Farm {
             demo,
             queue,
             queue_error,
+            adding: Mutex::new(()),
+            recorded_high: std::sync::OnceLock::new(),
+            idle_off_min: Arc::new(std::sync::atomic::AtomicU32::new(idle_minutes(0))),
         });
+        farm.idle_off_min.store(
+            idle_minutes(farm.base.heater_idle_off_min),
+            Ordering::Relaxed,
+        );
         let mut entries = farm.base.entries();
         if farm.mode != "live" {
             entries.truncate(1); // a demo or a replay is the first printer only
         }
+        // (the owner: nobody passes five printers without a licence): a settings file can name more real printers than may
+        // run (written by hand, restored from another farm, copied in). The first ones in the file run, up to what is allowed; the rest are
+        // listed, not started, with the refusal's words, and the file is left as it is, so nothing is lost when a licence arrives.
+        let allowed = farm.allowed_printers();
+        let mut real = 0_usize;
         for (i, entry) in entries.iter().enumerate() {
+            if entry.driver != "demo" {
+                real += 1;
+                if real > allowed {
+                    eprintln!(
+                        "printer {} not started: over the {allowed} printers this farm may run",
+                        entry.id
+                    );
+                    farm.failed
+                        .lock()
+                        .map_err(|_| "farm lock poisoned")?
+                        .push((entry.clone(), crate::licence::refusal(allowed)));
+                    continue;
+                }
+            }
             match farm.launch(entry, if i == 0 { warnings.clone() } else { Vec::new() }) {
                 Ok(p) => farm
                     .printers
@@ -150,29 +345,6 @@ impl Farm {
                         .lock()
                         .map_err(|_| "farm lock poisoned")?
                         .push((entry.clone(), e));
-                }
-            }
-        }
-        // printers beyond the free five are locked once the trial ends and no licence covers
-        // them. The free five are the first five real (non-demo) printers added. Compute the lock
-        // state once at startup from the licence file and the trial start recorded in the config;
-        // a running print is never interrupted by it.
-        let st = farm.licence_status();
-        if st.get("locked").and_then(|v| v.as_bool()).unwrap_or(false) {
-            let reason = st
-                .get("note")
-                .and_then(|v| v.as_str())
-                .unwrap_or("this printer is locked by the farm licence")
-                .to_owned();
-            let real: Vec<&PrinterEntry> = entries.iter().filter(|e| e.driver != "demo").collect();
-            for (idx, entry) in real.iter().enumerate() {
-                if idx < FREE_PRINTERS {
-                    continue;
-                }
-                if let Ok(printers) = farm.printers.read() {
-                    if let Some(p) = printers.iter().find(|pr| pr.entry.id == entry.id) {
-                        p.controls.set_licence_locked(true, reason.clone());
-                    }
                 }
             }
         }
@@ -201,35 +373,103 @@ impl Farm {
 
     /// Where the farm stands on the licence (`GET /api/licence`).
     pub fn licence_status(&self) -> Value {
-        self.licence_status_with(&crate::licence::PUBLIC_KEY)
+        self.licence_status_with(&self.key())
+    }
+
+    fn key(&self) -> [u8; 32] {
+        self.licence_key
+            .read()
+            .map(|k| *k)
+            .unwrap_or(crate::licence::PUBLIC_KEY)
+    }
+
+    /// Tests only: check licences against a throwaway key, so a test can make its own.
+    #[cfg(test)]
+    pub fn set_licence_key(&self, key: [u8; 32]) {
+        if let Ok(mut k) = self.licence_key.write() {
+            *k = key;
+        }
     }
 
     pub fn licence_status_with(&self, key: &[u8; 32]) -> Value {
         let saved = fs::read_to_string(self.licence_path()).ok();
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
-            .unwrap_or(0.0);
-        crate::licence::status_with_clock(
+        crate::licence::status_on(
             saved.as_deref(),
             self.printer_count(),
             key,
-            now,
-            self.trial_started.lock().ok().and_then(|t| *t),
+            self.licence_now(),
+            Some(&machine_code()),
+        )
+    }
+
+    /// The time a licence's end date is checked against: the later of the clock and the latest time this service has ever seen,
+    /// kept beside the licence (release-2026-11-14: turning the clock back must not extend a trial key).
+    fn licence_now(&self) -> f64 {
+        let path = self.config_dir().join("licence-clock");
+        let seen = fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| t.trim().parse::<f64>().ok())
+            .unwrap_or(0.0);
+        // the owner 2026-11-14 (deleting the clock file must not be enough): the newest moment in the printers' own recordings counts too.
+        // Read once per start; turning the clock back and deleting the file leaves the recordings' last time in place.
+        let recorded = *self.recorded_high.get_or_init(|| {
+            self.base
+                .entries()
+                .iter()
+                .filter(|e| e.driver != "demo")
+                .filter_map(|e| {
+                    let db = e
+                        .database
+                        .clone()
+                        .unwrap_or_else(|| self.base.recording_for(e));
+                    Path::new(&db).exists().then_some(())?;
+                    Store::open(&db, true).ok()?.bounds().ok()?.1
+                })
+                .fold(0.0_f64, f64::max)
+        });
+        let seen = seen.max(recorded);
+        let now = now_secs();
+        if now > seen + 60.0 {
+            let _ = write_private(&path, format!("{now:.0}\n").as_bytes());
+        }
+        now.max(seen)
+    }
+
+    /// How many real printers this farm may run: five, or what its saved, valid licence covers (src/licence.rs `allowed`).
+    pub fn allowed_printers(&self) -> usize {
+        self.allowed_printers_with(&self.key())
+    }
+
+    pub fn allowed_printers_with(&self, key: &[u8; 32]) -> usize {
+        let saved = fs::read_to_string(self.licence_path()).ok();
+        crate::licence::allowed(
+            crate::licence::valid_on(
+                saved.as_deref(),
+                key,
+                self.licence_now(),
+                Some(&machine_code()),
+            )
+            .0
+            .as_ref(),
         )
     }
 
     /// Keep a licence that checks out. A text that does not is refused in words and nothing is written.
     pub fn save_licence(&self, text: &str) -> Result<Value> {
-        self.save_licence_with(text, &crate::licence::PUBLIC_KEY)
+        self.save_licence_with(text, &self.key())
     }
 
     pub fn save_licence_with(&self, text: &str, key: &[u8; 32]) -> Result<Value> {
         crate::licence::verify_with(text, key)?;
+        if let (None, Some(why)) =
+            crate::licence::valid_on(Some(text), key, self.licence_now(), Some(&machine_code()))
+        {
+            return Err(why);
+        }
         let clean: String = text.chars().filter(|c| !c.is_whitespace()).collect();
         let path = self.licence_path();
         let tmp = path.with_extension("txt.tmp");
-        fs::write(&tmp, format!("{clean}\n"))
+        write_private(&tmp, format!("{clean}\n").as_bytes())
             .map_err(|e| format!("cannot save the licence: {e}"))?;
         fs::rename(&tmp, &path).map_err(|e| format!("cannot save the licence: {e}"))?;
         Ok(self.licence_status_with(key))
@@ -238,6 +478,23 @@ impl Farm {
     pub fn remove_licence(&self) -> Result<Value> {
         let _ = fs::remove_file(self.licence_path());
         Ok(self.licence_status())
+    }
+
+    /// Minutes a heater may stay on with no print before Stella Scope turns the nozzle and the bed off.
+    pub fn idle_off_min(&self) -> u32 {
+        self.idle_off_min.load(Ordering::Relaxed)
+    }
+
+    /// Change that time (the Heat page). Between `IDLE_MIN` and `IDLE_MAX` minutes; saved in the settings file and used at once by
+    /// every printer. Nothing is changed when it cannot be saved.
+    pub fn set_idle_off_min(&self, minutes: u64) -> Result<u32> {
+        self.writable()?;
+        let m = u32::try_from(minutes).ok().filter(|m| (IDLE_MIN..=IDLE_MAX).contains(m)).ok_or_else(|| {
+            format!("Choose between {IDLE_MIN} and {IDLE_MAX} minutes. Heaters are always turned off after an hour with no print.")
+        })?;
+        self.patch_config(|v| v["heater_idle_off_min"] = json!(m))?;
+        self.idle_off_min.store(m, Ordering::Relaxed);
+        Ok(m)
     }
 
     pub fn queue(&self) -> Option<Arc<crate::queue::Queue>> {
@@ -519,6 +776,15 @@ impl Farm {
         }
         let controls = Arc::new(commands::Service::new(&cfg, &self.mode)?);
         commands::Service::spawn_heat_guard(&controls, stop.clone());
+        if self.mode == "live" {
+            spawn_idle_heat_off(
+                controls.clone(),
+                state.clone(),
+                stop.clone(),
+                self.idle_off_min.clone(),
+                entry.id.clone(),
+            );
+        }
         Ok(Arc::new(Printer {
             id: entry.id.clone(),
             entry: entry.clone(),
@@ -558,6 +824,7 @@ impl Farm {
         entry: PrinterEntry,
         secret: Option<BTreeMap<String, String>>,
     ) -> Result<Arc<Printer>> {
+        let _one_at_a_time = self.adding.lock().map_err(|_| "farm lock poisoned")?;
         self.add_one(entry, secret, true)
     }
 
@@ -582,6 +849,21 @@ impl Farm {
         }
         if self.entries_now().iter().any(|e| e.id == entry.id) {
             return Err(format!("a printer with id {} already exists", entry.id));
+        }
+        // the hard limit. Every way a real printer arrives while the service runs (the Add a printer page, a printer found on
+        // the network, the phone) comes through here; demo printers are simulations inside this program and never count.
+        if entry.driver != "demo" {
+            let allowed = self.allowed_printers();
+            if self.printer_count() >= allowed {
+                return Err(crate::licence::refusal(allowed));
+            }
+        }
+        // the same bed bounds the settings page enforces; a bed of 5 mm or 50 m is a typing mistake, not a printer
+        if entry.bed_size_mm.is_some_and(|b| {
+            b.iter()
+                .any(|v| !v.is_finite() || !(50.0..=2000.0).contains(v))
+        }) {
+            return Err("bed_size_mm values must be between 50 and 2000".into());
         }
         if secret.is_some() && entry.credentials_ref.is_none() {
             entry.credentials_ref = Some(entry.id.clone());
@@ -701,31 +983,6 @@ impl Farm {
         }
         // the failure watch looks at the first real printer there is, which a farm that started empty did not have until now ()
         self.refresh_watched();
-        // the sixth real printer starts a 30-day trial (one trial per farm). A licence that
-        // covers the farm, or being at five or fewer, means no trial. The trial start is stored in
-        // the config so it survives a restart.
-        if entry.driver != "demo" && self.trial_started.lock().ok().is_some_and(|t| t.is_none()) {
-            let real = self
-                .entries_now()
-                .iter()
-                .filter(|e| e.driver != "demo")
-                .count();
-            if real >= 6 {
-                let st = self.licence_status();
-                let covered = st
-                    .get("licence")
-                    .and_then(|l| l.get("printers"))
-                    .and_then(|p| p.as_u64())
-                    .is_some_and(|n| n as usize >= real);
-                if !covered {
-                    let now = model::now();
-                    self.write_licence_trial_started(Some(now));
-                    if let Ok(mut t) = self.trial_started.lock() {
-                        *t = Some(now);
-                    }
-                }
-            }
-        }
         Ok(printer)
     }
 
@@ -735,6 +992,7 @@ impl Farm {
     /// touched. Reports what was added, what was already there and which of their models are not installed.
     pub fn add_demo_farm(&self) -> Result<Value> {
         self.writable()?;
+        let _one_at_a_time = self.adding.lock().map_err(|_| "farm lock poisoned")?;
         let have: Vec<String> = self.entries_now().iter().map(|e| e.id.clone()).collect();
         let (mut added, mut skipped): (Vec<Arc<Printer>>, Vec<String>) = (Vec::new(), Vec::new());
         for entry in crate::demo::demo_farm() {
@@ -854,7 +1112,7 @@ impl Farm {
         }
         fs::copy(path, &backup)
             .map_err(|e| format!("cannot keep a dated copy at {}: {e}", backup.display()))?;
-        let temp = PathBuf::from(format!("{}.tmp-{}", path.display(), std::process::id()));
+        let temp = unique_temp(path);
         let result = (|| -> std::io::Result<()> {
             let mut f = File::create(&temp)?;
             f.write_all(
@@ -873,13 +1131,6 @@ impl Farm {
             let _ = fs::remove_file(&temp);
             format!("cannot save {}: {e}; nothing was changed", path.display())
         })
-    }
-
-    /// Store the trial start (epoch seconds) in the configuration file, rewriting just that field.
-    fn write_licence_trial_started(&self, started: Option<f64>) {
-        let _ = self.patch_config(|v| {
-            v["licence_trial_started"] = serde_json::to_value(started).unwrap_or(Value::Null)
-        });
     }
 
     /// Phone access was switched off and the person wants a phone (, 2026-10-19): the page used to say "Enable remote_link", a name
@@ -1219,7 +1470,7 @@ impl Farm {
         }
         fs::copy(path, &backup)
             .map_err(|e| format!("cannot keep a dated copy at {}: {e}", backup.display()))?;
-        let temp = PathBuf::from(format!("{}.tmp-{}", path.display(), std::process::id()));
+        let temp = unique_temp(path);
         let result = (|| -> std::io::Result<()> {
             let mut f = File::create(&temp)?;
             f.write_all(
@@ -1283,9 +1534,10 @@ fn summarize(p: &Printer, first: &str, now: f64) -> Value {
     let duration = job["duration"].as_f64();
     // (CORE One L, 2026-10-19): the printer's own figure first. Worked out from progress alone it said 1 h 27 min
     // while the CORE One L said 14 min: early progress counts the heating and probing as if they were printing.
-    let time_left = job["time_left"].as_f64().or(match (progress, duration) {
-        (Some(p), Some(d)) if p > 0.01 && d >= 0.0 => Some((d / p - d).max(0.0)),
-        _ => None,
+    // 0.6.2 the same blend of the slicer's estimate and progress as the workspace point, from one function, so
+    // the wall and the printer's page never disagree (the workspace point read null in 3 of 20 reads while this had a number).
+    let time_left = job["time_left"].as_f64().or_else(|| {
+        crate::api::workspace::time_left(progress, duration, job["estimated_time"].as_f64())
     });
     let temp = |k: &str| json!({"temp":point[k]["temperature"],"target":point[k]["target"]});
     let (nozzle, bed) = (temp("nozzle"), temp("bed"));
@@ -1331,9 +1583,10 @@ fn summarize(p: &Printer, first: &str, now: f64) -> Value {
         "model":p.cfg.printer_model,
         "accent":p.entry.accent,
         "camera":p.entry.camera,
-        "nozzle_mm":p.entry.nozzle_mm,
+        // what was typed for this printer, else what the slicer wrote into the file it is printing (0.6.2 both were null on the AD5M)
+        "nozzle_mm":p.entry.nozzle_mm.or(job["nozzle_mm"].as_f64()),
         "slicer_model":p.entry.slicer_model,
-        "material":p.entry.material,
+        "material":p.entry.material.clone().or_else(|| job["material"].as_str().map(str::to_owned)),
         "bed_mm":p.cfg.bed_size_mm,
         "model_asset":p.entry.model_asset,
         // true when this printer's own scene model (the machine the main page draws)
@@ -1588,6 +1841,9 @@ pub fn model_json_at(
         "bed_corner":profile.and_then(|pr| pm::Calibration::from_value(&pr["calibration"]).ok().map(|c| json!({"calibration":c.to_value(),"basis":pr["calibration_basis"]}))),
         "position":{"x":position[0],"y":position[1],"z":position[2]},
         "tick_age_s":age,
+        // 0.6.2 the printer's own moment for this position, so the page measures the head's pace in the printer's time. Measured between two answers as they reach the page, a busy
+        // page's two answers 66 ms apart read as three times the pace and the head ran 100 mm ahead of the printer.
+        "position_ts":age.map(|a| now - a),
         "pose":spec.as_ref().zip(cal.as_ref()).map(|(pr, c)| pm::pose_for_tool(pr, c, position, tool_of(p))),
         // The arithmetic of the pose (travel, motions, tools), so the page can move the head between reports at render rate.
         "pose_spec":spec,
@@ -1751,5 +2007,61 @@ mod tests {
         assert!(crate::config::id_ok(&slug("Adventurer 5M (shop)")));
         assert_eq!(utc_stamp(0), "19700101-000000");
         assert_eq!(utc_stamp(1_791_811_170), "20261012-131930");
+    }
+}
+
+#[cfg(test)]
+mod idle_heat_tests {
+    use super::idle_heat_due;
+    use serde_json::json;
+
+    #[test]
+    fn heaters_left_on_with_no_print_go_off_after_the_limit_and_a_print_or_a_new_target_resets_it()
+    {
+        let hot = json!({"point":{"nozzle":{"target":240.0},"bed":{"target":100.0}},"job":{"state":"standby"}});
+        let mut since = None;
+        assert!(!idle_heat_due(&hot, &mut since, 0.0, 1800.0));
+        assert!(!idle_heat_due(&hot, &mut since, 1799.0, 1800.0));
+        assert!(
+            idle_heat_due(&hot, &mut since, 1800.0, 1800.0),
+            "30 minutes on with no print"
+        );
+        // a print running: never
+        let mut since = None;
+        let printing = json!({"point":{"nozzle":{"target":240.0},"bed":{"target":100.0}},"job":{"state":"printing"}});
+        assert!(
+            !idle_heat_due(&printing, &mut since, 0.0, 1800.0)
+                && !idle_heat_due(&printing, &mut since, 9999.0, 1800.0)
+        );
+        // a new target starts the count again
+        let mut since = None;
+        idle_heat_due(&hot, &mut since, 0.0, 1800.0);
+        let warmer = json!({"point":{"nozzle":{"target":250.0},"bed":{"target":100.0}},"job":{"state":"standby"}});
+        assert!(!idle_heat_due(&warmer, &mut since, 1700.0, 1800.0));
+        assert!(idle_heat_due(&warmer, &mut since, 3500.0, 1800.0));
+        // a printer that is busy (a print from another host, a heat soak macro, a FlashForge heating up) or whose head or
+        // extruder is moving is never switched off, whatever the job state says
+        for working in [
+            json!({"busy":true,"point":{"nozzle":{"target":240.0},"bed":{"target":100.0}},"job":{"state":"standby"}}),
+            json!({"point":{"velocity":80.0,"nozzle":{"target":240.0},"bed":{"target":100.0}},"job":{"state":"standby"}}),
+            json!({"point":{"extruder_velocity":-2.0,"nozzle":{"target":240.0},"bed":{"target":0.0}},"job":{"state":"complete"}}),
+        ] {
+            let mut since = None;
+            assert!(
+                !idle_heat_due(&working, &mut since, 0.0, 1800.0)
+                    && !idle_heat_due(&working, &mut since, 99999.0, 1800.0),
+                "{working}"
+            );
+            assert!(since.is_none());
+        }
+        // the owner: changeable, an hour at most, never off
+        assert_eq!(
+            [0, 1, 5, 30, 45, 60, 61, 9999].map(super::idle_minutes),
+            [60, 5, 5, 30, 45, 60, 60, 60]
+        );
+        // heaters off: nothing to do
+        let mut since = None;
+        let cold = json!({"point":{"nozzle":{"target":0.0},"bed":{"target":0.0}},"job":{"state":"standby"}});
+        assert!(!idle_heat_due(&cold, &mut since, 99999.0, 1800.0) && since.is_none());
     }
 }

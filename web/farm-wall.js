@@ -20,7 +20,7 @@ export const bigWord=(look,cancelled)=>look==='clear'?'CLEAR PLATE':look==='done
 // What a spool chip says: its brand and material, and what is left only when the weight is known (an unknown weight was shown as "0 g").
 export const spoolLine=s=>[[s?.brand,s?.material].filter(Boolean).join(' '),typeof s?.grams_left==='number'&&Number.isFinite(s.grams_left)?Math.round(s.grams_left)+' g':''].filter(Boolean).join(' · ')||'Spool';
 export const ICON={error:'i-warn',paused:'i-pause',clear:'i-bed',done:'i-check',heating:'i-heat',printing:'i-print',idle:'i-live',offline:'i-power'};
-// Needs attention first (2026-10-18: error, paused, plate needs clearing, done), then what is working, then what is not.
+// Needs attention first (the owner, 2026-10-18: error, paused, plate needs clearing, done), then what is working, then what is not.
 export const RANK={error:0,paused:1,clear:2,done:3,heating:4,printing:5,idle:6,offline:7};
 // The lifecycle order used by the "State" sort.
 const FLOW={printing:0,heating:1,paused:2,clear:3,done:4,idle:5,error:6,offline:7};
@@ -120,6 +120,8 @@ export const budget3d=(width,coarse=false)=>width<=600?3:coarse||width<=1100?6:1
 export function plan3d(items,budget){
  const run=new Set(),take=t=>{if(run.size<budget)run.add(t.id);};
  const wanted=items.filter(t=>t.want);
+ // 0.6.2 (the owner 2026-10-29: the opened card leads with the 3D machine): the tile someone opened comes first, ahead of the ones already drawn behind its card (on a phone the budget is small and it was often left with no machine at all)
+ wanted.filter(t=>t.open).forEach(take);
  wanted.filter(t=>t.visible&&t.state!=='none').forEach(take);
  wanted.filter(t=>t.visible&&t.state==='none').forEach(take);
  wanted.filter(t=>!t.visible&&t.state!=='none').forEach(take);

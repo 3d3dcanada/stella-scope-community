@@ -38,26 +38,57 @@ use std::{
 
 type Result<T> = std::result::Result<T, String>;
 
-const CATALOGUE: &str = include_str!("../web/printer-models.json");
-const MOTION: &str = include_str!("../web/printer-motion.json");
-const THUMBS: &str = include_str!("../web/printer-thumbs.json");
+const CATALOGUE: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-models.json"));
+const MOTION: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-motion.json"));
+const THUMBS: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-thumbs.json"));
 /// Machines added by hand from their maker's own CAD (the Prusa CORE One L, 2026-10-13), beside the
 /// 3D Print Rig catalogue, so a rebuild of that catalogue never drops them.
-const EXTRA: &str = include_str!("../web/printer-models-extra.json");
-const MOTION_EXTRA: &str = include_str!("../web/printer-motion-extra.json");
+const EXTRA: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-models-extra.json"));
+const MOTION_EXTRA: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-motion-extra.json"));
 /// Motion read from the part records inside the models of machines 3D Print Rig registers there rather
 /// than in its motion-profiles folder (Voron V2.4 300 and 350, Trident 300, V0.2, Micron+ 180, Ender-3), made by
 /// `tools/printer-motion-parts.rs`.
-const MOTION_PARTS: &str = include_str!("../web/printer-motion-parts.json");
+const MOTION_PARTS: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-motion-parts.json"));
 /// Where a print file's X0 Y0 Z0 sits on each machine's model, made by
 /// `tools/printer-print-frames.rs` from the model files and the makers' machine profiles.
-const PRINT_FRAMES: &str = include_str!("../web/printer-print-frames.json");
+const PRINT_FRAMES: &str = include_str!(concat!(env!("STELLA_WEB"), "/printer-print-frames.json"));
 /// The same for the Prusa machines whose converted CAD ships in the build, made by the same tool into a file of its own.
-const PRINT_FRAMES_PRUSA: &str = include_str!("../web/printer-print-frames-prusa.json");
+const PRINT_FRAMES_PRUSA: &str = include_str!(concat!(
+    env!("STELLA_WEB"),
+    "/printer-print-frames-prusa.json"
+));
+/// 0.6.2 (2026-10-30, the owner: every demo machine moves): what `tools/printer-motion-measured.mjs` reads off the model files, merged field by field over the tables above: the motion of the
+/// two machines the rig ships static (S-BOOM, DoomCube 2), the Trident's nozzle now that its head is drawn, and every machine's belts and tubes (`flex`).
+const MOTION_MEASURED: &str =
+    include_str!(concat!(env!("STELLA_WEB"), "/printer-motion-measured.json"));
 
-/// This public copy carries no printer model : add your own in the app (Printer models, Install a file I downloaded), or download one
-/// from its maker's published file. The table stays so the code paths that read it are unchanged.
-const BUNDLED: [(&str, &[u8]); 0] = [];
+/// One table's fields over another's, id by id: what the measured table says wins, what it does not say stays.
+fn merge_measured(into: &mut Value, table: &str) {
+    let measured: Value =
+        serde_json::from_str(MOTION_MEASURED).expect("the measured motion table is valid JSON");
+    for (id, fields) in measured[table].as_object().into_iter().flatten() {
+        let row = &mut into[id.as_str()];
+        if !row.is_object() {
+            *row = json!({});
+        }
+        for (k, v) in fields.as_object().into_iter().flatten() {
+            row[k.as_str()] = v.clone();
+        }
+    }
+}
+
+/// (the owner: "The installer should not carry any 3D printed models at all"): no build carries a model file. These five have no file address
+/// published by their makers (Prusa Research shares the CAD, not a viewer file; the Trident R2 Stealthburner is cut from the rig's Trident 500), so 3D3D
+/// hosts the converted files, unchanged from what and 0.6.2 shipped, at `HOST/model-<id>.glb.gz` (3d3d.ca's Stella download route, R2 bucket stella-downloads), each with its notice. Every other
+/// model comes from the address its author publishes it at. Either way a file is fetched only when the person asks, and checked against the catalogue's pin.
+const HOSTED: [&str; 5] = [
+    "prusa_core_one_l",
+    "prusa_core_one",
+    "prusa_mk3s",
+    "prusa_mini",
+    "trident_r2_stealthburner",
+];
+const HOST: &str = "https://3d3d.ca/downloads/stella";
 /// What a person reads about each carried model: who made it, under what terms and what was done to the file (shown in the model's own sheet and
 /// in About). The two Prusa notices end with the Open Community License text.
 const NOTICES: [(&str, &str); 4] = [
@@ -131,6 +162,7 @@ fn motion_table() -> &'static Value {
                 p.extend(x.iter().map(|(k, v)| (k.clone(), v.clone())));
             }
         }
+        merge_measured(&mut m["profiles"], "profiles");
         // A registration with no calibration of its own starts at the low end of each travel, which leaves the nozzle
         // wherever the CAD pose put it. Where the plate and the nozzle were both measured (print frames), that
         // measurement is the calibration and the travel reaches the plate.
@@ -170,6 +202,7 @@ fn print_frames() -> &'static Value {
         if let (Some(m), Some(x)) = (f["machines"].as_object_mut(), extra["machines"].as_object()) {
             m.extend(x.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
+        merge_measured(&mut f["machines"], "frames");
         f
     })
 }
@@ -208,7 +241,7 @@ pub fn part(id: &str) -> Option<&'static Value> {
 }
 
 /// May a build carry a model of this licence class? Only classes that allow redistribution, with notice.
-/// (2026-10-19: "we can share it on the application ... every Prusa printer should be available"): Prusa Research's Open Community
+/// (2026-10-19, the owner: "we can share it on the application ... every Prusa printer should be available"): Prusa Research's Open Community
 /// License is one of them. It lets the CAD be modified and the modification passed on under the same licence; what it does not allow is selling
 /// machines or remixes made from it, and the converted files are passed on free of charge, with Prusa's notice and the licence text, shown in the
 /// model's sheet and in About. (Whether a build that is itself sold may carry them is a question for Prusa; the report to the owner says so.)
@@ -249,9 +282,21 @@ pub fn upstream_url(row: &Value) -> Option<String> {
     row["location"]["upstream"].as_str().map(str::to_owned)
 }
 
-/// Does this build carry the model ()? It is put in the person's library when the service starts (`Library::seed_bundled`).
-pub fn is_bundled(id: &str) -> bool {
-    BUNDLED.iter().any(|(b, _)| *b == id)
+/// Does 3D3D host this model's file (it has no address of its author's)?
+pub fn is_hosted(id: &str) -> bool {
+    HOSTED.contains(&id)
+}
+
+/// Where a model's file is fetched from on a press: 3D3D's download server for the hosted five, else the address its author publishes it at
+/// (a project's pages or a release), https only. None for a maker's web page, which is not a file.
+fn fetch_url(row: &Value) -> Option<String> {
+    let id = row["id"].as_str().unwrap_or("");
+    if is_hosted(id) {
+        return Some(format!("{HOST}/model-{id}.glb.gz"));
+    }
+    let kind = row["location"]["kind"].as_str().unwrap_or("");
+    upstream_url(row)
+        .filter(|u| u.starts_with("https://") && (kind == "registry" || kind == "release_zip"))
 }
 
 /// The notice a person reads about a carried model: who made it, the terms, what was done to the file, then the licence text it is under.
@@ -289,21 +334,21 @@ const GPL3_TEXT: &str = include_str!("../docs/licences/GPL-3.0.txt");
 
 /// Who is credited for each model the build carries, for About: the machine, the maker, the licence in words and where the CAD comes from.
 pub fn credits() -> Value {
-    let rows: Vec<Value> = BUNDLED
+    let rows: Vec<Value> = HOSTED
         .iter()
-        .filter_map(|(id, bytes)| {
-            let m = machine(id)?;
+        .filter_map(|id| {
+            let m = machine(id).or_else(|| part(id))?;
             let class = class_of(m);
             Some(json!({
                 "id":id,"label":m["label"].as_str().unwrap_or(id).split(" / ").next().unwrap_or(id),
                 "author":m["licence"]["author"],"licence":m["licence"]["text"],"class":class,"words":class_words(class),
-                "source":m["licence"]["source"],"bytes":bytes.len(),
+                "source":m["licence"]["source"],"bytes":model_bytes(m),
             }))
         })
         .collect();
-    let bytes: usize = BUNDLED.iter().map(|(_, b)| b.len()).sum();
+    let bytes: u64 = rows.iter().filter_map(|r| r["bytes"].as_u64()).sum();
     // About also says who to write to and credits 3D Print Rig with its MIT notice (docs/licences/3D-Print-Rig-MIT.txt).
-    json!({"version":env!("CARGO_PKG_VERSION"),"licence":"AGPL-3.0","maker":"3D3D Canada","contact":"info@3d3d.ca",
+    json!({"version":env!("CARGO_PKG_VERSION"),"licence":"GNU AGPL-3.0","licence_words":"Stella Scope is open source under the GNU Affero General Public License 3.0.","maker":"3D3D Canada","contact":"info@3d3d.ca",
         "rig":{"name":"3D Print Rig","by":"Psych0h3ad","licence":"MIT","source":"https://github.com/Psych0h3ad/3d-print-rig","notice":crate::help::RIG_NOTICE},
         "models":rows,"bytes":bytes})
 }
@@ -341,8 +386,13 @@ impl Source {
             return Ok(Source::Published);
         }
         // https works now (ureq with rustls); the pinned SHA-256 is still checked before use.
-        if t.starts_with("https://") || t.starts_with("http://") {
+        // the owner 2026-11-14: a web address must be https, or plain http only on this network (a folder server
+        // on the LAN), so the service is never sent to a plain-http address elsewhere.
+        if t.starts_with("https://") || (t.starts_with("http://") && crate::config::camera_ok(t)) {
             return Ok(Source::Http(t.trim_end_matches('/').to_owned()));
+        }
+        if t.starts_with("http://") {
+            return Err("a plain http:// address must be on this network; use https:// for an address on the internet".into());
         }
         let p = PathBuf::from(t);
         if !p.is_absolute() {
@@ -407,19 +457,15 @@ impl Source {
                 Err(format!("the source did not give this model ({last})"))
             }
             Source::Published => {
-                // Only a file the catalogue knows the address of: a maker's web page is not a file.
-                let kind = row["location"]["kind"].as_str().unwrap_or("");
-                let url = upstream_url(row).filter(|u| {
-                    u.starts_with("https://") && (kind == "registry" || kind == "release_zip")
-                });
-                let url = url.ok_or_else(|| {
+                // Only a file the catalogue knows the address of (or one 3D3D hosts): a maker's web page is not a file.
+                let url = fetch_url(row).ok_or_else(|| {
                     format!(
                         "{} has no published file address; download it from its author and install the file",
                         row["label"].as_str().unwrap_or("this model")
                     )
                 })?;
                 http_get(&url)
-                    .map_err(|e| format!("the author's address did not give this model ({e})"))
+                    .map_err(|e| format!("the download address did not give this model ({e})"))
             }
         }
     }
@@ -539,54 +585,7 @@ impl Library {
             .collect()
     }
 
-    /// Put the models this build carries in the library (, 2026-10-19): each whose file is not there, or is not the one the catalogue
-    /// pins. A copy the person put there themselves that has the pinned content is left as it is. The bytes are checked against the pins on the way
-    /// in like any other file. Returns the ids written. Called once when the service starts, so a fresh install draws these machines with nothing
-    /// to download and no file to find.
-    pub fn seed_bundled(&self) -> Vec<String> {
-        let mut wrote = Vec::new();
-        for (id, bytes) in BUNDLED {
-            let Some(row) = machine(id) else { continue };
-            let (_, want_decoded) = pin(row);
-            // Here already: the record says it is this model and the file is the size the record says (a cut-short copy is written again).
-            let here = self
-                .model_file(id)
-                .and_then(|(p, _)| fs::metadata(p).ok())
-                .map(|m| m.len());
-            if self.record(id).is_some_and(|r| {
-                r["decoded_sha256"] == want_decoded.as_str()
-                    && here.is_some()
-                    && r["bytes"].as_u64() == here
-            }) {
-                continue;
-            }
-            match self.store(
-                row,
-                &mut std::io::Cursor::new(bytes),
-                "bundled with Stella Scope",
-            ) {
-                Ok(_) => wrote.push((*id).to_owned()),
-                Err(e) => {
-                    eprintln!("stella-scope: could not put the {id} model in the library: {e}")
-                }
-            }
-        }
-        wrote
-    }
-
     pub fn remove(&self, id: &str) -> Result<()> {
-        // A model the build carries comes back at the next start (and is the one thing that makes a CORE One L draw on a fresh install), so it is not removed.
-        if is_bundled(id) {
-            return Err(format!(
-                "{} ships inside Stella Scope and cannot be removed here.",
-                machine(id)
-                    .and_then(|m| m["label"].as_str())
-                    .unwrap_or(id)
-                    .split(" / ")
-                    .next()
-                    .unwrap_or(id)
-            ));
-        }
         let d = self.dir(id)?;
         if d.is_dir() {
             fs::remove_dir_all(&d).map_err(|e| format!("cannot remove {id}: {e}"))?;
@@ -833,7 +832,7 @@ impl Library {
             "stored_sha256":facts["stored_sha256"],"decoded_sha256":facts["decoded_sha256"],
             "bytes":facts["bytes"],"unpacked_bytes":facts["unpacked_bytes"],
             "licence":row["licence"],"source_url":upstream_url(row),
-            "notice":if is_bundled(id) { "This model ships inside Stella Scope under its author's licence. Its notice is under About and under Printer models." } else { "The model keeps its author's licence. It is stored here for this installation and is not part of Stella Scope." },
+            "notice":if is_hosted(id) { "3D3D hosts this model's file for download under its author's licence. Its notice is under About and under Printer models." } else { "The model keeps its author's licence. It is stored here for this installation and is not part of Stella Scope." },
         });
         fs::write(
             dir.join("install.json"),
@@ -878,8 +877,8 @@ pub fn view(row: &Value, lib: &Library) -> Value {
         "id":id,"label":row["label"],"family":row["family"],"size_mm":row["size_mm"],
         "licence":{"class":class,"text":row["licence"]["text"],"author":row["licence"]["author"],"source":row["licence"]["source"],"words":class_words(class)},
         "bundled":may_bundle(class),
-        // the build carries this model's file (it is in the library from the first start and cannot be removed)
-        "in_build":is_bundled(id),
+        // no build carries a model file; every one is fetched when the person asks
+        "in_build":false,"hosted":is_hosted(id),
         "motion":motion.is_some(),
         "basis":basis(id),
         "axes":motion.map(|p| p["axes"].clone()),
@@ -1337,7 +1336,7 @@ fn scene_with(machine_id: &str, selection: &Value, lib: &Library, swap: bool) ->
                         "addon",
                         -1,
                         oid,
-                        None,
+                        p["follows"].as_str(),
                     );
                 }
                 for k in fit["hide_machine_keys"].as_array().into_iter().flatten() {
@@ -1503,9 +1502,7 @@ pub fn pose_spec(machine_id: &str, selection: Option<&Value>) -> Option<Value> {
 
 /// Can this file be fetched on one press: its author publishes it at an https address (the project's pages or release)?
 fn is_published(row: &Value) -> bool {
-    let kind = row["location"]["kind"].as_str().unwrap_or("");
-    upstream_url(row)
-        .is_some_and(|u| u.starts_with("https://") && (kind == "registry" || kind == "release_zip"))
+    fetch_url(row).is_some()
 }
 
 /// What a farm's printers draw that is not in the library yet: one row per machine model and per
@@ -1531,12 +1528,10 @@ pub fn wanted(printers: &[(String, Option<Value>)], lib: &Library) -> Value {
             .split(" / ")
             .next()
             .unwrap_or(id);
-        // the models Prusa shares under its own licence ship inside the build and are in the library from the first start, so
-        // nothing here is fetched from a releases page that may not exist, and no notice has to be read before a download: it is read in the model's sheet and in About.
+        // the models Prusa shares under its own licence are fetched from 3D3D's download server like any open model; their notice is
+        // read in the model's sheet and in About.
         let why = if open {
             Value::Null
-        } else if is_bundled(id) {
-            json!(format!("The {short} model ships inside Stella Scope and is put in your library when the service starts. It is not there yet: restart Stella Scope."))
         } else if !published {
             json!(format!("The {short} model comes from its maker's own files and is added by hand under Printer models."))
         } else {
@@ -1646,7 +1641,7 @@ pub fn needs(printers: &[(String, String, Option<Value>)], lib: &Library) -> Val
     Value::Object(out)
 }
 
-/// The open licences of what a farm would fetch, as one line of plain words and the facts behind it (2026-10-19; our rule for
+/// The open licences of what a farm would fetch, as one line of plain words and the facts behind it (2026-10-19; the owner's rule for
 /// the demo farm: one press shows the licences in one line, then fetches). Built from the catalogue, never typed: the licences and
 /// their authors are the files' own, the size is the sum of what would be fetched, and a model that needs its maker's notice read
 /// first is named, not fetched. `printers` is each printer's machine and chosen options.
@@ -1690,20 +1685,6 @@ pub fn licence_line(printers: &[(String, Option<Value>)]) -> Value {
             None => by.push((text, vec![who])),
         }
     }
-    // the machines of this farm whose CAD ships inside the build need no fetch; they are credited here by name so the line is the whole of it.
-    let carried: Vec<Value> = printers
-        .iter()
-        .filter(|(id, _)| is_bundled(id))
-        .filter_map(|(id, _)| machine(id))
-        .map(|m| json!({"id":m["id"],"label":m["label"],"licence":m["licence"]["text"],"author":m["licence"]["author"]}))
-        .collect::<Vec<_>>();
-    let mut carried_unique: Vec<Value> = Vec::new();
-    for c in carried {
-        if !carried_unique.contains(&c) {
-            carried_unique.push(c);
-        }
-    }
-    let carried = carried_unique;
     let groups = by
         .iter()
         .map(|(t, v)| format!("{t} ({})", v.join(", ")))
@@ -1711,34 +1692,10 @@ pub fn licence_line(printers: &[(String, Option<Value>)]) -> Value {
         .join(" and ");
     let bytes = w["open_bytes"].as_u64().unwrap_or(0);
     let mut line = format!(
-        "Open licences: {groups}. {} MB downloaded from the authors' own sites, each file checked against the checksum its author published (SHA-256).",
+        "Open licences: {groups}. {} MB, downloaded only when you ask, from the authors' own sites or 3D3D's download server, each file checked against its published checksum (SHA-256).",
         bytes.div_ceil(1_000_000)
     );
-    for n in &carried {
-        let name = n["label"]
-            .as_str()
-            .unwrap_or("A model")
-            .split(" / ")
-            .next()
-            .unwrap_or("A model")
-            .trim_start_matches("Prusa ");
-        let first = |v: &Value, d: &str| {
-            v.as_str()
-                .and_then(|t| t.split(" (").next())
-                .filter(|t| !t.is_empty())
-                .unwrap_or(d)
-                .to_owned()
-        };
-        line.push_str(&format!(
-            " The {name} model is inside Stella Scope (from {}, {}): nothing is downloaded for it.",
-            first(&n["author"], "its maker"),
-            first(&n["licence"], "its licence")
-        ));
-    }
-    if !carried.is_empty() {
-        line.push_str(" Who made each model and under what terms is under About.");
-    }
-    json!({"line":line,"files":w["open_count"],"bytes":bytes,"licences":by.iter().map(|(t, v)| json!({"licence":t,"by":v})).collect::<Vec<_>>(),"carried":carried})
+    json!({"line":line,"files":w["open_count"],"bytes":bytes,"licences":by.iter().map(|(t, v)| json!({"licence":t,"by":v})).collect::<Vec<_>>(),"carried":[]})
 }
 
 /// The size of a machine's model file as stored, from what the catalogue knows of it.
@@ -2558,11 +2515,10 @@ mod extra_tests {
     /// measured calibration puts X0 Y0 at the sheet's front-left. (It was "never shipped (OCL)"; ,
     /// 2026-10-19: Prusa's licence lets the converted CAD be passed on under the same licence, so the build carries it.)
     #[test]
-    #[ignore = "needs the Prusa models, which this public copy does not carry"]
     fn the_core_one_l_is_in_the_catalogue_with_its_own_calibration() {
         let row = machine("prusa_core_one_l").expect("the CORE One L is listed");
         assert_eq!(class_of(row), "ocl");
-        assert!(may_bundle("ocl") && is_bundled("prusa_core_one_l"));
+        assert!(may_bundle("ocl") && is_hosted("prusa_core_one_l"));
         let p = profile("prusa_core_one_l").expect("it has motion");
         let cal = Calibration::starting(p);
         assert_eq!(cal.sign, [1.0, -1.0, 1.0]);
@@ -3175,6 +3131,8 @@ mod option_tests {
         let core = machine("prusa_core_one_l").unwrap();
         let mut page_only = core.clone();
         page_only["location"] = json!({"kind":"maker","upstream":upstream_url(core).unwrap()});
+        // 3D3D hosts the real CORE One L, so the page-only row takes an id 3D3D does not host.
+        page_only["id"] = json!("maker_page_only");
         let e = match Source::Published.open(&page_only) {
             Err(e) => e,
             Ok(_) => panic!("a web page is not a file"),
@@ -3419,6 +3377,121 @@ mod print_frame_tests {
             .as_str()
             .unwrap()
             .starts_with("Measured from the model"));
+    }
+}
+
+/// 0.6.2 (2026-10-30, the owner: "a Stealthburner printing with the belt not moved, not with the gantry, just sitting there in the middle of the prints"; every demo machine moves).
+#[cfg(test)]
+mod measured_tests {
+    use super::*;
+
+    /// The machines the film's farm and "Try the demo farm" draw: each has registered motion, so its head moves, and a print frame with a measured nozzle, so the nozzle is on the part
+    /// (the toolchanger's nozzles are its tools': swapping_tests). `the_nozzle_is_on_the_part_wherever_the_head_is` then checks each of them.
+    const DEMO: [&str; 12] = [
+        "voron_v24_350_printed",
+        "voron_v24_300_printed",
+        "voron_trident_300",
+        "voron_v02_120",
+        "micron_plus_r1_180",
+        "siboor_sboom_220",
+        "doomcube2_350_reference",
+        "satsuma180_v10",
+        "sovol_sv08_350",
+        "prusa_core_one_l",
+        "ender3_stock_220",
+        "prusa_mk3s",
+    ];
+
+    #[test]
+    fn every_demo_machine_moves_and_its_nozzle_is_measured() {
+        for id in DEMO {
+            let p = profile(id).unwrap_or_else(|| panic!("{id} has no registered motion"));
+            assert!(p["motions"]["head"].is_array(), "{id}: the head moves");
+            assert!(
+                ["x_beam", "gantry", "beam"]
+                    .iter()
+                    .any(|g| p["motions"][g].is_array()),
+                "{id}: the beam moves"
+            );
+            assert!(p["calibration"].is_object(), "{id}: a measured calibration");
+            let f = print_frame(id).unwrap_or_else(|| panic!("{id} has no print frame"));
+            assert!(f["nozzle_mm"].is_array(), "{id}: its nozzle is measured");
+        }
+        // The two the rig ships static, and what each says it is.
+        assert_eq!(
+            crate::demo::Frame::of_profile(profile("siboor_sboom_220")),
+            crate::demo::Frame::BedY
+        );
+        assert_eq!(
+            crate::demo::Frame::of_profile(profile("doomcube2_350_reference")),
+            crate::demo::Frame::GantryZ
+        );
+        assert_eq!(
+            print_frame("doomcube2_350_reference").unwrap()["model_sha256"],
+            machine("doomcube2_350_reference").unwrap()["pin"]["model_sha256"]
+        );
+        // The measured table adds to the Trident and takes nothing away: its part lists and motions are the rig's.
+        let t = profile("voron_trident_300").unwrap();
+        assert!(
+            t["groups"]["bed"].as_array().is_some_and(|a| !a.is_empty())
+                && t["motions"]["gantry"].is_array()
+        );
+        assert!(
+            t["calibration_basis"]
+                .as_str()
+                .unwrap()
+                .contains("machine profile"),
+            "the maker's calibration stands"
+        );
+        assert!(
+            t["rest_offsets_mm"]["bed"][2].as_f64().unwrap() > 5.0,
+            "the bed starts at the Stealthburner's nozzle"
+        );
+    }
+
+    /// A machine with belts in its model names them: a belt no entry names stands still while the gantry leaves it behind. Nothing here is a stand-in: the DoomCube's and the Prusas' CAD holds no belts.
+    #[test]
+    fn the_machines_with_belts_in_their_models_name_them() {
+        for (id, n) in [
+            ("voron_v24_350_printed", 2),
+            ("voron_v24_300_printed", 2),
+            ("voron_trident_300", 2),
+            ("voron_v02_120", 2),
+            ("micron_plus_r1_180", 2),
+            ("siboor_sboom_220", 3),
+            ("satsuma180_v10", 2),
+            ("sovol_sv08_350", 2),
+            ("ender3_stock_220", 9),
+        ] {
+            let belts = profile(id).unwrap()["flex"]["belts"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{id} names no belts"));
+            assert_eq!(belts.len(), n, "{id}");
+        }
+        // Every tube follows a group that moves.
+        for id in DEMO {
+            let p = profile(id).unwrap();
+            for t in p["flex"]["tubes"].as_array().into_iter().flatten() {
+                let g = t["follows"].as_str().unwrap_or("head");
+                assert!(
+                    p["motions"][g].is_array(),
+                    "{id}: a tube follows {g}, which does not move"
+                );
+            }
+        }
+    }
+
+    fn option_is_chosen_on_the_demo_trident() -> bool {
+        crate::demo::demo_farm().iter().any(|e| {
+            e.cad_model.as_deref() == Some("voron_trident_300")
+                && e.cad_options.as_ref().is_some_and(|o| {
+                    check_selection("voron_trident_300", o).is_ok()
+                        && o.as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|x| x["option"] == "trident_r2_stealthburner")
+                })
+        })
     }
 }
 
@@ -3790,194 +3863,6 @@ mod fetch_tests {
         );
     }
 
-    /// What a fresh install is missing after "Try the demo farm" (, 2026-10-19): the build carries four models (the CORE One L, the CORE One, the
-    /// MK3S+ and the MINI) and puts them in the library when the service starts, so they are not asked for; what is left is the seven open models and the seven
-    /// open files of the toolchanger's tools and the Trident's gantry, fetched on one press. Nothing it asks for is non-commercial. Before the service has put the
-    /// carried models in, a machine of the build is said to be on its way, never fetched from a page that may not exist.
-    /// an earlier build the installer's open-licence models are read in place, never copied, and a non-commercial file in that
-    /// folder is ignored (the folder is the package's, but a build may never carry one).
-    #[test]
-    fn carried_models_are_read_in_place_and_only_open_ones_count() {
-        let root = scratch("carried-in-place").join("printer-models");
-        let carried = scratch("carried-folder");
-        fs::write(carried.join("voron_v24_350_printed.glb.gz"), b"gz").unwrap();
-        fs::write(carried.join("tictac_21_120.glb.gz"), b"gz").unwrap();
-        let lib = Library::with_carried(root.clone(), Some(carried.clone()));
-        let (p, gz) = lib
-            .model_file("voron_v24_350_printed")
-            .expect("carried model");
-        assert!(gz && p.starts_with(&carried));
-        assert_eq!(
-            lib.record("voron_v24_350_printed").unwrap()["origin"],
-            "carried with Stella Scope"
-        );
-        assert!(
-            lib.model_file("tictac_21_120").is_none(),
-            "non-commercial is never carried"
-        );
-        assert!(
-            !root.join("voron_v24_350_printed").exists(),
-            "nothing copied"
-        );
-        assert!(lib
-            .installed_ids()
-            .contains(&"voron_v24_350_printed".to_string()));
-        let n = notice_text(machine("voron_v24_350_printed").unwrap()).unwrap();
-        assert!(n.contains("VoronDesign") && n.contains("GNU GENERAL PUBLIC LICENSE"));
-        fs::create_dir_all(carried.join("parts")).unwrap();
-        fs::write(
-            carried.join("parts").join("additional_doublet_v24.glb.gz"),
-            b"gz",
-        )
-        .unwrap();
-        assert!(
-            lib.part_file("additional_doublet_v24")
-                .is_some_and(|(p, _)| p.starts_with(&carried)),
-            "a carried tool file"
-        );
-        assert!(
-            Library::new(root)
-                .model_file("voron_v24_350_printed")
-                .is_none(),
-            "new() carries nothing"
-        );
-    }
-    #[test]
-    #[ignore = "needs the Prusa models, which this public copy does not carry"]
-    fn a_fresh_install_has_the_models_the_build_carries_and_wants_the_open_ones_and_tool_files() {
-        let lib = Library::new(scratch("wanted").join("printer-models"));
-        let want: Vec<(String, Option<Value>)> = crate::demo::demo_farm()
-            .into_iter()
-            .filter_map(|e| e.cad_model.clone().map(|m| (m, e.cad_options.clone())))
-            .collect();
-        assert_eq!(want.len(), 9, "eight machines and the Prusa MK3S+");
-        // Before the service starts: the build's own models are not fetchable and say so.
-        let before = wanted(&want, &lib);
-        let core = before["models"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|m| m["id"] == "prusa_core_one_l")
-            .unwrap();
-        assert!(
-            core["open"] == false
-                && core["why"]
-                    .as_str()
-                    .unwrap()
-                    .contains("ships inside Stella Scope"),
-            "{core}"
-        );
-        // The service starts: the four are in the library, checked against their pins, and a second start writes nothing.
-        let wrote = lib.seed_bundled();
-        assert_eq!(
-            wrote,
-            [
-                "prusa_core_one_l",
-                "prusa_core_one",
-                "prusa_mk3s",
-                "prusa_mini"
-            ]
-        );
-        assert!(lib.seed_bundled().is_empty());
-        let w = wanted(&want, &lib);
-        let rows = w["models"].as_array().unwrap();
-        let models: Vec<&Value> = rows.iter().filter(|m| m["kind"] == "model").collect();
-        let parts: Vec<&Value> = rows.iter().filter(|m| m["kind"] == "part").collect();
-        // the Trident carries its R2 gantry and X carriage (two more open files). the CORE One L and the MK3S+ are not asked for (it was 8 models, 7 files and 14 in all).
-        assert_eq!(
-            (models.len(), parts.len(), w["open_count"].clone()),
-            (7, 7, json!(14)),
-            "{w}"
-        );
-        assert!(models
-            .iter()
-            .all(|m| m["id"] != "prusa_core_one_l" && m["id"] != "prusa_mk3s"));
-        let open: Vec<&Value> = rows.iter().filter(|m| m["open"] == true).collect();
-        assert!(
-            open.iter().all(|m| ["gpl", "cc-by-sa"]
-                .contains(&m["licence"]["class"].as_str().unwrap())
-                && m["bytes"].as_u64().unwrap() > 1_000
-                && m["why"].is_null()),
-            "no open row is under a non-commercial licence"
-        );
-        let bytes: u64 = open.iter().map(|m| m["bytes"].as_u64().unwrap()).sum();
-        assert_eq!(w["open_bytes"], json!(bytes));
-        assert!(
-            bytes > 140_000_000 && bytes < 190_000_000,
-            "about 160 MB: {bytes}"
-        );
-        let ids: Vec<&str> = parts.iter().map(|p| p["id"].as_str().unwrap()).collect();
-        assert!(
-            ids.contains(&"head_jabberwocky")
-                && ids.contains(&"changer_sc_dock_jabberwocky")
-                && !ids.contains(&"xol"),
-            "{ids:?}"
-        );
-        assert!(
-            ids.contains(&"trident_r2_gantry_300") && ids.contains(&"trident_r2_sb_carriage"),
-            "the Trident's gantry and carriage are asked for: {ids:?}"
-        );
-        // A model that is already here is not asked for again, and neither is one named twice.
-        let mut twice = want.clone();
-        twice.extend(want.clone());
-        assert_eq!(wanted(&twice, &lib)["models"].as_array().unwrap().len(), 14);
-        let _ = fs::remove_dir_all(lib.root.parent().unwrap());
-    }
-
-    /// a model the build carries is a model whose parts are already given to the motion groups (the groups a profile moves are read from
-    /// each part's own record in the file), with as many parts as the catalogue says, and a registered motion that moves each group the model holds: a model that
-    /// is one lump, or whose bed holds nothing, would draw a printer that does not follow the real one.
-    #[test]
-    fn every_model_the_build_carries_has_its_parts_in_the_groups_its_motion_moves() {
-        for (id, bytes) in BUNDLED {
-            let mut glb = Vec::new();
-            gzip::gunzip(std::io::Cursor::new(bytes), |c| {
-                glb.extend_from_slice(c);
-                Ok(())
-            })
-            .unwrap();
-            assert_eq!(&glb[..4], b"glTF", "{id}");
-            let len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
-            let json: Value = serde_json::from_slice(&glb[20..20 + len]).unwrap();
-            let mut groups: std::collections::BTreeMap<String, usize> = Default::default();
-            let nodes = json["nodes"].as_array().unwrap();
-            for n in nodes {
-                let g = json["meshes"][n["mesh"].as_u64().unwrap() as usize]["extras"]["group"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_owned();
-                *groups.entry(g).or_default() += 1;
-            }
-            let row = machine(id).unwrap();
-            assert_eq!(
-                nodes.len() as u64,
-                row["parts"].as_u64().unwrap(),
-                "{id}: the catalogue's part count is the file's"
-            );
-            let p = profile(id).unwrap();
-            for g in ["bed", "head", "gantry"] {
-                assert!(
-                    groups.get(g).copied().unwrap_or(0) >= 5,
-                    "{id}: group {g} holds parts: {groups:?}"
-                );
-                assert!(p["motions"].get(g).is_some(), "{id}: the profile moves {g}");
-            }
-            assert!(
-                groups.get("fixed").copied().unwrap_or(0) > 20,
-                "{id}: most of a machine stands still: {groups:?}"
-            );
-            // every registered motion group is one the file has, and the file has no group the motion does not know
-            for g in groups.keys() {
-                assert!(
-                    p["motions"].get(g).is_some(),
-                    "{id}: the file has a group {g} the profile does not move"
-                );
-            }
-            // the plate is carried by the bed, and the print frame says so
-            assert_eq!(print_frame(id).unwrap()["group"], "bed", "{id}");
-        }
-    }
-
     /// The fetch runs in the background: a good file lands and is checked, a wrong one is refused and not kept and the others
     /// still arrive, bytes count up to the total, and pressing again while it runs starts nothing new.
     #[test]
@@ -4260,7 +4145,8 @@ mod fetch_tests {
         assert!(
             trident.contains(&"trident_r2_gantry_300".to_owned())
                 && trident.contains(&"trident_r2_sb_carriage".to_owned())
-                && trident.len() == 3,
+                && trident.contains(&"trident_r2_stealthburner".to_owned())
+                && trident.len() == 4,
             "{trident:?}"
         );
         let changer = of("demo-toolchanger");
@@ -4282,7 +4168,6 @@ mod fetch_tests {
     /// The open licences of the demo farm in one line (the owner: one press shows them in one line, then fetches): built from the catalogue, so it names the real
     /// licences and authors, the real size, and the CORE One L's notice; nothing in it is typed.
     #[test]
-    #[ignore = "needs the Prusa models, which this public copy does not carry"]
     fn the_demo_farms_open_licences_are_one_line_built_from_the_catalogue() {
         let farm: Vec<(String, Option<Value>)> = crate::demo::demo_farm()
             .into_iter()
@@ -4306,8 +4191,8 @@ mod fetch_tests {
             "kinematicdigit",
             "Open Community License",
             "Prusa",
-            "model is inside Stella Scope",
-            "under About",
+            "only when you ask",
+            "3D3D's download server",
         ] {
             assert!(line.contains(must), "the line says {must}: {line}");
         }
@@ -4319,17 +4204,12 @@ mod fetch_tests {
         assert!(
             line.contains(&format!("{} MB", bytes.div_ceil(1_000_000)))
                 && bytes > 150_000_000
-                && bytes < 190_000_000,
+                && bytes < 200_000_000,
             "{bytes}"
         );
-        assert_eq!(v["files"], json!(14));
-        // the CORE One L and the MK3S+ are inside the build, credited by name on the line instead of fetched after a notice.
-        assert_eq!(v["carried"].as_array().unwrap().len(), 2);
-        assert_eq!(v["carried"][0]["id"], "prusa_core_one_l");
-        assert!(
-            line.contains("MK3S+ model is inside Stella Scope"),
-            "{line}"
-        );
+        assert_eq!(v["files"], json!(17));
+        // nothing is inside the build any more; the CORE One L and the MK3S+ are fetched like the rest.
+        assert!(v["carried"].as_array().unwrap().is_empty());
     }
 
     /// item 4: the catalogue never offers a file that cannot be fetched. The live check (every address answers 200 and is the size the catalogue

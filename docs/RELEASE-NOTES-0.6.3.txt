@@ -1,0 +1,44 @@
+Stella Scope 0.6.3 
+================================
+
+Linux (Debian/Ubuntu .deb), Windows 10 and 11 (installer) and Android (APK), all version 0.6.3.
+Check each file against SHA256SUMS on the download page.
+
+What is new
+-----------
+- Much smaller downloads. No 3D printer model is inside the installers any more. When you add a printer
+  (or try the demo farm), its tile has a "Get the 3D model" button with the size on it: press it and only
+  that printer's model is downloaded, checked against its published SHA-256, and kept for offline use.
+  Nothing downloads by itself.
+- The dials on a printer's page: temperatures in one column on the left, speed, flow and every fan the
+  printer reports (part, hotend, electronics bay) in one column on the right, all the same size and never
+  over the machine. They fit any window size, from a full-screen 4K monitor to a half-screen window to a
+  phone.
+- The fan wheel lists every fan the printer reports, not only the part and hotend fans.
+- Spools show a small spool in their own colour; press it to pick the colour from the common filament colours or
+  any colour, so you can see at a glance what is loaded.
+
+What changed about the licence
+------------------------------
+- This source is open source under the GNU Affero General Public License 3.0, with no printer limit and no
+  licence key.
+- Safety: a heater left on with no print running or paused is turned off after 30 minutes (both nozzle and
+  bed). Change the time on a printer's Heat page: 15, 30, 45 or 60 minutes. An hour is the longest.
+
+What is not supported
+---------------------
+- Bambu Lab and OctoPrint printers.
+- Multi-material units (MMU, ERCF / Enraged Rabbit Carrot Feeder, Happy Hare) and tool-changer index control are
+  planned for a future update.
+- iPhone: there is no iPhone app yet. Stella Scope answers only on its own computer and through the Android app.
+- The failure watch (spaghetti detection from the camera): coming soon, not part of this version.
+- macOS: coming soon.
+- The Windows installer is not code-signed yet, so Windows SmartScreen may say "Windows protected your
+  PC". Press More info, then Run anyway, after checking the file against its SHA-256.
+- The Windows installer of 0.6.3 was built and its contents checked, but it was not run on a Windows
+  computer before release. If anything is off on Windows, tell us with More, Feedback.
+
+Your data
+---------
+Recordings, timelapses, reports and settings stay on your computer. Stella Scope sends nothing to 3D3D
+except a feedback message you write and press Send on. It downloads only the 3D models you ask for.

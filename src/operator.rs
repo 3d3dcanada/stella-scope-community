@@ -98,7 +98,7 @@ impl Operator {
                 .map_err(db_error)?;
             transaction.commit().map_err(db_error)?;
         }
-        // an earlier build : a store made by an older version holds the empty lists it was seeded with. Once, each list
+        // an earlier build (the owner 2026-10-23): a store made by an older version holds the empty lists it was seeded with. Once, each list
         // that is still empty is given the standard one; a list anyone filled is never touched, and a list emptied after
         // this is kept empty.
         let filled: bool = connection
@@ -221,10 +221,10 @@ impl Operator {
     }
 }
 
-/// The standard lists a fresh installation starts with (2026-10-23: "Fresh install should have everything done properly.
+/// The standard lists a fresh installation starts with (the owner 2026-10-23: "Fresh install should have everything done properly.
 /// All things listed, you should be able to choose what to add, what to take away."). Every entry is editable and removable;
 /// `GET /api/presets/standard` serves the same lists so an editor can add back anything taken away. Temperatures are common
-/// starting points from the materials' own ranges, for the person to tune. No PA-CF (our standing rule).
+/// starting points from the materials' own ranges, for the person to tune. No PA-CF (the owner's standing rule).
 pub fn standard_materials() -> Value {
     json!([
         {"name":"PLA","nozzle":210,"bed":60},
@@ -285,7 +285,7 @@ fn seed_materials() -> Value {
 
 /// Preserve the old the owner-specific migration for existing stores that still have the exact first seed.
 fn ken_materials() -> Value {
-    // Beds are our purple Conweb plate standard : PETG 55 first layer, PLA 40. The 80/60
+    // Beds are the owner's purple Conweb plate standard : PETG 55 first layer, PLA 40. The 80/60
     // this seed carried before is what he had to correct by hand through PUT /api/presets.
     json!([
         {"name":"PLA","nozzle":218,"bed":40},
@@ -324,10 +324,10 @@ fn seed() -> [(&'static str, Value); 10] {
         // fitted, so this is the operator's record; empty until he adds one.
         ("sheets", standard_sheets()),
         ("sheet", Value::Null),
-        // Maintenance reminders : each task, how many print hours apart, and the
+        // Maintenance reminders (the owner 2026-09-24): each task, how many print hours apart, and the
         // print-hour count and date it was last done. Empty until he adopts a schedule.
         ("maintenance", standard_maintenance()),
-        // 2026-09-25 ("a mesh history ... this one's a new build plate"): each time a plate is
+        // the owner 2026-09-25 ("a mesh history ... this one's a new build plate"): each time a plate is
         // marked as on the bed, oldest first, so a recorded mesh can say which plate it was taken on.
         ("sheet_log", json!([])),
         // Calibration records : what each calibration found and when, by its id (pid_nozzle, z_offset, pressure_advance...).
@@ -756,7 +756,7 @@ mod tests {
         );
         (Operator::new(&database), database)
     }
-    /// an earlier build (2026-10-23: "Fresh install should have everything"): a new store starts with the standard lists; an
+    /// an earlier build (the owner 2026-10-23: "Fresh install should have everything"): a new store starts with the standard lists; an
     /// older store's still-empty lists are filled once; a list filled by the person is kept; a list emptied later stays empty.
     #[test]
     fn a_fresh_store_has_every_standard_list_and_an_old_empty_one_is_filled_once() {
@@ -814,7 +814,7 @@ mod tests {
         assert_eq!(
             seeded["materials"],
             standard_materials(),
-            "a fresh install starts with the standard list "
+            "a fresh install starts with the standard list (the owner 2026-10-23)"
         );
         assert_eq!(seeded["steps"], json!([0.1, 1, 10, 50]));
         assert_eq!(seeded["fan"], json!([0, 25, 50, 75, 100]));
@@ -914,7 +914,7 @@ mod tests {
         }
     }
 
-    /// our live store held the first seed untouched (read off it read-only on
+    /// the owner's live store held the first seed untouched (read off it read-only on
     /// 2026-09-23). It moves once: PLA and PETG to his measured profiles in place, ABS, ASA and TPU
     /// exactly as they were. An edited store never moves, a loaded material stays loaded, and once
     /// moved, even saving the old five back is kept as saved.

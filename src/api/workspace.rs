@@ -94,9 +94,43 @@ fn tool_of(d: &Value) -> Option<u64> {
         }
     })
 }
+/// 0.6.2 (the owner 2026-10-29): which parts a printer really has, from the config sections Klipper reports (`configfile.settings`,
+/// lower-case section names). The 10-28 AD5M, a one-Z CoreXY with a load-cell `probe` and a `bed_mesh`, showed a Voron's quad gantry level,
+/// four corners "not run yet", motors Z1 to Z3 and a BLTouch "installed per owner". Each flag is true or false once the config is known; the whole
+/// object is null before that (the page then shows what it always did). `macros` lists the levelling macros the printer has, as their own names.
+pub fn sections(d: &Value) -> Value {
+    let s = &d["configfile"]["settings"];
+    let Some(map) = s.as_object().filter(|m| !m.is_empty()) else {
+        return Value::Null;
+    };
+    let has = |n: &str| map.contains_key(n);
+    // Z_TILT_ADJUST (): a bed on three Z motors (a Trident) levels with it; it was offered nowhere.
+    let macros: Vec<String> = [
+        "Z_TILT_ADJUST",
+        "SCREWS_TILT_CALCULATE",
+        "AUTO_FULL_BED_LEVEL",
+        "BED_LEVEL_SCREWS_TUNE",
+    ]
+    .iter()
+    .filter(|m| {
+        has(&format!("gcode_macro {}", m.to_ascii_lowercase()))
+            || (**m == "SCREWS_TILT_CALCULATE" && has("screws_tilt_adjust"))
+            || (**m == "Z_TILT_ADJUST" && has("z_tilt"))
+    })
+    .map(|m| m.to_string())
+    .collect();
+    json!({"quad_gantry_level":has("quad_gantry_level"),"z_tilt":has("z_tilt"),"bltouch":has("bltouch"),"probe":has("probe"),"bed_mesh":has("bed_mesh"),
+        "screws_tilt_adjust":has("screws_tilt_adjust"),"stepper_z1":has("stepper_z1"),"stepper_z2":has("stepper_z2"),"stepper_z3":has("stepper_z3"),
+        "input_shaper":has("input_shaper"),"macros":macros})
+}
 fn point(ts: f64, d: &Value, details: bool) -> Value {
+    let sec = sections(d);
     let mut motors = serde_json::Map::new();
     for (n, _) in MOTORS {
+        // a one-Z printer has no Z1 to Z3 drivers: no row of nulls for them
+        if matches!(n, "stepper_z1" | "stepper_z2" | "stepper_z3") && sec[n] == json!(false) {
+            continue;
+        }
         motors.insert(n.to_string(), motor(d, n));
     }
     let p = &d["motion_report"]["live_position"];
@@ -106,7 +140,7 @@ fn point(ts: f64, d: &Value, details: bool) -> Value {
  "toolchanger":d["toolchanger"].is_object(),
  "commanded":[number(&d["toolhead"]["position"][0]),number(&d["toolhead"]["position"][1]),number(&d["toolhead"]["position"][2])],
  "velocity":nonnegative(&d["motion_report"]["live_velocity"]),"homed":text(&d["toolhead"]["homed_axes"]),
- // 2026-09-21: during a G28 the HUD drew the whole gantry above the frame. The recorded sample
+ // the owner 2026-09-21: during a G28 the HUD drew the whole gantry above the frame. The recorded sample
  // at 1790021428.895 has homed_axes "xyz" and BOTH live_position and toolhead.position at Z 464.02
  // against axis_maximum 310 — Klipper's homing force position (position_endstop + 1.5 * (position_max
  // - position_endstop)), not a place the machine ever was. The model needs the machine's own travel
@@ -124,14 +158,17 @@ fn point(ts: f64, d: &Value, details: bool) -> Value {
  // so the model's travel guard needs Z's own limit or a 441 mm homing jump is inside one tick's
  // reach. Klipper reports it in configfile.settings.printer, which the recorder already holds.
  "max_z_velocity":number(&d["configfile"]["settings"]["printer"]["max_z_velocity"]),
- // 2026-09-21: the done ramp marked parts of the cube finished before the head got there. The
+ // the owner 2026-09-21: the done ramp marked parts of the cube finished before the head got there. The
  // byte the printer is actually reading is what maps onto the parser's own offsets; progress is a
  // ratio and loses the file size. Both ride on the point so the HUD never has to guess.
  "file_position":nonnegative(&d["virtual_sdcard"]["file_position"]),"file_size":nonnegative(&d["virtual_sdcard"]["file_size"]),
+ // 0.6.2 (the owner 2026-10-29): the bottom bar shows the layer Z the G-code asked for. motion_report.live_position is the
+ // mesh-corrected head: an AD5M with a load-cell mesh near -1.6 mm read Z -0.93..-1.04 at layer 3 (gcode Z 0.6) for the whole print.
+ "layer_z":number(&d["gcode_move"]["gcode_position"][2]),
  "z_offset":number(&d["gcode_move"]["homing_origin"][2]),"nozzle":heater(&d["extruder"]),"bed":heater(&d["heater_bed"]),
- "fans":{"fan":fan(&d["fan"]),"hotend_fan":fan(&d["heater_fan hotend_fan"]),"controller_fan":fan(&d["controller_fan controller_fan"])},
+ "fans":{"fan":fan(crate::model::part_fan(d)),"hotend_fan":fan(crate::model::hotend_fan(d)),"controller_fan":fan(crate::model::controller_fan(d))},
  "probe":{"triggered":boolean(&d["probe"]["last_query"]),"last_z_result":number(&d["probe"]["last_z_result"])},
- "qgl_applied":boolean(&d["quad_gantry_level"]["applied"]),"motors":motors});
+ "qgl_applied":boolean(&d["quad_gantry_level"]["applied"]),"sections":sec,"motors":motors});
     if details {
         v["telemetry"] = super::signals::projection(d, ts);
         let raw = &d["bed_mesh"]["probed_matrix"];
@@ -424,23 +461,58 @@ pub fn snapshot(
  "events":events,"events_capped":event_cap,"rounds":out_rounds,"rounds_capped":rounds_capped,"warnings":warnings}),
     )
 }
+/// What the slicer says about the print file, from Moonraker's metadata: the estimate in seconds, the filament type and the nozzle in millimetres.
+/// Stamped on the samples of that print as `_scope_file`; None when it says none of the three.
+pub fn file_facts(meta: &Value) -> Option<Value> {
+    let estimated_time = number(&meta["estimated_time"]).filter(|e| *e > 0.0);
+    let filament_type =
+        text(&meta["filament_type"]).filter(|t| !t.trim().is_empty() && t != "Unknown");
+    let nozzle_diameter = number(&meta["nozzle_diameter"]).filter(|n| *n > 0.0 && *n < 3.0);
+    (estimated_time.is_some() || filament_type.is_some() || nozzle_diameter.is_some())
+        .then(|| json!({"estimated_time":estimated_time,"filament_type":filament_type,"nozzle_diameter":nozzle_diameter}))
+}
+/// Time left in seconds. Worked out from progress alone the early minutes swing by 6 to 10 minutes a read (the owner 2026-10-28, the AD5M's R30
+/// bracket: 1 h 41, 1 h 47, 1 h 38 in three minutes, against Orca's 1 h 48), because progress moves in whole percents and the first
+/// layers are slower. 0.6.2 when the slicer's own estimate (`/server/files/metadata` `estimated_time`) is known the
+/// total is a blend of it and the extrapolation, as Mainsail and Fluidd do, the extrapolation's weight growing as the square of the
+/// progress (all of it from 80 %). Without an estimate it is the extrapolation, as before. No print time yet, no guess.
+pub fn time_left(
+    progress: Option<f64>,
+    duration: Option<f64>,
+    estimate: Option<f64>,
+) -> Option<f64> {
+    let d = duration.filter(|d| *d > 0.0)?;
+    let est = estimate.filter(|e| e.is_finite() && *e > 0.0);
+    let p = progress.unwrap_or(0.0);
+    let total = match (est, p > 0.01) {
+        (Some(e), true) => {
+            let w = (p / 0.8).min(1.0).powi(2);
+            e * (1.0 - w) + d / p * w
+        }
+        (Some(e), false) => e,
+        (None, true) => d / p,
+        (None, false) => return None,
+    };
+    Some((total - d).max(0.0).round())
+}
 fn job(d: &Value) -> Value {
-    // 2026-10-23 (a live ring print, Stella): by file bytes the first layer read 9 % and "1 h 11 min left" on a 30 minute
+    // the owner 2026-10-23 (a live ring print, Stella): by file bytes the first layer read 9 % and "1 h 11 min left" on a 30 minute
     // print, while the slicer's own M73 progress (display_status) read 26 %. M73 is the slicer's time-based figure; Klipper
     // falls back to the file position there when a file has no M73, so it is never worse than the file figure.
     let duration = nonnegative(&d["print_stats"]["print_duration"]);
     let progress = fraction(&d["display_status"]["progress"])
         .filter(|p| *p > 0.0)
         .or(fraction(&d["virtual_sdcard"]["progress"]));
-    let worked_out = match (progress, duration) {
-        (Some(p), Some(t)) if p > 0.01 && t > 0.0 => Some((t / p - t).max(0.0).round()),
-        _ => None,
-    };
+    // The slicer's estimate rides on the sample (`_scope_file`, put there by the collector once per print), so the stored sample and the live one blend the same way.
+    let estimate = nonnegative(&d["_scope_file"]["estimated_time"]);
+    let worked_out = time_left(progress, duration, estimate);
     json!({"name":text(&d["print_stats"]["filename"]),"state":text(&d["print_stats"]["state"]),"message":text(&d["print_stats"]["message"]),"progress":progress,"duration":duration,"filament_used":nonnegative(&d["print_stats"]["filament_used"]),
      // the layer the slicer reports through SET_PRINT_STATS_INFO; null when it does not.
      "layer":nonnegative(&d["print_stats"]["info"]["current_layer"]),"layers":nonnegative(&d["print_stats"]["info"]["total_layer"]),
      // the time left the printer itself states (PrusaLink), null where it states none.
-     "time_left":nonnegative(&d["_scope_prusalink"]["time_remaining"]).or(worked_out)})
+     "time_left":nonnegative(&d["_scope_prusalink"]["time_remaining"]).or(worked_out),"estimated_time":estimate,
+     // the file's own material and nozzle: what the printer page and the wall show when nobody has typed them
+     "material":text(&d["_scope_file"]["filament_type"]),"nozzle_mm":number(&d["_scope_file"]["nozzle_diameter"])})
 }
 // Current procedure is derived from recorded console evidence plus the newest sample; it is never
 // presented as a machine-reported state, and the basis is carried with the answer.
@@ -468,15 +540,25 @@ fn activity(db: &Store, at: f64, d: &Value) -> Result<Value> {
             Some("homing Z")
         } else if l.contains("probe_accuracy") {
             Some("probe accuracy")
+        } else if l.contains("screws_tilt_calculate") {
+            Some("bed screws")
+        } else if l.contains("z_tilt_adjust") {
+            Some("bed levelling")
         } else {
             None
         }
     });
+    // a CORE One L's load cell or a Voron's Tap is a probe, not a BLTouch; the word follows printer.cfg
+    let probe_word = if d["configfile"]["settings"].get("bltouch").is_some() {
+        "BLTouch probing"
+    } else {
+        "Probing"
+    };
     for (ts, message) in records {
         let m = message.to_lowercase();
         if let Some((x, y, z)) = crate::probe::point_from(&message) {
             return Ok(
-                json!({"id":"probing","label":"BLTouch probing","detail":format!("{} · point {:.0},{:.0} = {:.3} mm", procedure.unwrap_or("probing"), x, y, z),"since_ts":ts,
+                json!({"id":"probing","label":probe_word,"detail":format!("{} · point {:.0},{:.0} = {:.3} mm", procedure.unwrap_or("probing"), x, y, z),"since_ts":ts,
                 "basis":"Derived from recorded BLTouch console lines; not a machine-reported state"}),
             );
         }
@@ -609,6 +691,9 @@ pub fn tick_payload(
     json!({"schema":"stella-scope.tick.v1","server_time":ts,"requested_live":true,
         "ts":ts,"age_seconds":0.0,
         "point":point,"job":job_v,"activity":act,"homed_axes":homed,
+        // the printer is carrying out a command right now (Klipper's idle state "Printing": a print sent by
+        // another host, a long macro, a heat soak; a FlashForge or Prusa that says heating or busy). The idle heater switch-off reads this.
+        "busy":data.is_some_and(|d| d["idle_timeout"]["state"].as_str().is_some_and(|s| s.eq_ignore_ascii_case("printing"))),
         "filament_sensors":filament_sensors(data.unwrap_or(&Value::Null)),
         "observer":{"mode":status.mode,"connected":status.connected,"transport":status.transport,
             "updates_per_s_1m":status.updates_per_s_1m,"query_ms_last":status.query_ms_last,
@@ -1089,6 +1174,118 @@ mod tests {
         assert!(quiet["max_z_velocity"].is_null());
         assert!(quiet["file_position"].is_null());
     }
+    /// 0.6.2 the pages a printer gets follow the config sections it has. One fixture shaped like the Z-Mod AD5M (section names from its
+    /// own backup and the 10-28 capture), one like Stella's Voron.
+    fn settings_of(fixture: &str) -> Value {
+        let f: Value = serde_json::from_str(fixture).unwrap();
+        let map: serde_json::Map<String, Value> = f["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| (s.as_str().unwrap().to_ascii_lowercase(), json!({})))
+            .collect();
+        json!({"configfile":{"settings":map}})
+    }
+    #[test]
+    fn a_one_z_printer_with_a_probe_gets_no_gantry_level_no_bltouch_and_no_z1_to_z3() {
+        let d = settings_of(include_str!(
+            "../../tests/fixtures/ad5m-config-sections-2026-10-28.json"
+        ));
+        let s = sections(&d);
+        for gone in [
+            "quad_gantry_level",
+            "z_tilt",
+            "bltouch",
+            "stepper_z1",
+            "stepper_z2",
+            "stepper_z3",
+        ] {
+            assert_eq!(s[gone], json!(false), "{gone}");
+        }
+        for here in ["probe", "bed_mesh", "input_shaper"] {
+            assert_eq!(s[here], json!(true), "{here}");
+        }
+        assert_eq!(
+            s["macros"],
+            json!([
+                "SCREWS_TILT_CALCULATE",
+                "AUTO_FULL_BED_LEVEL",
+                "BED_LEVEL_SCREWS_TUNE"
+            ])
+        );
+        let v = point(1.0, &d, false);
+        let motors: Vec<&str> = v["motors"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(motors, ["extruder", "stepper_x", "stepper_y", "stepper_z"]);
+        assert_eq!(v["sections"], s);
+    }
+    #[test]
+    fn a_voron_keeps_its_gantry_level_bltouch_and_four_z_motors() {
+        let d = settings_of(include_str!(
+            "../../tests/fixtures/voron-config-sections.json"
+        ));
+        let s = sections(&d);
+        for here in [
+            "quad_gantry_level",
+            "bltouch",
+            "bed_mesh",
+            "stepper_z1",
+            "stepper_z2",
+            "stepper_z3",
+        ] {
+            assert_eq!(s[here], json!(true), "{here}");
+        }
+        assert_eq!(s["z_tilt"], json!(false));
+        assert_eq!(s["macros"], json!([]));
+        assert_eq!(
+            point(1.0, &d, false)["motors"].as_object().unwrap().len(),
+            7
+        );
+        // before the config is known nothing is taken away: the page shows what it always did
+        let before = point(1.0, &json!({}), false);
+        assert!(before["sections"].is_null());
+        assert_eq!(before["motors"].as_object().unwrap().len(), 7);
+    }
+    /// 0.6.2 material and nozzle come from the file's metadata when nobody typed them.
+    #[test]
+    fn the_file_metadata_gives_the_material_and_the_nozzle() {
+        let meta = json!({"estimated_time":6480.0,"filament_type":"PETG","nozzle_diameter":0.4,"layer_count":55});
+        let facts = file_facts(&meta).unwrap();
+        let j = job(
+            &json!({"print_stats":{"state":"printing","print_duration":100.0},"virtual_sdcard":{"progress":0.1},"_scope_file":facts}),
+        );
+        assert_eq!(
+            (
+                j["material"].clone(),
+                j["nozzle_mm"].clone(),
+                j["estimated_time"].clone()
+            ),
+            (json!("PETG"), json!(0.4), json!(6480.0))
+        );
+        assert!(
+            file_facts(&json!({"filament_type":"Unknown","nozzle_diameter":0})).is_none(),
+            "an unspecified file says nothing"
+        );
+        assert!(job(&json!({}))["material"].is_null());
+    }
+    /// 0.6.2 the 10-28 AD5M run read the head at Z -0.93 at layer 3 (gcode Z 0.6) because its load-cell mesh sits
+    /// near -1.6 mm. The point carries the G-code's own Z beside the head's; a printer that reports none (PrusaLink, FlashForge) says null.
+    #[test]
+    fn the_layer_z_is_the_gcode_position_not_the_mesh_corrected_head() {
+        let v = point(
+            1.0,
+            &json!({"motion_report":{"live_position":[120.0,110.0,-0.93]},"toolhead":{"position":[120.0,110.0,-0.93]},
+                "gcode_move":{"gcode_position":[120.0,110.0,0.6,12.4],"homing_origin":[0,0,0.025,0]}}),
+            false,
+        );
+        assert_eq!(v["layer_z"], json!(0.6));
+        assert_eq!(v["position"][2], json!(-0.93));
+        assert!(point(1.0, &json!({"gcode_move":{"speed":1000.0}}), false)["layer_z"].is_null());
+    }
     /// live motion beside X, Y and Z, and the layer for the bottom strip. The
     /// filament speed keeps its sign (a retraction is negative); anything not reported is unknown,
     /// never zero. The snapshot's job and the tick's job are the same projection.
@@ -1135,6 +1332,65 @@ mod tests {
             )["time_left"],
             json!(840.0)
         );
+    }
+    /// 0.6.2 the 20 real reads of the AD5M's R30 bracket (10-28, Orca's estimate 6480 s = 1 h 48), 2 minutes apart. Worked out from
+    /// progress alone the left time jumped by up to 335 s a read; with the slicer's estimate blended in it moves less than 3 minutes between reads
+    /// and the total stays within 10 % of the estimate.
+    #[test]
+    fn the_ad5m_samples_replay_into_a_steady_time_left() {
+        let csv = include_str!("../../tests/fixtures/ad5m-eta-samples-2026-10-28.csv");
+        let (mut prev, mut seen) = (None::<f64>, 0);
+        for row in csv.lines().skip(1) {
+            let f: Vec<&str> = row.split(',').collect();
+            let (p, dur): (f64, f64) = (f[4].parse().unwrap(), f[5].parse().unwrap());
+            let sample = json!({"print_stats":{"state":"printing","print_duration":dur},"display_status":{"progress":p},"_scope_file":{"estimated_time":6480.0}});
+            let left = job(&sample)["time_left"]
+                .as_f64()
+                .expect("a number on every read, never null");
+            assert_eq!(time_left(Some(p), Some(dur), Some(6480.0)), Some(left));
+            assert!(
+                (dur + left - 6480.0).abs() <= 648.0,
+                "total {} at {p}",
+                dur + left
+            );
+            if let Some(before) = prev.filter(|_| p > 0.02) {
+                assert!(
+                    (before - left).abs() < 180.0,
+                    "moved {} s at {p}",
+                    before - left
+                );
+            }
+            prev = Some(left);
+            seen += 1;
+        }
+        assert_eq!(seen, 20);
+        // the same reads without the estimate are what the owner watched jump
+        let worst = csv
+            .lines()
+            .skip(1)
+            .map(|r| r.split(',').map(str::to_owned).collect::<Vec<_>>())
+            .map(|f| time_left(f[4].parse().ok(), f[5].parse().ok(), None).unwrap())
+            .collect::<Vec<_>>();
+        assert!(worst.windows(2).any(|w| (w[0] - w[1]).abs() >= 180.0));
+    }
+    #[test]
+    fn time_left_without_an_estimate_is_the_old_extrapolation_and_the_estimate_alone_covers_the_first_percent(
+    ) {
+        assert_eq!(time_left(Some(0.26), Some(496.0), None), Some(1412.0));
+        assert_eq!(
+            time_left(Some(0.006), Some(0.0), Some(6480.0)),
+            None,
+            "no print time yet, no guess"
+        );
+        assert_eq!(time_left(Some(0.006), Some(0.0), None), None);
+        assert_eq!(
+            time_left(Some(0.004), Some(120.0), Some(6480.0)),
+            Some(6360.0)
+        );
+        assert_eq!(time_left(Some(0.004), Some(120.0), None), None);
+        // all extrapolation by 80 %, nothing negative at the end
+        assert_eq!(time_left(Some(0.8), Some(400.0), Some(9000.0)), Some(100.0));
+        assert_eq!(time_left(Some(1.0), Some(7000.0), Some(6480.0)), Some(0.0));
     }
     #[test]
     fn invalid_fan_percent_is_unknown() {

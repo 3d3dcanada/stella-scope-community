@@ -24,7 +24,7 @@ export function installationAge(record,at){
  return Math.floor((at-record.effective_at)/86400);
 }
 
-// 2026-09-21, second look at a G28: the gantry still flew to the top. Klipper force-sets the
+// the owner 2026-09-21, second look at a G28: the gantry still flew to the top. Klipper force-sets the
 // kinematic position before a homing move (Z 464.0195 against axis_maximum 310 in the recording of
 // his cube print), so a reported pose can be a place the machine cannot be. tested that in
 // hud-scene set(), but the live path interpolates between two recorded samples BEFORE set() sees
@@ -98,6 +98,8 @@ const SIGNAL_UNITS=[[/current$/,'A',2],[/temp(erature)?$|^target$/,'°C',1],[/^(
 export function signalUnit(object,field){
  const key=String(field||'').replace(/\.\d+$/,'').split('.').pop();
  if(key==='speed'&&RATIO_OBJECT.test(object||''))return {unit:'',digits:2};
+ // 0.6.2 the AD5M's bed load cell is filed as a temperature sensor; its reading is a weight, with no degree sign.
+ if(/^temperature_sensor\s.*(weight|load)/i.test(object||'')&&/^(temperature|measured_m(in|ax)_temp)$/.test(key))return {unit:'',digits:0};
  // gcode_move.speed is the last G1 F value, in mm/min (the cube print records 12000 at 200 mm/s).
  if(key==='speed'&&object==='gcode_move')return {unit:'mm/min',digits:0};
  const hit=SIGNAL_UNITS.find(([re])=>re.test(key));return hit&&hit[1]!==null?{unit:hit[1],digits:hit[2]}:null;
@@ -124,7 +126,7 @@ export function flowCeiling(loaded,measured){const max=finite(measured);return {
 // same state reads in its own words (pass klipper:false and the brand the /api/controls payload
 // carries). Default stays Klipper so the pages that never fetch controls (service, replay) are
 // unchanged.
-export function printerLink(observer,{replay=false,lastSeen=null,now=Date.now()/1000,klipper=true,brand='Moonraker'}={}){
+export function printerLink(observer,{replay=false,lastSeen=null,now=Date.now()/1000,klipper=true,brand='Moonraker',restart=false}={}){
  const ago=finite(lastSeen)===null?null:Math.max(0,now-lastSeen);
  const since=ago===null?'':ago<90?Math.round(ago)+' s':ago<5400?Math.round(ago/60)+' min':ago<172800?(ago/3600).toFixed(1)+' h':Math.round(ago/86400)+' days';
  // the page's own service comes first. While Stella Scope itself does not answer
@@ -133,10 +135,12 @@ export function printerLink(observer,{replay=false,lastSeen=null,now=Date.now()/
  if(observer?.printer_state==='service')return {state:'service',label:'SERVICE OFF',since,lock:true,estop:false,reason:'Stella Scope service is not running: this page cannot reach it, so nothing new arrives and no command can go. The page tries again by itself and picks up at once when it answers.'};
  if(replay)return {state:'replay',label:'REPLAY',since,lock:true,estop:false,reason:'This is a saved recording: printer controls are not available.'};
  const st=observer?.printer_state;
- if(st==='unreachable')return {state:'off',label:'PRINTER OFF',since,lock:true,estop:false,reason:`The printer is off or not answering${since?`, last heard ${since} ago`:''}. It reconnects by itself when it is on.`};   // 2026-10-25: no "Moonraker" in what he reads
+ if(st==='unreachable')return {state:'off',label:'PRINTER OFF',since,lock:true,estop:false,reason:`The printer is off or not answering${since?`, last heard ${since} ago`:''}. It reconnects by itself when it is on.`};   // the owner 2026-10-25: no "Moonraker" in what he reads
  if(st==='not_ready'){
   if(klipper===false){const m=(observer.printer_message||'').replace(/\.+$/,'');
-   return {state:'not_ready',label:'PRINTER NOT READY',since,lock:true,estop:false,recover:false,klipper:false,reason:m?m+'.':`${brand} answers but the printer is not ready.`};}
+   // a printer that speaks plainly but can restart its firmware (a demo printer) keeps the restarts as the way out
+   const recover=!!restart&&['shutdown','error'].includes(observer.klipper_state);
+   return {state:'not_ready',label:'PRINTER NOT READY',since,lock:true,estop:recover,recover,klipper:false,reason:m?m+'.':`${brand} answers but the printer is not ready.`};}
   return {state:'not_ready',label:'KLIPPER NOT READY',since,lock:true,estop:true,recover:['shutdown','error'].includes(observer.klipper_state),reason:'Klipper not ready: '+(observer.printer_message||'Moonraker answers but Klipper does not')+'.'};}
  if(st==='ready')return {state:'ready',label:'PRINTER READY',since,lock:false,estop:true,reason:''};
  return {state:'unknown',label:'CHECKING',since,lock:false,estop:true,reason:''};
@@ -148,7 +152,7 @@ export function controlsSummary(link,{live=true,enabled=false}={}){
  if(link.state==='service')return {key:'service',badge:'SERVICE OFF · LOCKED',line:'controls locked: Stella Scope is not running'};
  if(link.state==='replay')return {key:'replay',badge:'REPLAY · READ ONLY',line:'saved recording, read only'};
  if(link.state==='off')return {key:'printer_off',badge:'PRINTER OFF · LOCKED',line:'controls locked: printer off'};
- if(link.state==='not_ready')return link.klipper===false?{key:'locked',badge:'NOT READY · LOCKED',line:'controls locked: printer not ready'}:link.recover?{key:'restarts',badge:'RESTARTS ONLY',line:'controls locked: only the restarts and E-STOP go'}:{key:'klipper',badge:'KLIPPER · LOCKED',line:'controls locked: Klipper not ready'};
+ if(link.state==='not_ready')return link.klipper===false&&!link.recover?{key:'locked',badge:'NOT READY · LOCKED',line:'controls locked: printer not ready'}:link.recover?{key:'restarts',badge:'RESTARTS ONLY',line:'controls locked: only the restarts and E-STOP go'}:{key:'klipper',badge:'KLIPPER · LOCKED',line:'controls locked: Klipper not ready'};
  if(!enabled)return {key:'read_only',badge:'READ ONLY',line:''};
  if(!live)return {key:'rewound',badge:'REWOUND · LOCKED',line:'controls paused while rewound'};
  return {key:'live',badge:'LIVE CONTROLS',line:'controls armed'};

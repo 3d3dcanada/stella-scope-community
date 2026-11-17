@@ -400,16 +400,20 @@ pub fn scan_all(
             h["host"].as_str().unwrap_or("").to_owned(),
         );
         let flash = h["driver"] == "flashforge";
+        // 0.6.2 (the owner 2026-10-29): a FlashForge answer on a host that is already in the farm is that printer, whatever driver it was added with. The Z-Mod
+        // AD5M keeps the stock FlashForge door (8899) open in its boot window, and that was offered as a second, new printer next to its Klipper one. The other
+        // brands still match on their own driver and port (two Moonraker instances on one host are two printers).
         let found = added.iter().find(|(a, _, driver)| {
             let a = authority(a);
-            let same = if flash {
+            if flash {
                 a.split(':').next() == Some(host.as_str())
+            } else if Some(driver.as_str()) != h["driver"].as_str() {
+                false
             } else {
                 a == addr
                     || (a == host && addr.ends_with(":80"))
                     || (addr == host && a.ends_with(":80"))
-            };
-            same && Some(driver.as_str()) == h["driver"].as_str()
+            }
         });
         h["added"] = json!(found.is_some());
         h["added_id"] = found.map(|(_, id, _)| json!(id)).unwrap_or(Value::Null);
@@ -587,6 +591,51 @@ mod tests {
         assert!(hosts_of("10.0.0").is_ok() && hosts_of("172.16.5").is_ok());
     }
 
+    /// 0.6.2 the AD5M's boot-window 8899 is the printer already in the farm as Klipper, never a new FlashForge; a FlashForge on a
+    /// host nobody added is still offered, and a different host's Klipper does not hide it.
+    #[test]
+    fn a_flashforge_door_on_an_added_klipper_host_is_not_a_new_printer() {
+        let f = FakeFlashForge::start(0, 0, "SNFAKE5M00002", "0fake000");
+        let ports = Ports {
+            moonraker: vec![],
+            prusalink: vec![],
+            flashforge: vec![f.tcp_port()],
+            rtsp: vec![],
+        };
+        let hosts = vec!["127.0.0.1".to_owned()];
+        let at_host = |url: &str| {
+            vec![(
+                url.to_owned(),
+                "adventurer-5m".to_owned(),
+                "moonraker".to_owned(),
+            )]
+        };
+        let on_host = scan(&hosts, &ports, &at_host("http://127.0.0.1:7125"), 400);
+        let ff = on_host
+            .iter()
+            .find(|h| h["driver"] == "flashforge")
+            .expect("answered");
+        assert_eq!(
+            (ff["added"].clone(), ff["added_id"].clone()),
+            (json!(true), json!("adventurer-5m"))
+        );
+        let elsewhere = scan(&hosts, &ports, &at_host("http://192.0.2.9:7125"), 400);
+        assert_eq!(
+            elsewhere
+                .iter()
+                .find(|h| h["driver"] == "flashforge")
+                .unwrap()["added"],
+            false
+        );
+        assert_eq!(
+            scan(&hosts, &ports, &[], 400)
+                .iter()
+                .find(|h| h["driver"] == "flashforge")
+                .unwrap()["added"],
+            false
+        );
+    }
+
     #[test]
     fn the_three_brands_are_found_named_and_the_added_one_is_marked() {
         let (m, p, f) = (
@@ -630,10 +679,13 @@ mod tests {
         );
         assert_eq!(prusa["added"], false);
         let ff = by("flashforge");
+        // 0.6.2 this used to say a Klipper at the same host is not this FlashForge. It is the same machine: a Z-Mod AD5M
+        // answers on 8899 in its boot window, and was offered as a second printer. Kept as the same check, with the new answer.
         assert_eq!(
-            ff["added"], false,
-            "a Klipper at the same host is not this FlashForge"
+            ff["added"], true,
+            "a Klipper already added at the same host is this FlashForge's printer"
         );
+        assert_eq!(ff["added_id"], "stella");
         assert_eq!(ff["serial"], "SNFAKE5M00001");
         assert_eq!(ff["needs"], json!(["check_code"]));
         assert!(ff["model"].as_str().unwrap().contains("Adventurer 5M"));

@@ -1,6 +1,6 @@
 // Printer models: the catalogue of real CAD, installing one, binding one to a printer, and the live 3D view
 // that follows the printer's reported position.
-// our rule: if the real model does not exist, there is no model. Nothing here draws a stand-in.
+// the owner's rule: if the real model does not exist, there is no model. Nothing here draws a stand-in.
 // The 3D engine (model-view.js, three.js) is loaded only when a model is opened.
 import {el,icon,tip,button,busy,openSheet,closeSheet,openModal,section,segmented,toast} from './next-ui.js';
 import {modelsButton,showNotice} from './next-getmodels.js';
@@ -43,7 +43,7 @@ export function choice(options,value,onChange,{label=''}={}){
   w.append(btn,list);w.get=()=>cur;w.set=v=>{cur=v;paint();};paint();return w;}
 
 /** Getting the files a choice needs: what will be fetched with each licence, the tick for anything not open, then two plain
- *  buttons, From the author (the default) and From a folder on this computer... (2026-10-18: nobody types the word "published").
+ *  buttons, From the author (the default) and From a folder on this computer... (the owner 2026-10-18: nobody types the word "published").
  *  `items` are needs().todo. `done()` runs once every file is here (an empty list goes straight to it). `extra` are more buttons. */
 function getFiles(box,{items,token,done,doneLabel='Use this',later=null,extra=[],got=new Set()}){
   box.replaceChildren();
@@ -286,7 +286,7 @@ export function optionDetail(o,{token=null,onChange=()=>{}}={}){
         if(token){row.append(button({icon:'i-close',label:'Remove from this computer',kind:'danger',size:'row',title:'Remove',does:'Deletes the downloaded files this option needs. Files another installed option needs stay.',onPress:async()=>{try{await call('DELETE','/api/printer-models/options/'+d.id,undefined,token);toast('Removed.','ok');onChange();paint();}catch(e){msg.textContent=e.message;}}}));}
         box.append(row,msg);return;}
       if(!token){box.append(note('Options are installed from the Stella Scope window on the computer.'));return;}
-      // the licence first, then two plain buttons: From the author, or From a folder on this computer...
+      // (the owner 2026-10-18): the licence first, then two plain buttons: From the author, or From a folder on this computer...
       getFiles(box,{items:needs(null,[d],[{option:d.id}]).todo,token,doneLabel:'Done',done:async()=>{toast('Installed.','ok');onChange();paint();}});
     };
     paint().catch(e=>body.append(note('The option could not be read: '+e.message)));
@@ -344,7 +344,7 @@ function installUi(box,m,{token,printer,onChange,close}){
     box.append(row,msg);return;}
   if(!m.has_file){box.append(note('The author has not published a model file for this machine, so there is nothing to install. Stella Scope does not draw one in its place.'));return;}
   if(!token){box.append(note('Models are installed from the Stella Scope window on the computer.'));return;}
-  // the licence first, then two plain buttons (From the author, From a folder on this computer...); no typing the word "published".
+  // (the owner 2026-10-18): the licence first, then two plain buttons (From the author, From a folder on this computer...); no typing the word "published".
   // The third way, a file the person downloaded, stays: it is checked against the same pin.
   const file=el('input');file.type='file';file.accept='.gz,.glb,.glb.gz';file.hidden=true;
   const fileBtn=button({icon:'i-files',label:'Install a file I downloaded',size:'row',title:'Install a file',does:'Takes the model file you downloaded from the author and checks it against the published checksum.',onPress:()=>{if(!box.accepted()){box.say('Tick the box to say you have read the licence.');return;}file.click();}});
@@ -454,7 +454,7 @@ export async function mountModel(host,{id,token=null,compact=false,printer=null,
       const ask=el('div','nx-gm-ask');sceneBox.append(ask);
       const optionBtn=()=>{if(first)ask.append(button({icon:'i-view',label:'Licence and install',kind:'primary',size:'row',title:'Install the options',does:'Shows the licence and downloads the files of the chosen options.',onPress:async()=>{try{optionDetail(await call('GET','/api/printer-models/options/'+first.option),{token,onChange:()=>onBound()});}catch(e){toast(e.message,'alarm');}}}));};
       fetch('/api/printer-models/wanted',{cache:'no-store'}).then(r=>r.json()).then(w=>{const open=new Set((w.models||[]).filter(m=>m.open&&m.kind==='part').map(m=>m.id));if(left.length&&left.every(p=>open.has(p)))ask.append(modelsButton(token,()=>onBound(),w));else optionBtn();}).catch(optionBtn);}
-    view.setScene(st.scene).then(r=>{if(r.placed)sceneBox.append(note(`Drawn: ${(st.scene.options||[]).filter(placed).map(o=>o.label).join(', ')}.${r.replaced?` ${plural(r.replaced,'part')} of the machine ${r.replaced===1?'is':'are'} hidden because the options replace ${r.replaced===1?'it':'them'}.`:''}`));})
+    view.setScene(st.scene).then(r=>{if(r.placed){const said=note(`Drawn: ${(st.scene.options||[]).filter(placed).map(o=>o.label).join(', ')}.${r.replaced?` ${plural(r.replaced,'part')} of the machine ${r.replaced===1?'is':'are'} hidden because the options replace ${r.replaced===1?'it':'them'}.`:''}`);said.dataset.drawn='';sceneBox.append(said);}})
       .catch(e=>sceneBox.append(note('The options could not be drawn: '+e.message)));
   }
   if(!compact&&st.view.licence.class!=='gpl'&&st.view.licence.class!=='mit')host.append(note(`${st.view.licence.text||'No licence stated'}${st.view.licence.author?', by '+st.view.licence.author:''}.`));
@@ -481,7 +481,8 @@ export async function mountModel(host,{id,token=null,compact=false,printer=null,
   // A model with no registered movement still has its print growing on the plate, so it is asked after as well.
   // a rewound page (its address carries #ts=) shows the model as the recorder had it then, not the live pose
   const at=()=>{const t=Number(new URLSearchParams(location.hash.slice(1)).get('ts'));return Number.isFinite(t)&&t>0?'&ts='+t:'';};
-  if(st.motion||st.print_frame){timer=setInterval(async()=>{if(document.hidden||dead)return;try{paint(await call('GET',api+'/model?scene=0'+at()));}catch{}},500);}
+  // 0.6.2 a printer followed along its file (a demo printer) is asked five times a second: between answers the head can only guess the pace, and a print changes pace at every feature (120 mm/s of infill to 70 of wall is 25 mm of guess in half a second). The answer is the service's own memory, no printer is asked. A live printer's position changes with the recording's tick, so twice a second is all it has.
+  if(st.motion||st.print_frame){timer=setInterval(async()=>{if(document.hidden||dead)return;try{paint(await call('GET',api+'/model?scene=0'+at()));}catch{}},st.position_source==='file'?200:500);}
 
   if(!compact&&token&&st.motion){const cal=calibration(st,{id,token,view,setMatching:v=>{matching=v;run.pause(v);host.classList.toggle('nx-md-matching',v);},paint,printer});calUpdate=cal.update;host.append(cal);}
   else if(!compact&&st.motion&&!token)host.append(note('Calibration is set from the Stella Scope window on the computer.'));
@@ -618,7 +619,7 @@ export function modelSection(p,token,changed,leave=null){
   return section('Model',box);
 }
 
-// 2026-10-25: "instead of Iso, Front, Top and Side ... an actual cube we can choose from". A view cube, as CAD programs have it: each face you can
+// the owner 2026-10-25: "instead of Iso, Front, Top and Side ... an actual cube we can choose from". A view cube, as CAD programs have it: each face you can
 // see turns the camera to that side, the corner they share turns it back to the three-quarter view. The face being looked from is lit.
 export function viewCube(onView){const NS='http://www.w3.org/2000/svg',mk=(t,a={})=>{const e=document.createElementNS(NS,t);for(const[k,v]of Object.entries(a))e.setAttribute(k,v);return e;};
  const s=mk('svg',{viewBox:'14 9 72 82',class:'nx-cube',role:'group','aria-label':'View'}),P=pts=>pts.map(p=>p.join(',')).join(' ');
@@ -633,7 +634,7 @@ export function viewCube(onView){const NS='http://www.w3.org/2000/svg',mk=(t,a={
  iso.addEventListener('click',()=>pick('iso'));iso.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick('iso');}});s.append(iso);nodes.iso=iso;iso.toggleAttribute('data-on',true);
  const wrap=el('div','nx-cube-wrap');wrap.append(s);tip(wrap,'View','Press a face of the cube to look from that side. The dot where the faces meet turns back to the three-quarter view.');return wrap;}
 
-// 2026-10-25 (the research: "live numbers sit on the machine", Bambu's chips on the printer). On the printer page's model, a small chip at the nozzle
+// the owner 2026-10-25 (the research: "live numbers sit on the machine", Bambu's chips on the printer). On the printer page's model, a small chip at the nozzle
 // and one at the bed, following them as they move; the big gauges stay the instruments. Off in Look (data-chips=off). A chip is only drawn where the model
 // has that part (a bed that never moves has no group of its own, so no chip).
 function machineChips(host,view){const layer=el('div','nx-mchips');host.append(layer);const chip=(k,ico)=>{const c=el('div','nx-chip-m');c.dataset.k=k;c.append(icon(ico),el('b','','—'));c.hidden=true;layer.append(c);return c;};
@@ -682,7 +683,7 @@ export async function stageTabs(card,{id,noClassic=false}){
     if(v==='model'&&!mounted){mounted=await mountModel(holder,{id,compact:true,token:can?info.token:null,printer:can?me:null,setup:can?()=>modelViewer({printer:me,token:info.token}):null});}
     if(v!=='model'&&mounted){mounted.dispose();mounted=null;holder.replaceChildren();}};
   card.replaceChildren();
-  // 2026-10-25 ("Camera and model, I don't get"): no Camera | Model tabs. The stage is the model; the camera is the top bar's camera key,
+  // the owner 2026-10-25 ("Camera and model, I don't get"): no Camera | Model tabs. The stage is the model; the camera is the top bar's camera key,
   // which fills the whole screen with it. A model that cannot be drawn here gives the stage back to the camera.
   if(hasCam)card.append(cam,holder);else card.append(holder);
   await show('model');

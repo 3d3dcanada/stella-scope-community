@@ -25,7 +25,7 @@ const mm=(v,d=3)=>finite(v)===null?'—':(v>=0?'+':'')+v.toFixed(d)+' mm';
 const KCS=Object.fromEntries(KC.map(c=>[c.key,c]));
 export function ledscope(body){body.classList.add('nx-ledscope');if(body._u06)return;body._u06=1;body.addEventListener('click',e=>{if(e.target.closest('.nx-btn,.nx-seg button,.nx-chip,.nx-part,.nx-motor,.nx-matcard,.nx-raw>summary'))kclick(false);},true);}
 // A kit control inside a sheet. The sheet scrolls and clips, and the kit's dim sits over it, so a held control steps out of the sheet into the page (where the dim is) while it is held,
-// leaving a blank of its own size, and goes back after its spring (2026-10-20: the control grows where it is, never a pop-up).
+// leaving a blank of its own size, and goes back after its spring (the owner 2026-10-20: the control grows where it is, never a pop-up).
 export function lift(c){const e=c.el;let ph=null,t=0;
  e.addEventListener('pointerdown',()=>{if(e.hasAttribute('data-locked')||e.hasAttribute('data-unknown')||'readonly' in e.dataset||!e.parentNode||!e.isConnected)return;clearTimeout(t);if(ph){ph.replaceWith(e);ph=null;}
   const r=e.getBoundingClientRect();ph=document.createElement('span');ph.style.cssText='display:block;flex:none;width:'+r.width+'px;height:'+r.height+'px';e.replaceWith(ph);
@@ -94,7 +94,7 @@ export function meshViewer({height=320}={}){
  // The mesh itself, cell by cell: a smooth colour field between the probe points, each point's
  // height written on it, and the X and Y of every column and row along the edges.
  function drawGrid(g,W,H,grid,col){const rows=grid.length,cols=grid[0].length,[x0,y0]=mesh.min||[bed?.x0??0,bed?.y0??0],[x1,y1]=mesh.max||[bed?.x1??1,bed?.y1??1],B=30,T=16,
-  // drawn to scale (2026-09-25: a square bed mesh showed as a flat rectangle)
+  // drawn to scale (the owner 2026-09-25: a square bed mesh showed as a flat rectangle)
   sc=Math.min((W-190)/Math.max(1,x1-x0),(H-T-B-14)/Math.max(1,y1-y0)),w=(x1-x0)*sc,h=(y1-y0)*sc,L=Math.max(90,(W-w)/2),X=u=>L+u*w,Y=v=>T+(1-v)*h;
   const px=3;for(let yy=0;yy<h;yy+=px)for(let xx=0;xx<w;xx+=px){g.fillStyle=css(col(bilinear(grid,xx/w,1-yy/h)));g.fillRect(L+xx,T+yy,px+.5,px+.5);}
   g.strokeStyle='rgba(7,9,12,.28)';g.lineWidth=1;for(let c=0;c<cols;c++){g.beginPath();g.moveTo(X(c/(cols-1||1)),T);g.lineTo(X(c/(cols-1||1)),T+h);g.stroke();}for(let r=0;r<rows;r++){g.beginPath();g.moveTo(L,Y(r/(rows-1||1)));g.lineTo(L+w,Y(r/(rows-1||1)));g.stroke();}
@@ -156,7 +156,7 @@ const Z_OF={stepper_z:'z0',stepper_z1:'z1',stepper_z2:'z2',stepper_z3:'z3'},CORN
 function wiringFor(e){const sc=ctx.scene(),b=sc?.geometryBounds?.(e.id);return partWiring(e,b?[(b.min[0]+b.max[0])/2,(b.min[1]+b.max[1])/2]:null,sc?.bedCenter);}
 const sig=(sigs,o,f)=>sigs.find(s=>s.object===o&&s.field===f)?.value;
 export function openPartByKey(k){const e=ctx.scene()?.entries?.find(x=>wiringFor(x)?.key===k);if(e)openPart(e.id);return !!e;}
-// "Show me" (2026-09-28: "Show the motor" opened the slide-out and showed nothing). The named part is
+// "Show me" (the owner 2026-09-28: "Show the motor" opened the slide-out and showed nothing). The named part is
 // framed with the machine around it, lit, flashed three times and circled on screen, everything else
 // faded; the panel is one tap away on the circle's label. It is not opened for you: on a phone it would
 // cover the very thing you asked to see. The circle follows the camera and goes after nine seconds, or
@@ -182,7 +182,7 @@ function tabbed(body,defs){body.classList.add('nx-sheet-body--tabs');const mem='
 export function openPart(id){const sc=ctx.scene(),e=sc?.entries?.find(x=>x.id===id);if(!e)return;
  const w=wiringFor(e),key=w?.key||null;
  sheet({title:e.name.replace(/:\d+$/,'').replace(/(\s*\(\d+\))+$/,''),eyebrow:w?w.label.toUpperCase():(e.slot_id||e.layer||'part').toUpperCase(),icon:key==='bed'?'i-bed':/fan/.test(key||'')?'i-fan':/stepper|motor/.test(key||'')?'i-motors-off':key==='probe'?'i-probe':key==='hotend'?'i-heat':'i-nav-parts',wide:key==='bed',build:body=>{
-  // Tabs, not one long scroll : the part's own live view first, then details and look.
+  // Tabs, not one long scroll (the owner 2026-09-25): the part's own live view first, then details and look.
   const T=tabbed(body,key==='bed'?[['heater','Heater'],['sheet','Sheet & Z'],['mesh','Mesh'],['history','Mesh history'],['details','Details']]:[['live','Live'],['details','Details']]);
   const live=T.live||T.heater,painters=[];
   if(key==='bed')painters.push(bedPanel(T,e));
@@ -208,7 +208,7 @@ function partActions(e){const sc=ctx.scene(),g=el('div','nx-grid4');
   button({icon:'i-panels',label:'Isolate',size:'row',title:'Isolate',does:'Lights this part where it sits and fades the rest; Show all brings the default view back.',onPress:()=>{sc.select?.(e.id);sc.isolate?.();closeSheet();}}),
   button({icon:'i-close',label:'Hide',size:'row',title:'Hide',does:'Hides this part; Show all brings it back.',onPress:()=>{sc.select?.(e.id);sc.hideSelected?.();closeSheet();}}),
   button({icon:'i-nav-hud',label:'Show all',size:'row',title:'Show all',does:'Back to the default view of the printer: every part, none faded.',onPress:()=>{dropSpot();sc.showAll?.();}}));return [section('On the printer',g),paintSection(e)];}
-// Part colour (2026-09-25, the classic HUD had it): swatches, any colour, and the whole assembly
+// Part colour (the owner 2026-09-25, the classic HUD had it): swatches, any colour, and the whole assembly
 // the part belongs to (screws left alone). Saved in this browser only; nothing goes to the printer.
 const PALETTE=['#1b1d20','#f2f2ef','#82949c','#d6262f','#ff7a1a','#9be15d','#04d9c4','#8b5cf6'];
 function assemblyOf(e){const sc=ctx.scene(),f=(e.full||'').split(' / '),i=f.indexOf(e.name);if(i<1)return null;const path=f.slice(0,i).join(' / ')+' / ';
@@ -227,7 +227,7 @@ function heaterPanel(body,which){const r=()=>ctx.state.readings[which],id=which=
  // the target is the kit's control (nozzle 5°, bed 1°), sent once when the hand lets go; a turn past the service's limit is sent as the limit
  const lim=HEAT_MAX[which],k=ctl(which,{value:0,now:null,onSet:v=>{if(v>lim){v=lim;k.spec.value=v;k.paint();}return ctx.send('set_heater',{target:id,value:v});}});tip(k.el,which==='nozzle'?'Nozzle target':'Bed target','Press and hold, then turn; letting go sends it once.');
  const T=stat('NOW'),G=stat('TARGET'),P=stat('HEATER OUTPUT');const hero=el('div','nx-part-hero');hero.append(k.el,statGrid(T,G,P));body.append(hero);
- // Quick targets, and how the heat is going (2026-09-25: fill the cards): the rate over the last
+ // Quick targets, and how the heat is going (the owner 2026-09-25: fill the cards): the rate over the last
  // minute, when it will get there, and how long it has held the target (a thick plate wants a soak).
  const quick=el('div','nx-heatquick');for(const v of which==='nozzle'?[0,180,200,220,240,250,260]:[0,60,70,80,90,100,110]){const b=button({label:v?v+'°':'Off',size:'row',kind:v?'default':'ghost',cmd:'set_heater',title:v?`${which==='nozzle'?'Nozzle':'Bed'} to ${v}°`:'Heater off',does:v?`Sets the ${which} target to ${v}°.`:'Turns this heater off.',onPress:()=>ctx.send('set_heater',{target:id,value:v})});b.dataset.v=v;quick.append(b);}
  body.append(section('Set it to',quick));
@@ -265,12 +265,12 @@ export function plateAt(ts){const pr=ctx.state.presets||{},log=[...(pr.sheet_log
 // Probe landings from the newest tick that came after the shown mesh and within the last ten
 // minutes: a run in progress. Older points belong to a mesh already in the history.
 export function liveProbes(after=0){const pp=ctx.probes();const now=ctx.tick()?.point?.ts??Date.now()/1000;
- // The newest run: points with no gap over two minutes between them (2026-09-25: a 9x9 mesh
+ // The newest run: points with no gap over two minutes between them (the owner 2026-09-25: a 9x9 mesh
  // takes twenty minutes, and a ten-minute window dropped the front rows while it was still going).
  const run=pp.filter(p=>p.ts>(after||0)+1).sort((a,b)=>b.ts-a.ts);if(!run.length||now-run[0].ts>1800)return [];
  let i=1;while(i<run.length&&run[i-1].ts-run[i].ts<120)i++;return run.slice(0,i).reverse();}
 // ---------- build sheets: which one is on the bed, and the Z offset it prints at ----------
-// Klipper cannot know which sheet is fitted, so this is our record, kept in the presets store.
+// Klipper cannot know which sheet is fitted, so this is the owner's record, kept in the presets store.
 function sheetPicker(body){const box=el('div','nx-sheetpick'),chips=el('div','nx-chips'),line=el('div','nx-sheetline'),msg=el('span'),apply=button({icon:'i-check',label:'Apply offset',size:'row',kind:'primary',cmd:'z_offset',title:'Apply this plate\'s Z offset',does:'Changes the printer\'s Z offset by the difference, once, after showing you the command.',onPress:async b=>{busy(b,true);try{await applySheet();}finally{busy(b,false);}}});
  const edit=button({icon:'i-panels',label:'Edit plates',size:'row',title:'Edit plates',does:'Name your plates and the Z offset each prints at. Nothing is kept until Save.',onPress:()=>sheetEditor()});
  line.append(msg,apply);box.append(chips,line,edit);body.append(section('Build plate',box));let key='';
@@ -300,7 +300,7 @@ function sheetEditor(){const saved=(ctx.state.presets?.sheets||[]).map(x=>({...x
   paint();body.append(el('p','nx-note','Name, and the Z offset that plate prints at. Up to eight. Nothing is kept until Save.'),list,adds,status,acts);}});}
 // Mesh history chips, newest first. Compare: the shown mesh is the older one, the next chip pressed
 // is the newer, and the map shows newer minus older over the area both cover.
-// Mesh history (2026-09-25: "adaptive meshes and bed meshes should be two different saves"):
+// Mesh history (the owner 2026-09-25: "adaptive meshes and bed meshes should be two different saves"):
 // full-bed meshes and print-area (adaptive) meshes are two lists behind two tabs, never mixed. Each
 // chip names the plate that was on the bed. Compare: the next chip pressed is diffed with the shown one.
 async function meshHistory(host,mv){try{const h=await getJson('/api/history/mesh?limit=60');const all=h.meshes||[];host.replaceChildren();
@@ -358,7 +358,7 @@ function probePanel(body){const T=stat('STATE'),Z=stat('LAST Z'),N=stat('RECENT 
  // The BLTouch's own red LED, as the app reads it (Klipper does not report the LED itself).
  const led=el('div','nx-led'),dot=el('i'),lt=el('div');lt.append(el('b'),el('span'));led.append(dot,lt);
  const reset=button({icon:'i-restart',label:'Reset the BLTouch',size:'row',kind:'danger',cmd:'console',title:'Reset the BLTouch',does:'Resets the BLTouch once, after showing you the command, to clear the alarm.',onPress:()=>ctx.send('console',{script:'BLTOUCH_DEBUG COMMAND=reset'})});
- body.append(section('Probe light',led,reset));
+ if(ctx.tick()?.point?.sections?.bltouch!==false)body.append(section('Probe light',led,reset));   // 0.6.2 the BLTouch's light and reset only where a bltouch section exists (a load-cell probe has neither)
  const LED={on:['On, steady','Pin up and ready. The red light stays on while the probe is stowed.'],probing:['Flashing with each touch','Probing now: the light goes out while the pin is down and comes on as it touches.'],
   alarm:['Flashing fast: alarm','The probe reported a failure. Check the pin and the mount, then reset it.'],off:['Off','The printer is off or not answering, so the probe has no power.']};
  body.append(statGrid(T,Z,N),section('Newest probe points',list),section('',el('div','nx-grid2')));
@@ -405,28 +405,43 @@ export function openFile(path){sheet({plain:true,title:fileTitle(path),eyebrow:'
  .catch(e=>{slicer.textContent='File details unavailable: '+e.message;});}});}
 
 // ---------- rail pages ----------
-// Levelling (2026-09-25: "we can actually make a new screen for this part"). Tabs, no scroll.
+// Levelling (the owner 2026-09-25: "we can actually make a new screen for this part"). Tabs, no scroll.
 // Now: the four gantry corners from above, each with how far it was moved and a lit check when in
 // tolerance, the rounds of the newest run against the tolerance line, and the mesh filling in live.
 // Gantry history: every run. Mesh: the saved full mesh and both mesh histories.
-// 2026-10-25: the plate in the top bar opened the bed heater part ("10IN MIC6 plate", the CAD's name for the bed). It opens the plates:
+// the owner 2026-10-25: the plate in the top bar opened the bed heater part ("10IN MIC6 plate", the CAD's name for the bed). It opens the plates:
 // which one is on the bed, the Z offset each prints at, and the list to add to or take from.
 export function pagePlates(){sheet({title:'Build plates',eyebrow:'WHICH ONE IS ON THE BED',icon:'i-panels',build:body=>{const paint=sheetPicker(body);return ()=>paint();}});}
-export function pageLevel(){sheet({title:'Levelling',eyebrow:'GANTRY AND BED',icon:'i-nav-leveling',wide:true,build:body=>{
- const T=tabbed(body,[['now','Now'],['gantry','Gantry history'],['mesh','Mesh']]);
- const acts=el('div','nx-grid4');acts.append(cmdButton('Home','i-home','home','Homes X, Y and Z.'),cmdButton('Level gantry','i-level','qgl','Probes the four corners and levels the gantry.',{},'primary'),cmdButton('Bed mesh','i-mesh','mesh','Probes the bed and makes a fresh bed mesh.'),cmdButton('Probe accuracy','i-probe','console','Probes one spot ten times and reports the spread.',{script:'PROBE_ACCURACY'}));
+// 0.6.2 (the owner 2026-10-29): the gantry, its four corners and its history only on a printer with a quad_gantry_level section; a one-Z printer with a probe
+// and a bed_mesh gets the bed mesh and the levelling macros it really has (an AD5M: SCREWS_TILT_CALCULATE, AUTO_FULL_BED_LEVEL). Sections unknown yet: the page as it always was.
+const LV_MACROS={Z_TILT_ADJUST:['Level the bed','Probes three points and tilts the bed level with its three Z motors.'],SCREWS_TILT_CALCULATE:['Bed screws','Reports how far to turn each bed screw (Klipper, from the probe).'],AUTO_FULL_BED_LEVEL:['Auto level','The printer\'s own full bed levelling and mesh (Z-Mod).'],BED_LEVEL_SCREWS_TUNE:['Tune the screws','Z-Mod\'s guided bed screw adjustment.']};
+export function pageLevel(){const sec=ctx.tick()?.point?.sections||ctx.state.snapshot?.point?.sections||null,qgl=sec?.quad_gantry_level!==false,probe=!sec||!!(sec.probe||sec.bltouch);sheet({title:qgl?'Levelling':'Bed levelling',eyebrow:qgl?'GANTRY AND BED':'THE BED',icon:'i-nav-leveling',wide:true,build:body=>{
+ const T=tabbed(body,qgl?[['now','Now'],['gantry','Gantry history'],['mesh','Mesh']]:[['now','Now'],['mesh','Mesh']]);
+ const acts=el('div','nx-grid4');acts.append(cmdButton('Home','i-home','home','Homes X, Y and Z.'),...(qgl?[cmdButton('Level gantry','i-level','qgl','Probes the four corners and levels the gantry.',{},'primary')]:[]),cmdButton('Bed mesh','i-mesh','mesh','Probes the bed and makes a fresh bed mesh.'),...(probe?[cmdButton('Probe accuracy','i-probe','console','Probes one spot ten times and reports the spread.',{script:'PROBE_ACCURACY'})]:[]),...(qgl?[]:(sec?.macros||[]).filter(m=>LV_MACROS[m]).map(m=>cmdButton(LV_MACROS[m][0],'i-level','macro',LV_MACROS[m][1],{target:m}))));
  const now=el('div','nx-lv-now'),gantry=el('div','nx-lv-gantry'),rounds=el('div','nx-lv-rounds'),live=meshViewer({height:300});
  const corner=(k,label)=>{const c=el('div','nx-lv-corner');c.dataset.k=k;c.append(el('span','',label),el('b','','not run yet'),el('em','nx-lv-dir'));return c;};   // no little arrow under the number; the direction is a word on the card
  const C={z1:corner('z1','BACK LEFT'),z2:corner('z2','BACK RIGHT'),z0:corner('z0','FRONT LEFT'),z3:corner('z3','FRONT RIGHT')};
  const frame=el('div','nx-lv-frame');frame.append(el('div','nx-lv-beam'),el('span','nx-lv-front','FRONT'));gantry.append(C.z1,C.z2,frame,C.z0,C.z3);
  const verdict=el('div','nx-lv-verdict');now.append(gantry,el('div','nx-lv-side'));now.lastChild.append(verdict,rounds);
- T.now.append(acts,now,section('Mesh, as it is probed',live.el));
- const q=el('div','nx-qgl');T.gantry.append(q);qglRuns(q);
+ // Bed screws answered only in the console; the turns for each screw are shown here, from the newest answer in the recording.
+ // with nothing being probed the live mesh was an empty grid reading "nothing reported" six times; it says what will show there
+ const idle=el('p','nx-note','Nothing is being probed right now. Press Bed mesh or a level and every point shows here as it is probed.');
+ const paintIdle=()=>{const none=!liveProbes(0).length,was=live.el.hidden;live.el.hidden=none;idle.hidden=!none;if(was&&!none)live.draw();};
+ const screws=el('div','nx-screws'),hasScrews=!qgl&&(sec?.macros||[]).includes('SCREWS_TILT_CALCULATE');let sAt=0;
+ const paintScrews=async()=>{sAt=performance.now();try{const now=Date.now()/1000,d=await getJson(`/api/events?from=${Math.floor(now-6*3600)}&to=${Math.ceil(now)}`);
+  const e=(d.events||[]).filter(x=>/\(base\)\s*:/.test(x.message||'')).sort((a,b)=>a.ts-b.ts).at(-1);screws.replaceChildren();
+  if(!e){screws.append(el('p','nx-note','Not run yet. Press Bed screws: the probe visits each screw and says how far to turn it.'));return;}
+  screws.append(el('p','nx-note',`Measured ${new Date(e.ts*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}. Turn each screw by the amount shown, then run it again.`));
+  for(const l of e.message.split('\n')){const m=l.replace(/^\/\/\s*/,'').match(/^(.*?screw[^:]*?)\s*(\(base\))?\s*:\s*x=.*?z=([-\d.]+)(?:\s*:\s*adjust\s+(CW|CCW)\s+(\d+):(\d+))?/i);if(!m)continue;
+   const row=el('div','nx-screw'),turn=m[2]?'the reference: leave it':m[4]?`${m[4]==='CW'?'clockwise':'anticlockwise'} ${+m[5]?m[5]+' turn'+(+m[5]>1?'s':'')+' and ':''}${+m[6]} min`:'—';
+   row.append(el('b','',m[1].replace(/\b\w/,c=>c.toUpperCase())),el('span','',turn));screws.append(row);}}catch(err){screws.replaceChildren(el('p','nx-note','The screw answer could not be read: '+err.message));}};
+ T.now.append(...(qgl?[acts,now]:[acts]),...(hasScrews?[section('Bed screws',screws)]:[]),section('Mesh, as it is probed',live.el,idle));if(hasScrews)paintScrews();
+ if(qgl){const q=el('div','nx-qgl');T.gantry.append(q);qglRuns(q);}
  const sv=meshViewer({height:360}),hist=el('div','nx-meshhist');T.mesh.append(section('Saved in Klipper',sv.el),section('History',hist));savedMesh(sv);const hv=meshViewer({height:300});hist.after(hv.el);meshHistory(hist,hv);
  document.addEventListener('nx-tab',()=>{live.draw();sv.draw();hv.draw();});
  let qAt=0,run=[];
- async function loadRun(){try{const d=await getJson('/api/qgl'),rs=d.rounds||[];if(!rs.length){run=[];return;}const id=rs[0].run_id;run=rs.filter(r=>r.run_id===id).sort((a,b)=>a.round-b.round);}catch{}}
- // 2026-09-28: the view "shows no numbers until the first probe round finishes and is slow to
+ async function loadRun(){if(!qgl)return;try{const d=await getJson('/api/qgl'),rs=d.rounds||[];if(!rs.length){run=[];return;}const id=rs[0].run_id;run=rs.filter(r=>r.run_id===id).sort((a,b)=>a.round-b.round);}catch{}}
+ // the owner 2026-09-28: the view "shows no numbers until the first probe round finishes and is slow to
  // update". Klipper prints a round's range only when the round ends, so until then the page shows what
  // is already known: the run has started, which corners have been probed and how far apart they read so
  // far, and the last finished run for reference. Each round's range against the tolerance follows as it
@@ -448,7 +463,7 @@ export function pageLevel(){sheet({title:'Levelling',eyebrow:'GANTRY AND BED',ic
    row.append(el('span','',`Round ${r.round+1}`),track,el('b','',r.range_mm.toFixed(3)+' mm'));rounds.append(row);}
   if(lev&&!last.pass)rounds.append(el('p','nx-note','Probing the next round…'));}
  loadRun().then(paintRun);ctx.lockControls(body);
- return ()=>{live.live(liveProbes(0));const a=ctx.activity(),lev=!!a&&a.id==='levelling';
+ return ()=>{live.live(liveProbes(0));paintIdle();if(hasScrews&&performance.now()-sAt>8000)paintScrews();const a=ctx.activity(),lev=!!a&&a.id==='levelling';
   if(performance.now()-qAt>(lev?1000:15000)){qAt=performance.now();loadRun().then(paintRun);}else if(lev)paintRun();};}});}
 async function qglRuns(host){try{const d=await getJson('/api/qgl'),rounds=d.rounds||[];const runs=new Map();for(const r of rounds){if(!runs.has(r.run_id))runs.set(r.run_id,[]);runs.get(r.run_id).push(r);}
   host.replaceChildren();if(!runs.size){host.append(el('p','nx-note','No gantry levelling in the recording.'));return;}
@@ -466,7 +481,7 @@ function heatDeck(which){const nz=which==='nozzle',id=nz?'extruder':'heater_bed'
  const c=ctl(which,{value:0,now:null,onSet:v=>{if(v>lim){v=lim;c.spec.value=v;c.paint();}return ctx.send('set_heater',{target:id,value:v});}});
  tip(c.el,nz?'Nozzle':'Bed',`Press and hold, then turn: the ${which} target moves ${nz?5:1}° a click. Letting go sends it once. The dot on the ring is the live temperature.`);
  const th=thermoCard({label:nz?'Nozzle':'Bed',icon:nz?'i-heat':'i-bed',heatKind:which});th.el.removeAttribute('role');th.el.removeAttribute('tabindex');
- // 2026-10-25: "now, target, heater input, output ... different size panels" read as buttons. One instrument per heater: the dial with its
+ // the owner 2026-10-25: "now, target, heater input, output ... different size panels" read as buttons. One instrument per heater: the dial with its
  // readings beside it as plain lines, the graph of the last ten minutes the whole width under them.
  const T=stat('NOW'),G=stat('TARGET'),P=stat('HEATER POWER'),figs=el('div','nx-ht-figs'),top=el('div','nx-ht-top');figs.append(T.el,G.el,P.el);side.append(figs);top.append(c.el,side);root.append(top,th.el);
  return {el:root,set(x,locked){c.setUnknown(x.target===null||x.target===undefined);c.setNow(finite(x.temp));if(finite(x.target)!==null&&!c.el.classList.contains('live'))c.set(x.target);c.setLocked(locked);
@@ -487,7 +502,7 @@ export function pageThermal(){sheet({title:'Heat & fans',eyebrow:'THERMAL',icon:
   for(const [k,[c]] of Object.entries(fans)){const f=stale?{speed:null}:r.fans[k],v=f?.speed;c.setUnknown(v===null||v===undefined);if(finite(v)!==null)c.set(Math.round(v*100));}
   part.setLocked(ctx.can('set_fan')?'':ctx.why('set_fan'));
   if(!ctx.has('fan')&&!ctx.has('klipper')){const R=v=>finite(v)===null?null:Math.round(v).toLocaleString()+' rpm',pf=R(r.fans.part?.rpm),hf=R(r.fans.hotend?.rpm);rpm.hidden=!(pf||hf);rpm.textContent=[pf&&'Part fan '+pf,hf&&'Hotend fan '+hf].filter(Boolean).join('  ·  ')+(pf||hf?'. Measured by the printer.':'');}};}});}
-// 2026-10-23: every signal says what it is in plain words first; Klipper's own name stays beside it, small, for the config and the forums.
+// the owner 2026-10-23: every signal says what it is in plain words first; Klipper's own name stays beside it, small, for the config and the forums.
 const SIG_OBJ=[[/^extruder$/,'Nozzle heater'],[/^heater_bed$/,'Bed heater'],[/^fan$/,'Part fan'],[/^controller_fan(\s|$)/,'Controller fan'],[/^heater_fan(\s|$)/,'Hotend fan'],[/^gcode_move$/,'Motion as G-code sees it'],
  [/^toolhead$/,'Toolhead'],[/^print_stats$/,'Print'],[/^motion_report$/,'Live motion'],[/^virtual_sdcard$/,'Print file'],[/^quad_gantry_level$/,'Gantry levelling'],[/^bed_mesh$/,'Bed mesh'],[/^probe$/,'Probe'],[/^bltouch$/,'BLTouch'],
  [/^webhooks$/,'Klipper'],[/^system_stats$/,'Host computer'],[/^idle_timeout$/,'Idle timer'],[/^display_status$/,'Display'],[/^exclude_object$/,'Object skipping'],[/^filament_switch_sensor\s/,'Runout sensor'],[/^stepper_enable$/,'Motors on/off'],[/^z_tilt$/,'Z tilt']];
@@ -496,11 +511,14 @@ const SIG_FIELD={temperature:'Temperature',target:'Target',power:'Heater power',
  filament_used:'Filament used',state:'State',message:'Message',run_current:'Run current',hold_current:'Hold current',cputime:'CPU time',memavail:'Free memory',sysload:'System load',applied:'Done',filament_detected:'Filament in'};
 export function plainSignal(object,field){const t=String(object||''),m=SIG_OBJ.find(([r])=>r.test(t));let o=m?m[1]:'';
  if(!o){const tm=t.match(/^(tmc\d+)\s+(stepper_|extruder)(\w*)/);if(tm)o='Motor driver '+(tm[2]==='extruder'?'extruder':tm[3].toUpperCase())+' ('+tm[1].toUpperCase()+')';}
+
+ // 0.6.2 the AD5M files its bed load cell as a temperature sensor (weightValue); it is a weight, never a temperature
+ let lc=false;if(!o&&/^temperature_sensor\s+.*(weight|load)/i.test(t)){o='Bed load cell (weight)';lc=true;}
  if(!o){const ts=t.match(/^temperature_(sensor|fan)\s+(.+)/);if(ts)o=(ts[1]==='fan'?'Fan: ':'Temperature: ')+ts[2].replace(/_/g,' ');}
  if(!o)o=t.replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
  const fs0=String(field||''),ax=fs0.match(/^(\w+)\.(\d)$/),AX='XYZE';let p=SIG_FIELD[fs0]||'';
  if(!p&&ax)p=({homing_origin:'Homing offset',position:'Position',gcode_position:'G-code position',live_position:'Live position'}[ax[1]]||ax[1].replace(/_/g,' '))+' '+(AX[+ax[2]]||ax[2]);
- if(!p)p=fs0.replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());return {object:o,field:p};}
+ if(!p)p=fs0.replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());if(lc)p={temperature:'Weight reading',measured_min_temp:'Lowest weight seen',measured_max_temp:'Highest weight seen'}[fs0]||p;return {object:o,field:p};}
 export function pageSignals(){sheet({title:'Signals',eyebrow:'EVERY RECORDED SIGNAL',icon:'i-nav-signals',wide:true,build:body=>{
  const q=el('input','nx-input');q.type='search';q.placeholder='Find a signal, e.g. bed heater, motor driver Z or temperature';q.setAttribute('aria-label','Filter signals');const count=el('p','nx-note'),list=el('div','nx-sig-list');body.append(q,count,list);
  let last='';const paint=()=>{const all=point()?.telemetry?.signals||[],f=q.value.trim().toLowerCase(),rows=all.filter(s=>{if(!f)return true;const n=plainSignal(s.object,s.field);return (s.object+' '+s.field+' '+n.object+' '+n.field).toLowerCase().includes(f);});
@@ -516,7 +534,7 @@ export function pageTimeline(){sheet({title:'Timeline',eyebrow:'EVERYTHING THE P
  getJson('/api/events?limit=500').then(d=>{rows=(d.events||[]).filter((e,i,a)=>!(e.kind==='printer_offline'&&a[i-1]?.kind==='printer_offline'));draw();}).catch(e=>list.append(el('p','nx-note',e.message)));}});}
 export function pageParts(filter=null){sheet({title:filter==='electronics'?'Electronics':'Parts',eyebrow:filter==='electronics'?'BOARDS, HOST AND FANS':'WHAT IS FITTED',icon:filter==='electronics'?'i-nav-electronics':'i-nav-parts',wide:true,build:body=>{
  const sc=ctx.scene(),q=el('input','nx-input');q.type='search';q.placeholder='Find a part';q.setAttribute('aria-label','Find a part');const list=el('div','nx-parts');body.append(q,list);
- if(!sc?.entries?.length){list.append(el('p','nx-note',document.body.dataset.scene==='off'?'This list comes from the detailed drawing of the printer, which is off on this computer. Click any part of the model instead: its name and the page that shows it live open.':'The 3D model is still loading.'));return;}
+ if(!sc?.entries?.length){list.append(el('p','nx-note',globalThis.__stellaRun||window.__stellaNoClassic?'This printer is drawn from its maker\'s CAD, part by part. Click any part of the machine: its name and the page that shows it live open.':document.body.dataset.scene==='off'?'This list comes from the detailed drawing of the printer, which is off on this computer. Click any part of the model instead: its name and the page that shows it live open.':'The 3D model is still loading.'));return;}
  const seen=new Set(),wired=[],rest=[];for(const e of sc.entries){if(e.sourceOnly||/shcs|bhcs|fhcs|screw|bolt|nut|washer|insert|magnet|^\d/i.test(e.name||''))continue;const w=wiringFor(e),n=(e.name||'').replace(/:\d+$/,'').replace(/(\s*\(\d+\))+$/,'');
   const k=(w?.key||'')+n;if(seen.has(k))continue;seen.add(k);(w?wired:rest).push({e,w,n});}
  const elec=wired.filter(x=>['controller','toolboard','host','bed_relay','controller_fan'].includes(x.w.key));
@@ -534,7 +552,7 @@ export function activityCard(){const w=el('button','nx-activity nx-glass nx-glas
  const head=el('div','nx-act-head'),title=el('b'),detail=el('span');head.append(icon('i-level'),el('div','nx-act-t'));head.lastChild.append(title,detail);
  const corners=el('div','nx-act-corners'),C={};for(const [k,l]of [['z1','BACK LEFT'],['z2','BACK RIGHT'],['z0','FRONT LEFT'],['z3','FRONT RIGHT']]){const c=el('div','nx-act-c');c.append(el('span','',l),el('b','','—'));C[k]=c;corners.append(c);}
  const round=el('div','nx-act-round'),map=el('canvas','nx-act-map');
- // 2026-09-25: "once it's all level, I should be able to close the levelling thing out."
+ // the owner 2026-09-25: "once it's all level, I should be able to close the levelling thing out."
  const x=el('span','nx-act-x');x.setAttribute('role','button');x.setAttribute('aria-label','Close');x.append(icon('i-close'));tip(x,'Close','Hides this until the next levelling or mesh starts.');
  let dismissed='';x.addEventListener('click',e=>{e.stopPropagation();dismissed=key;w.hidden=true;});head.append(x);
  w.append(head,corners,round,map);w.addEventListener('click',()=>pageLevel());
@@ -657,7 +675,15 @@ export function pageJournal(prefill=null){import('./service-core.js').then(({val
 
 // ---------- assembly: every model the 3D view is built from ----------
 export function pageAssembly(){sheet({title:'Assembly',eyebrow:'THE CAD THE 3D VIEW IS DRAWN FROM',icon:'i-nav-assembly',wide:true,build:body=>{const list=el('div','nx-asm');body.append(list);
- getJson('/api/assets').then(d=>{const as=d.assets||[];if(!as.length){list.append(el('p','nx-note','No models in the library.'));return;}
+ getJson('/api/assets').then(async d=>{const as=d.assets||[];
+  // a catalogue machine (every demo printer, any printer given a model) is drawn from the catalogue's CAD, not from an
+  // imported asset; the page said "No models in the library" under a machine drawn from 1,336 parts. It shows that model and its licence.
+  if(!as.length){try{const m=await getJson('/api/model'),cat=(await getJson('/api/printer-models')).models?.find(x=>x.id===m.model);
+    if(cat){const c=el('article','nx-asm-card'),dl=el('dl','nx-specs'),f=(k,v)=>{if(v!=null&&v!==''){dl.append(el('dt','',k),el('dd',/^[\d.,]+$/.test(String(v))?'nx-led-dd':'',String(v)));}};
+     c.append(el('span','nx-sheet-eyebrow','PRINTER MODEL · '+(cat.installed?.origin||'installed').toUpperCase()),el('h3','',cat.label||cat.id));
+     f('Parts',cat.parts);f('Size',cat.size_mm?cat.size_mm+' mm':null);f('Licence',cat.licence?.text);f('Author',cat.licence?.author);f('Moves with the printer',cat.motion?'yes':'no');c.append(dl,el('p','nx-note',cat.licence?.words||''));list.append(c);
+     list.append(el('p','nx-note','Models you import (STEP, STL, GLB) are listed here too.'));return;}}catch{}
+   list.append(el('p','nx-note','No models in the library.'));return;}
   for(const a of as){const c=el('article','nx-asm-card'),dl=el('dl','nx-specs'),f=(k,v)=>{if(v!=null&&v!==''){dl.append(el('dt','',k),el('dd',/^[\d.,]+$/.test(String(v))?'nx-led-dd':'',String(v)));}};   // a read number is an LED figure (Meshes)
   
    c.append(el('span','nx-sheet-eyebrow',(a.format||'').toUpperCase()+(a.status?' · '+String(a.status).toUpperCase():'')),el('h3','',a.name||a.id));
@@ -699,10 +725,12 @@ export function pageMotion(){sheet({title:'Motion & motors',eyebrow:'WHAT MOVES 
   P.lim.set(r.maxVelocity===null?'—':`${Math.round(r.maxVelocity)} mm/s`,{note:r.maxAccel===null?'':`${Math.round(r.maxAccel)} mm/s² · Z ${p?.max_z_velocity??'—'} mm/s`});P.hom.set(r.homedAxes?r.homedAxes.toUpperCase():'none',{tone:r.homedAxes==='xyz'?'ok':'warn'});
   const hm=r.homed||{};jw.lock(!ctx.can('jog')?ctx.why('jog'):(hm.x&&hm.y&&hm.z)?'':'Home first: jogging needs X, Y and Z homed.');
   const k=JSON.stringify(p?.motors||null);if(k===key)return;key=k;grid.replaceChildren();
-  for(const [id,label]of Object.entries(names)){const m=p?.motors?.[id],c=el('button','nx-motor');c.type='button';c.append(el('b','',label),el('span','nx-motor-v',m?`${m.current?.toFixed(2)??'—'} A`:'—'),el('span','nx-motor-s',m?(m.energised?(m.standstill?'holding':'stepping'):'off'):'not in the sample'),el('small','',m?`scale ${m.scale??'—'}/31${m.flags?.length?' · '+m.flags.join(', '):''}`:''));
+  // 0.6.2 no Z1 to Z3 rows on a printer whose config has no such steppers, and its one Z is just "Z"
+  const oneZ=p?.sections?.quad_gantry_level===false&&p?.sections?.z_tilt===false;
+  for(const [id,label0]of Object.entries(names)){if(p?.sections?.[id]===false)continue;const label=oneZ&&id==='stepper_z'?'Z':label0,m=p?.motors?.[id],c=el('button','nx-motor');c.type='button';c.append(el('b','',label),el('span','nx-motor-v',m?`${m.current?.toFixed(2)??'—'} A`:'—'),el('span','nx-motor-s',m?(m.energised?(m.standstill?'holding':'stepping'):'off'):'not in the sample'),el('small','',m?`scale ${m.scale??'—'}/31${m.flags?.length?' · '+m.flags.join(', '):''}`:''));
    if(m?.flags?.length)c.dataset.alarm='';else if(m?.energised)c.dataset.on='';const e=ctx.scene()?.entries?.find(x=>{const w=wiringFor(x);return w&&w.key===id;});if(e)c.addEventListener('click',()=>openPart(e.id));else c.disabled=true;grid.append(c);}};}});}
 
-// ---------- Z babystep : nudge the first layer and keep it with the sheet ----------
+// ---------- Z babystep (the owner 2026-09-24): nudge the first layer and keep it with the sheet ----------
 // Each press sends SET_GCODE_OFFSET Z_ADJUST once. Klipper forgets the offset on a restart, so the
 // fitted build sheet can keep it: Save writes the printer's offset into that sheet's record, and
 // picking the sheet later offers to apply it again.
@@ -715,8 +743,8 @@ export function babystep(body){if(!ctx.has('z_offset'))return ()=>{};   // no Kl
  return ()=>{const z=finite(point()?.z_offset),pr=ctx.state.presets,f=(pr?.sheets||[]).find(x=>x.name===pr?.sheet?.name);V.set(z===null?'—':mm(z),{note:'lower is closer'});
   save.hidden=!f||z===null||Math.abs(f.z_offset-z)<0.0005;msg.textContent=!f?'Say which sheet is on the bed (Gantry & bed) and this offset is kept with that sheet.':save.hidden?`${f.name} keeps ${mm(f.z_offset)}.`:`${f.name} is saved at ${mm(f.z_offset)}.`;};}
 
-// ---------- filament: load and unload (2026-09-24, rebuilt 2026-09-25, again 2026-10-12) ----------
-// 2026-09-28, first real use of 0.4.2: "Load filament never reaches the printer", Go "does nothing",
+// ---------- filament: load and unload (the owner 2026-09-24, rebuilt 2026-09-25, again 2026-10-12) ----------
+// the owner 2026-09-28, first real use of 0.4.2: "Load filament never reaches the printer", Go "does nothing",
 // "a step number blinks", "pressing again marked it loaded instantly". What was wrong, found 2026-10-12:
 //  1. The page rebuilt its step list and its buttons on every render tick (several a second), so a press
 //     that began on a button was lost when that node was replaced, and each new step marker restarted
@@ -795,7 +823,7 @@ export function filamentTick(){if(fil.step==='idle')return;const r=ctx.state.rea
  if(fil.step==='cooling'&&fil.shake==='pending'&&fil.shakeAt&&Date.now()>=fil.shakeAt)filShake();
  if(fil.step==='cooling'&&fil.kind==='unload'&&fil.cooledAt&&((t!==null&&t<60)||Date.now()-fil.cooledAt>600000)){fil.step='done';fil.endedAt=Date.now();}
  paintFilMarker();}
-/** Before anything heats, Load and Unload ask what is being loaded or unloaded : the material, with the nozzle temperature it implies; an unload starts on what is
+/** Before anything heats, Load and Unload ask what is being loaded or unloaded (the owner 2026-10-22): the material, with the nozzle temperature it implies; an unload starts on what is
  *  in the extruder. Nothing is sent until its key is pressed. \`auto\`: the dock's way (it feeds by itself once hot); the page's load asks you to push the filament in first. */
 export function filPicker(kind,{auto=false}={}){
  if(filOpen()&&fil.step!=='waiting'){toast('A filament job is already open. Showing it.','ok');pageFilament();return;}
@@ -824,7 +852,7 @@ export function filPicker(kind,{auto=false}={}){
    say.textContent=nameClash()?`${typedName()} is already one of your materials: pick its card, or give this another name.`:m?`Nothing heats until you press the key below. ${m.other?(typedName()?`${typedName()} is kept with your materials (nozzle ${m.nozzle}°, bed ${m.bed}°).`:'Name it to keep it for next time.'):load?'':'It starts on what is recorded as in the extruder; pick another if that is not what is in there.'}`:'Nothing heats until you pick a material and press the key.';}
   const cancel=button({icon:'i-close',label:'Cancel',size:'row',title:'Cancel',does:'Closes this. Nothing was heated.',onPress:()=>close()});
   keys.append(cancel,go);draw();body.append(ask,cards,other,heat,say,keys);ctx.lockControls(body);}});}
-/** 2026-10-24 (radial menus everywhere): LOAD and UNLOAD open a wheel of the materials. A pick heats to that material and runs by itself when hot,
+/** the owner 2026-10-24 (radial menus everywhere): LOAD and UNLOAD open a wheel of the materials. A pick heats to that material and runs by itself when hot,
  * exactly what the picker's key does; OTHER opens the picker for your own temperatures. What is in the extruder comes first for an unload. */
 export function filamentWheel(kind){const load=kind==='load',inName=ctx.state.presets?.loaded?.name,mats=filMaterials().slice().sort((a,b)=>load?0:(b.name===inName)-(a.name===inName));
  const go=async m=>{if(filOpen()&&fil.step!=='waiting'){toast('A filament job is already open. Showing it.','ok');pageFilament();return;}if(fil.step==='waiting')filReset();
@@ -925,7 +953,7 @@ export function pageHistory(){sheet({title:'Print history',eyebrow:'EVERY PRINT 
  getJson('/api/print/history?limit=200').then(d=>{const all=d.jobs||[],t=d.totals||{};
   // a dry run prints nothing: it is listed, not counted (the CORE One L's cancelled dry run made the rate 50 %)
   const dry=j=>/\(dry run\)/i.test(j.filename||''),jobs=all.filter(j=>!dry(j));
-  // 2026-10-25 audit: an empty history was a wall of dashed boxes and an empty chart. With no print yet it says so in one line.
+  // the owner 2026-10-25 audit: an empty history was a wall of dashed boxes and an empty chart. With no print yet it says so in one line.
   if(!all.length){body.replaceChildren(el('p','nx-note nx-empty-line','No prints recorded yet. Every print from now on is kept here: how long it took, how it ended, and the filament.'));return;}
   const done=jobs.filter(j=>j.status==='completed'),hrs=(t.total_print_time??jobs.reduce((a,j)=>a+(j.print_duration||0),0))/3600,fil=(t.total_filament_used??jobs.reduce((a,j)=>a+(j.filament_used||0),0))/1000;
   S.n.set(String(t.total_jobs??jobs.length),{note:/^Moonraker/.test(d.source||'')?'from the printer\'s own history':/start/.test(d.source||'')?'recorded here; the printer\'s history did not answer':'recorded by Stella Scope'});const ended=jobs.filter(j=>!['recorded start','in_progress'].includes(j.status));S.ok.set(ended.length?Math.round(done.length/ended.length*100)+' %':'—',{note:ended.length?`${done.length} of the last ${ended.length}`:'no print with a known end yet',tone:ended.length&&done.length/ended.length<.8?'warn':ended.length?'ok':''});
@@ -958,7 +986,7 @@ export const VORON_SCHEDULE=[['Clean the nozzle and check for plastic build-up',
  ['Lube the linear rails',200],['Clean the extruder gears',250],['Check the Z belts and Z pulleys',300],['Check frame and gantry bolts',300],['Check the umbilical and cable chains for wear',300],['Replace the nozzle',500]];
 export async function printHours(){try{const d=await getJson('/api/print/history?limit=1'),s=d.totals?.total_print_time;if(finite(s)!==null){const h=s/3600;try{localStorage.setItem('nx-print-hours',JSON.stringify([h,Date.now()/1000]));}catch{}return {h,live:true};}}catch{}
  try{const [h,at]=JSON.parse(localStorage.getItem('nx-print-hours')||'null')||[];if(finite(h)!==null)return {h,live:false,at};}catch{}return {h:null,live:false};}
-// 2026-10-25: "I'm getting maintenance notifications right off the beginning." A job never marked done (a standard job just added) is never due:
+// the owner 2026-10-25: "I'm getting maintenance notifications right off the beginning." A job never marked done (a standard job just added) is never due:
 // it starts counting from the hours when it was added (adoptJobs), not from the printer's first hour.
 export function dueTasks(hours){return (ctx.state.presets?.maintenance||[]).filter(t=>hours!==null&&t.last_h!=null&&hours-t.last_h>=t.every_h);}
 /** The standard jobs start counting from now: each one without a last-done hour takes the hours the printer has now. */
@@ -1062,9 +1090,9 @@ export function pageCamera(){sheet({plain:true,title:'Camera',eyebrow:'LIVE',ico
   for(const c of cams){const fig=el('figure','nx-cam-fig'),img=camImg(c),cap=el('figcaption');cap.append(el('b','',c.name||'Camera'),el('span','',`${ctx.has('klipper')?c.service||'':''}${c.target_fps?' · camera set to '+c.target_fps+' fps':''}`));
    img.addEventListener('error',()=>{cap.lastChild.textContent='The stream stopped: the printer or camera is not answering.';});fig.append(img,cap);box.append(fig);}
   const pin=button({icon:'i-panels',label:ctx.camPinned()?'Back to the 3D machine':'Make it the background',size:'row',title:'Camera as the background',does:'Fills the whole main view with the live camera, with light glass over it. One click on the picture grows it.',onPress:b=>{const on=!ctx.camPinned();ctx.camPinned(on);b.querySelector('.nx-lbl').textContent=on?'Back to the 3D machine':'Make it the background';}});
-  box.append(pin,el('p','nx-note',ctx.has('klipper')?'If it is still slow here, the camera itself is set to a low frame rate or resolution in crowsnest.conf on the printer.':'If it is still slow here, the camera itself is set to a low frame rate or resolution in its own settings.'));})
+  box.append(pin,el('p','nx-note',ctx.caps?.()?.driver==='demo'?'A demo printer\'s camera is drawn by Stella Scope from the print itself, three pictures a second.':ctx.has('klipper')?'If it is still slow here, the camera itself is set to a low frame rate or resolution in crowsnest.conf on the printer.':'If it is still slow here, the camera itself is set to a low frame rate or resolution in its own settings.'));})
  .catch(e=>{box.replaceChildren(el('p','nx-note',camWords(e.message)));});}});}
-// 2026-10-25: the camera page printed "cannot reach Moonraker ... os error 111 ... set STELLA_MOONRAKER_API_KEY". Plain words, by what went wrong.
+// the owner 2026-10-25: the camera page printed "cannot reach Moonraker ... os error 111 ... set STELLA_MOONRAKER_API_KEY". Plain words, by what went wrong.
 function camWords(m){const t=String(m||'');
  if(/cannot reach|refused|timed? ?out|not answering|unreachable|no route/i.test(t))return 'The camera is not reachable: the printer is off or not on the network. It shows here by itself when the printer is on.';
  if(/401|403|unauthori|forbidden|api.?key/i.test(t))return 'The printer refused to share its camera. It needs its login: open Printers, then this printer\'s settings.';

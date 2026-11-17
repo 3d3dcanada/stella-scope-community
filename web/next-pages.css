@@ -262,3 +262,6 @@
 .nx-ledscope .nx-chips:not(.nx-chips--scroll){flex-wrap:wrap;overflow:visible}
 .nx-ledscope .nx-chips:not(.nx-chips--scroll) .nx-chip{max-width:100%}
 .nx-ledscope .nx-chips--scroll .nx-chip{max-width:min(calc(100vw - 96px),420px);min-width:0;white-space:normal}
+
+/* the bed screws answer on the Bed levelling page */
+.nx-screws{display:flex;flex-direction:column;gap:6px}.nx-screw{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}.nx-screw b{font-weight:600}.nx-screw span{font-family:var(--mono);color:var(--accent-hi);text-align:right}

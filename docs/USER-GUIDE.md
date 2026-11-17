@@ -28,7 +28,7 @@ You land on the farm wall. With no printer yet, the wall shows one card with two
 
 If you have no printer at hand, or want to look around first, press **Try the demo farm**. It adds nine simulated printers, each at its own place in a sample print: a Voron 2.4, a Prusa CORE One L, a Trident, a V0.2, a Micron+, an SV08, a toolchanger, an Ender-3 and a Prusa MK3S+. Every one is marked **DEMO**, nothing real is touched, and they never count toward the licence.
 
-Their 3D models are separate downloads from their makers, under open licences that are shown first. The four Prusa models are already inside Stella Scope. When you are done, open More, Printers and press **Remove the demo farm**. Your real printers are not touched.
+No 3D model comes with Stella Scope, so the download stays small. Each demo printer's tile has its own **Get the 3D model** button with the size on it: press it for the machines you want to see, and only those are downloaded. When you are done, open More, Printers and press **Remove the demo farm**. Your real printers are not touched.
 
 ![The farm wall with the demo farm: every printer is marked DEMO and shows its state, progress, temperatures and time left.](/help/img/wall-demo.jpg)
 
@@ -123,6 +123,8 @@ The box at the top left, **Find a command**, finds any control or page by its na
 
 The red **STOP** at the top right is the emergency stop. It cuts the heaters and the motors at once, with no question asked, so the printer needs a restart afterwards. To end a print, use **Cancel print** instead.
 
+**Heaters left on.** If a nozzle or bed heater stays on for 30 minutes with no print running or paused, Stella Scope turns both off. Changing a temperature starts the time again. For a longer heat soak, change the time on the printer's page: **Heat**, **Heaters left on**, 15, 30, 45 or 60 minutes. An hour is the longest; the choice holds for every printer.
+
 ## Cameras
 
 Give a printer a camera in its settings: open More, Printers, press **Settings** on the printer and fill in **Camera address** (it starts `rtsp://` or `http://`). Leave it empty for none. Klipper printers usually need nothing: their camera is found by itself.
@@ -169,7 +171,7 @@ To watch from your phone, open a printer, press **Pair phone** (or the Phone pag
 
 ![Pair a phone: the first code opens the download page of the Stella app, the second step shows the pairing code. This copy has anywhere access switched off, so the page says so.](/help/img/phone.jpg)
 
-The optional **failure watch** looks at the camera every ten seconds for spaghetti and failed prints, warns you here and on WhatsApp, and never stops a print by itself. It is an add-on that is not in the package. It needs the `stella-eye` program (write to info@3d3d.ca for it) placed next to the recordings; the first time you switch it on, it downloads about 200 MB. Switch it on or off on a printer's page: View, **Failure watch**.
+The **failure watch** is coming soon and is not part of this version. It will look at the camera for spaghetti and failed prints and warn you; it will never stop a print by itself.
 
 ## Controls
 
@@ -181,11 +183,7 @@ All pages › Feedback on a printer's page, or More › Feedback on the farm wal
 
 ## Licence
 
-Stella Scope is **free for up to five printers**. A **perpetual** licence for more is bought by Interac e-Transfer, and the payment details come with the invoice. To buy, write to **info@3d3d.ca** with your farm name and how many printers. 3D3D replies with an invoice. After payment you get one line of text that starts `SFL1.`; open More, Printers, press **Enter licence** and paste it. It is checked on your computer, with no internet, and it is not an account.
-
-Demo printers never count. When you add a sixth real printer, a 30-day trial starts and a small note says a licence is wanted; close it and it stays quiet for a week. After the trial, the controls of the printers beyond the first five are locked until a licence covers them. Watching and recording go on, and a print that is running is never interrupted.
-
-![Buy a farm licence: how to buy, in words, with no address to pay.](/help/img/licence-buy.jpg)
+Stella Scope is **free and open source** under the GNU Affero General Public License 3.0, with **no limit on printers**. The source is at github.com/3d3dcanada/stella-scope-community. Demo printers are simulations on your own computer. Printer 3D models are separate files under their makers' own licences, shown before you download one.
 
 ## Backup
 
@@ -222,9 +220,9 @@ A tile that says **Offline** or **Not answering** shows when it was **Last heard
 
 ### The 3D model is not drawn
 
-A tile that says **3D model: not here yet** has its picture but not its model. Press **Get it** (or **Get the 3D models** on the wall) and Stella Scope downloads it from its maker, with the licence shown first. This is the only thing that needs the internet. A printer with no model in the list shows its picture or ring; choose a model in the printer's settings, or open More, **Printer models**. The Prusa CORE One L, CORE One, MK3S+ and MINI are already inside Stella Scope.
+A tile that says **No 3D model on this computer yet** has its picture but not its model. Press **Get the 3D model** on that tile and Stella Scope downloads that one model, from its maker's own address or from 3D3D's download server (the Prusa CORE One L, CORE One, MK3S+ and MINI), and keeps it only if its checksum matches. Nothing downloads by itself. A printer with no model in the list shows its picture or ring; choose a model in the printer's settings, or open More, **Printer models**.
 
-![A tile whose 3D model is not here yet, with the button that gets it.](/help/img/no-model.jpg)
+![A tile with no 3D model on this computer yet, with the button that gets it.](/help/img/no-model.jpg)
 
 ### Something else
 
