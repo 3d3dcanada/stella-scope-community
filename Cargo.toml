@@ -16,7 +16,7 @@ getrandom = "0.3"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # WO-08 plate check: decode the camera's JPEG and PNG frames, nothing else (same selection as eye/).
 # WO-09 farm licence: offline signature verification, the one crate the licence needs.
-ed25519-dalek = { version = "2", default-features = false }
+ed25519-dalek = { version = "3", default-features = false }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 [features]
