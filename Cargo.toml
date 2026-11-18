@@ -12,7 +12,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rusqlite = { version = "0.42", features = ["bundled", "fallible_uint"] }
 ureq = { version = "3.1", default-features = false, features = ["rustls"] }
-getrandom = "0.3"
+getrandom = "0.4"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # WO-08 plate check: decode the camera's JPEG and PNG frames, nothing else (same selection as eye/).
 # WO-09 farm licence: offline signature verification, the one crate the licence needs.
