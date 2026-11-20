@@ -143,6 +143,14 @@ One synchronous Rust binary: no async runtime, no CDN, a small dependency list, 
 | `scripts/`, `tools/` | Test and smoke scripts, and developer tools such as fake printers. |
 | `docs/` | The user guide, release notes, licences and notices. |
 
+### Built with AI
+
+Stella Scope is built by one person at 3D3D with AI coding tools, mainly Anthropic's Claude. The design, the direction, the testing on real printers and every decision about what ships are ours; much of the code was written with Claude and then reviewed, tested and run on our own farm before release.
+
+The public history was rewritten in November 2026 to remove personal information that should never have been published (a phone number in a test, personal email addresses and home network details). That cleanup also removed the AI co-author lines from the old commits. It was a privacy fix, not an attempt to hide how the project is made. From now on, commits credit the AI tools that helped write them.
+
+The same rules apply to us as to contributors (see [Using AI tools](CONTRIBUTING.md#using-ai-tools)): whoever submits code is responsible for it. If you find something wrong, please [open an issue](https://github.com/3d3dcanada/stella-scope-community/issues) or a pull request.
+
 ## Documentation
 
 - [User guide](docs/USER-GUIDE.md): adding each kind of printer, the cockpit, Calibrate, Materials, print reports, Health, cameras, the queue, the phone and troubleshooting.
